@@ -1,0 +1,155 @@
+<script setup lang="ts">
+import { computed } from 'vue';
+import DatePicker from 'primevue/datepicker';
+import MultiSelect from 'primevue/multiselect';
+import Select from 'primevue/select';
+import type { TicketStatus } from '@shared/constants';
+import ColorChip from '@/components/common/ColorChip.vue';
+import StatusTag from '@/components/common/StatusTag.vue';
+import UserAvatar from '@/components/common/UserAvatar.vue';
+import { useProjectStore } from '@/stores/project';
+import { dateToIso, isoToDate } from '@/utils/dates';
+
+export interface TicketFieldValues {
+  status: TicketStatus;
+  categoryId: number | null;
+  deliveryId: number | null;
+  startDate: string | null;
+  endDate: string | null;
+  assigneeIds: number[];
+}
+
+const props = defineProps<{
+  values: TicketFieldValues;
+  disabled?: boolean;
+  /** Livraison initiale du ticket (mode détail) pour signaler un report. */
+  initialDeliveryId?: number | null;
+}>();
+const emit = defineEmits<{ change: [patch: Partial<TicketFieldValues>] }>();
+
+const project = useProjectStore();
+
+const statusOptions = computed(() => project.visibleColumns.map((column) => ({ value: column.status, label: column.label })));
+const delivery = computed(() => (props.values.deliveryId ? project.deliveriesById.get(props.values.deliveryId) : undefined));
+const initialDelivery = computed(() =>
+  props.initialDeliveryId && props.initialDeliveryId !== props.values.deliveryId ? project.deliveriesById.get(props.initialDeliveryId) : undefined,
+);
+
+const startDate = computed({
+  get: () => isoToDate(props.values.startDate),
+  set: (value: Date | null) => emit('change', { startDate: dateToIso(value) }),
+});
+const endDate = computed({
+  get: () => isoToDate(props.values.endDate),
+  set: (value: Date | null) => emit('change', { endDate: dateToIso(value) }),
+});
+
+/** La date de fin ne peut pas précéder la date de début (et inversement). */
+const minEnd = computed(() => isoToDate(props.values.startDate) ?? undefined);
+const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
+</script>
+
+<template>
+  <div class="grid">
+    <div class="field">
+      <label>{{ $t('Statut') }}</label>
+      <Select
+        :model-value="values.status"
+        :options="statusOptions"
+        option-label="label"
+        option-value="value"
+        :disabled="disabled"
+        @update:model-value="(value: TicketStatus) => emit('change', { status: value })"
+      >
+        <template #value="{ value }"><StatusTag v-if="value" :status="value" /></template>
+        <template #option="{ option }"><StatusTag :status="option.value" /></template>
+      </Select>
+    </div>
+
+    <div class="field">
+      <label>{{ $t('Catégorie') }}</label>
+      <Select
+        :model-value="values.categoryId"
+        :options="project.categories"
+        option-label="name"
+        option-value="id"
+        :placeholder="$t('Aucune')"
+        show-clear
+        :disabled="disabled"
+        @update:model-value="(value: number | null) => emit('change', { categoryId: value ?? null })"
+      >
+        <template #value="{ value }">
+          <ColorChip v-if="value && project.categoriesById.get(value)" :label="project.categoriesById.get(value)!.name" :color="project.categoriesById.get(value)!.color" />
+          <span v-else class="muted">{{ $t('Aucune') }}</span>
+        </template>
+        <template #option="{ option }"><ColorChip :label="option.name" :color="option.color" /></template>
+      </Select>
+    </div>
+
+    <div class="field">
+      <label>{{ $t('Livraison ciblée') }}</label>
+      <Select
+        :model-value="values.deliveryId"
+        :options="project.deliveries"
+        option-label="name"
+        option-value="id"
+        :placeholder="$t('Aucune')"
+        show-clear
+        :disabled="disabled"
+        @update:model-value="(value: number | null) => emit('change', { deliveryId: value ?? null })"
+      />
+      <small v-if="initialDelivery" class="slip"><i class="pi pi-history"></i> {{ $t('Livraison initiale : {name} (reporté)', { name: initialDelivery.name }) }}</small>
+    </div>
+
+    <div class="dates">
+      <div class="field">
+        <label>{{ $t('Début') }}</label>
+        <DatePicker v-model="startDate" date-format="dd/mm/yy" show-week show-icon show-button-bar :max-date="maxStart" :disabled="disabled" :placeholder="$t('jj/mm/aaaa')" icon-display="input" />
+      </div>
+      <div class="field">
+        <label>{{ $t('Fin') }}</label>
+        <DatePicker v-model="endDate" date-format="dd/mm/yy" show-week show-icon show-button-bar :min-date="minEnd" :disabled="disabled" :placeholder="$t('jj/mm/aaaa')" icon-display="input" />
+      </div>
+    </div>
+    <small v-if="delivery && !values.startDate && !values.endDate" class="hint muted"> {{ $t('Sans dates propres, le ticket suit la livraison « {name} ».', { name: delivery.name }) }} </small>
+
+    <div class="field">
+      <label>{{ $t('Assignés') }}</label>
+      <MultiSelect
+        :model-value="values.assigneeIds"
+        :options="project.users"
+        option-label="name"
+        option-value="id"
+        :placeholder="$t('Personne')"
+        display="chip"
+        filter
+        :disabled="disabled"
+        @update:model-value="(value: number[]) => emit('change', { assigneeIds: value })"
+      >
+        <template #option="{ option }">
+          <span class="row"><UserAvatar :user="option" size="small" /> {{ option.name }}</span>
+        </template>
+      </MultiSelect>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+.dates {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+.slip {
+  color: #d97706;
+  font-weight: 600;
+}
+.hint {
+  margin-top: -0.4rem;
+}
+</style>

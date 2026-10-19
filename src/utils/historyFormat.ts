@@ -1,0 +1,55 @@
+import { isTicketStatus } from '@shared/constants';
+import { formatDateShort } from '@shared/dates';
+import type { HistoryChange, HistoryData } from '@shared/types';
+import { useProjectStore } from '@/stores/project';
+
+import { t } from '@/i18n';
+/** Libellés partagés par l'historique d'un ticket et le journal d'activité du projet. */
+export const FIELD_LABELS: Record<HistoryChange['field'], string> = {
+  title: t('le titre'),
+  description: t('la description'),
+  status: t('le statut'),
+  category: t('la catégorie'),
+  delivery: t('la livraison'),
+  startDate: t('la date de début'),
+  endDate: t('la date de fin'),
+  progress: t("l'avancement"),
+};
+
+/** Valeur lisible (avant / après) d'une modification. */
+export function formatChangeValue(change: HistoryChange, side: 'from' | 'to'): string {
+  const value = change[side];
+  if (value === null || value === '') {
+    return t('aucun');
+  }
+  switch (change.field) {
+    case 'status':
+      return isTicketStatus(value) ? useProjectStore().statusMeta(value).label : String(value);
+    case 'startDate':
+    case 'endDate':
+      return formatDateShort(String(value), true);
+    case 'progress':
+      return `${value} %`;
+    default:
+      return String(value);
+  }
+}
+
+/** Icône PrimeIcons d'une entrée d'historique. */
+export function historyIcon(data: HistoryData): string {
+  switch (data.kind) {
+    case 'created':
+      return 'pi pi-plus-circle';
+    case 'assignees':
+      return 'pi pi-users';
+    case 'attachment':
+      return 'pi pi-paperclip';
+    case 'part':
+      if (data.note !== undefined) {
+        return 'pi pi-flag';
+      }
+      return data.done === false ? 'pi pi-replay' : 'pi pi-check-circle';
+    default:
+      return data.auto ? 'pi pi-bolt' : 'pi pi-pencil';
+  }
+}

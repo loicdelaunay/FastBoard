@@ -1,0 +1,185 @@
+/* Styles globaux de FastBoard. Les couleurs viennent des variables du thème PrimeVue : tout suit le thème choisi. */
+
+:root {
+  --fb-bg: var(--p-surface-50);
+  --fb-panel: var(--p-content-background);
+  --fb-panel-alt: var(--p-surface-100);
+  --fb-border: var(--p-content-border-color);
+  --fb-text: var(--p-text-color);
+  --fb-muted: var(--p-text-muted-color);
+  --fb-accent: var(--p-primary-color);
+  --fb-accent-soft: color-mix(in srgb, var(--p-primary-color) 12%, transparent);
+  --fb-danger: #ef4444;
+  --fb-radius: 10px;
+  --fb-shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 1px 3px rgb(15 23 42 / 8%);
+  --fb-shadow-lg: 0 8px 24px rgb(15 23 42 / 14%);
+  --fb-header-h: 56px;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+:root.app-dark {
+  --fb-bg: var(--p-surface-950);
+  --fb-panel-alt: var(--p-surface-800);
+  --fb-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  --fb-shadow-lg: 0 8px 24px rgb(0 0 0 / 45%);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--fb-bg);
+  color: var(--fb-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--fb-accent);
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+}
+
+::selection {
+  background: var(--fb-accent-soft);
+}
+
+/* Barres de défilement discrètes */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fb-muted) 45%, transparent) transparent;
+}
+
+/* ---- Utilitaires ---- */
+.muted {
+  color: var(--fb-muted);
+}
+.small {
+  font-size: 0.85rem;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card {
+  background: var(--fb-panel);
+  border: 1px solid var(--fb-border);
+  border-radius: var(--fb-radius);
+  box-shadow: var(--fb-shadow);
+}
+.page {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Mise en évidence d'un ticket modifié par un collègue */
+@keyframes fb-flash {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--p-primary-color) 70%, transparent);
+    background: var(--fb-accent-soft);
+  }
+  100% {
+    box-shadow: 0 0 0 10px transparent;
+  }
+}
+.flash {
+  animation: fb-flash 1.8s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash {
+    animation: none;
+    outline: 2px solid var(--fb-accent);
+  }
+}
+
+/* Les champs PrimeVue occupent toute la largeur de leur conteneur dans les formulaires */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.field > label,
+.field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fb-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.field .p-inputtext,
+.field .p-select,
+.field .p-multiselect,
+.field .p-datepicker,
+.field .p-textarea,
+.field .p-password,
+.field .p-inputnumber {
+  width: 100%;
+}
+
+/* Menu contextuel des tickets */
+.p-contextmenu .menu-title {
+  opacity: 1;
+}
+.p-contextmenu .menu-title .p-contextmenu-item-label {
+  color: var(--fb-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.p-contextmenu .menu-danger .p-contextmenu-item-label,
+.p-contextmenu .menu-danger .p-contextmenu-item-icon {
+  color: var(--fb-danger);
+}
