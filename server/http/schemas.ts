@@ -2,6 +2,7 @@
  * Tous les schémas de validation des requêtes. Ils servent à la fois à valider les routes et à générer
  * la documentation OpenAPI (`server/openapi`) : une seule source de vérité.
  */
+import { parseRetentionRules } from '../../shared/backup.ts';
 import { LIMITS, TICKET_STATUSES } from '../../shared/constants.ts';
 import { isISODate } from '../../shared/dates.ts';
 import { COLUMN_LABEL_MAX } from '../../shared/settings.ts';
@@ -46,6 +47,14 @@ export const passwordSchema = z.object({
 
 export const createTokenSchema = z.object({
   name: z.string().trim().min(1, 'Donnez un nom au jeton.').max(LIMITS.tokenNameMax),
+  displayName: z
+    .string()
+    .trim()
+    .max(LIMITS.tokenDisplayNameMax)
+    .nullable()
+    .default(null)
+    .describe('Nom affiché dans l\'activité et l\'historique (« via … ») ; vide = `name`.')
+    .meta({ example: 'Claude' }),
   scope: z.enum(['read', 'write']).default('write').describe('`read` : lecture seule. `write` : lecture et écriture.'),
   projectIds: z
     .array(id)
@@ -55,6 +64,64 @@ export const createTokenSchema = z.object({
     .default(null)
     .describe('Projets accessibles avec ce jeton ; `null` = tous ceux auxquels vous avez accès.'),
   expiresInDays: z.number().int().min(1).max(3650).nullable().default(90).describe("Durée de validité en jours ; `null` = n'expire jamais."),
+});
+
+export const updateTokenSchema = z.object({
+  displayName: z.string().trim().max(LIMITS.tokenDisplayNameMax).nullable().optional().describe("Nom affiché ; `null` ou vide = `name`."),
+  expiresInDays: z.number().int().min(1).max(3650).nullable().optional().describe("Nouvelle validité à partir d'aujourd'hui ; `null` = n'expire jamais."),
+});
+export const revealTokenSchema = z.object({ password: z.string().min(1, 'Saisissez votre mot de passe.').max(200) });
+
+// --- Sauvegardes et service ----------------------------------------------------------------------------------------
+
+const scheduleSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('manual') }),
+  z.object({ mode: z.literal('interval'), hours: z.number().int().min(1).max(24 * 31) }),
+  z.object({
+    mode: z.literal('daily'),
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Heure invalide (HH:MM).'),
+    weekdays: z.array(z.number().int().min(0).max(6)).max(7).default([]),
+  }),
+]);
+
+const retentionSchema = z.discriminatedUnion('mode', [
+  z.object({ mode: z.literal('all') }),
+  z.object({ mode: z.literal('count'), keep: z.number().int().min(1).max(10_000) }),
+  z.object({ mode: z.literal('age'), days: z.number().int().min(1).max(36_500) }),
+  z.object({ mode: z.literal('smart') }),
+  z.object({
+    mode: z.literal('custom'),
+    rules: z
+      .string()
+      .trim()
+      .max(300)
+      .refine((rules) => parseRetentionRules(rules) !== null, 'Règles invalides : « durée:intervalle » séparés par des virgules, ex. 7D:0s,4W:1D,12M:1W.'),
+  }),
+]);
+
+export const backupDestinationSchema = z.object({
+  id: z.string().regex(/^[a-f0-9]{6,32}$/).optional().describe('Absent pour une nouvelle destination.'),
+  type: z.literal('folder'),
+  name: z.string().trim().min(1).max(80),
+  enabled: z.boolean(),
+  path: z.string().trim().min(1).max(500).describe('Dossier absolu sur la machine du serveur.'),
+  schedule: scheduleSchema,
+  incremental: z.boolean(),
+  fullEvery: z.number().int().min(1).max(1000).describe("Archives par chaîne (complète + incrémentales) avant d'en recommencer une complète."),
+  retention: retentionSchema,
+});
+
+export const backupConfigSchema = z.object({
+  enabled: z.boolean(),
+  destinations: z.array(backupDestinationSchema).max(20),
+});
+
+export const folderTestSchema = z.object({ path: z.string().trim().min(1).max(500) });
+
+export const serviceActionSchema = z.object({
+  action: z.enum(['install', 'uninstall', 'start', 'stop']),
+  scope: z.enum(['user', 'system']).describe("user : à l'ouverture de session ; system : au démarrage de la machine (droits administrateur)."),
+  dryRun: z.boolean().default(false).describe('Ne fait rien : retourne les commandes qui seraient exécutées.'),
 });
 
 // --- Administration -------------------------------------------------------------------------------------------------
@@ -105,6 +172,8 @@ export const columnSchema = z.object({
 export const settingsPatchSchema = z.object({
   autoMoveDone: z.boolean().optional().describe('Toutes les parts terminées → le ticket passe automatiquement dans la colonne « Terminé ».'),
   autoReopen: z.boolean().optional().describe('Une part rouverte sur un ticket terminé le repasse « En cours ».'),
+  staleIndicator: z.boolean().optional().describe("Signale les tickets restés longtemps dans la même colonne."),
+  staleDays: z.number().int().min(1).max(365).optional().describe("Jours sans changement de colonne avant d'être signalé."),
   confetti: z.boolean().optional().describe('Confettis quand un ticket arrive dans « Terminé ».'),
   columns: z.array(columnSchema).length(TICKET_STATUSES.length).optional().describe("Les six colonnes (une par statut), dans l'ordre d'affichage."),
 });
@@ -121,6 +190,12 @@ export const memberSchema = z.object({ userId: id, roleId: id.describe('Identifi
 export const memberRoleSchema = z.object({ roleId: id });
 
 export const categorySchema = z.object({ name: z.string().trim().min(1).max(60), color });
+
+const icon = z.string().regex(/^pi pi-[a-z0-9-]+$/, 'Icône invalide (classe PrimeIcons, ex. « pi pi-flag »).').meta({ example: 'pi pi-flag' });
+export const listItemSchema = z.object({ name: z.string().trim().min(1).max(LIMITS.listItemNameMax), color, icon });
+export const listItemPatchSchema = listItemSchema.partial().extend({
+  position: z.number().int().min(0).max(1000).optional().describe('Nouveau rang dans la liste (0 = premier).'),
+});
 export const categoryPatchSchema = categorySchema.partial();
 
 export const deliverySchema = z.object({
@@ -139,6 +214,8 @@ export const createTicketSchema = z.object({
   description: z.string().max(LIMITS.descriptionMax).optional(),
   status: z.enum(TICKET_STATUSES).optional().describe('`backlog` par défaut.'),
   categoryId: nullableId.optional(),
+  priorityId: nullableId.optional().describe('Priorité (`GET /projects/{id}` → `priorities`).'),
+  componentIds: z.array(id).max(50).optional().describe('Composants du ticket (remplace la liste).'),
   deliveryId: nullableId.optional().describe('Livraison ciblée.'),
   startDate: isoDate.nullable().optional(),
   endDate: isoDate.nullable().optional(),
@@ -152,6 +229,25 @@ export const moveTicketSchema = z.object({
   status: z.enum(TICKET_STATUSES),
   /** Le ticket est inséré juste avant celui-ci ; `null` = en fin de colonne. */
   beforeId: id.nullable().default(null).describe('Insère le ticket juste avant celui-ci (même colonne cible) ; `null` = en fin de colonne.'),
+});
+
+export const subtaskSchema = z.object({
+  title: z.string().trim().min(1).max(LIMITS.subtaskTitleMax),
+  assigneeId: nullableId.optional().describe('Membre du projet chargé de la sous-tâche.'),
+});
+export const subtaskPatchSchema = subtaskSchema.partial().extend({
+  done: z.boolean().optional(),
+  position: z.number().int().min(0).max(1000).optional().describe('Nouveau rang (0 = première).'),
+});
+export const linkSchema = z.object({
+  targetId: id.describe('Ticket lié (même projet).'),
+  reason: z
+    .string()
+    .trim()
+    .min(1)
+    .max(LIMITS.linkReasonMax)
+    .describe('Raison : « Bloqué par », « Bloque », « Dépend de », « Est requis par », « Lié à », « Duplique », « Est dupliqué par », « Cause », « Est causé par » ou texte libre.')
+    .meta({ example: 'Bloqué par' }),
 });
 
 export const partSchema = z.object({
@@ -182,6 +278,8 @@ const csv = <T extends string>(allowed: readonly T[]) =>
 export const ticketQuerySchema = z.object({
   status: csv(TICKET_STATUSES).optional().describe('Un ou plusieurs statuts séparés par des virgules.'),
   categoryId: z.coerce.number().int().positive().optional(),
+  priorityId: z.coerce.number().int().positive().optional(),
+  componentId: z.coerce.number().int().positive().optional(),
   deliveryId: z.union([z.literal('none'), z.coerce.number().int().positive()]).optional().describe('Identifiant de livraison, ou `none` pour les tickets sans livraison.'),
   assigneeId: z.union([z.literal('none'), z.literal('me'), z.coerce.number().int().positive()]).optional().describe('Identifiant d\'utilisateur, `me` (moi) ou `none` (non assignés).'),
   key: z.string().trim().max(20).optional().describe('Clé exacte d\'un ticket, ex. `APP-12`.'),
@@ -196,8 +294,15 @@ export const activityQuerySchema = z.object({
   before: z.coerce.number().int().positive().optional().describe('Curseur : identifiant `nextBefore` retourné par la page précédente.'),
   group: csv(['ticket', 'comment', 'config', 'member'] as const).optional().describe('Un ou plusieurs groupes séparés par des virgules.'),
   userId: z.coerce.number().int().positive().optional().describe("Uniquement les actions de cet utilisateur."),
-  viaApi: z.enum(['true', 'false']).transform((value) => value === 'true').optional().describe("`true` : uniquement les actions faites via un jeton d'API."),
+  viaApi: z.enum(['true', 'false']).transform((value) => value === 'true').optional().describe("`true` : uniquement les actions faites via un jeton d'API (équivaut à `source=api`)."),
+  source: z.enum(['api', 'ui']).optional().describe("`api` : actions faites via un jeton d'API (agents, scripts) ; `ui` : actions faites depuis l'interface."),
   ticketId: z.coerce.number().int().positive().optional().describe('Uniquement les évènements de ce ticket.'),
+});
+
+export const searchQuerySchema = z.object({
+  q: z.string().trim().min(1, 'Saisissez un texte à rechercher.').max(200).describe('Texte recherché (accents et casse ignorés), ou une clé de ticket « APP-12 ».'),
+  type: csv(['projects', 'tickets', 'users'] as const).optional().describe('Types de résultats, séparés par des virgules (tous par défaut).'),
+  limit: z.coerce.number().int().min(1).max(100).default(8).describe('Nombre de résultats par type.'),
 });
 
 export const uploadQuerySchema = z.object({

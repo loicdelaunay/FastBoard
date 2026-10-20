@@ -7,7 +7,7 @@ import { notify } from '@/utils/notify';
 import { apiBaseUrl } from '@/utils/tokens';
 
 import { t } from '@/i18n';
-const props = defineProps<{ secret: string; name: string }>();
+const props = defineProps<{ secret: string; name: string; revealed?: boolean }>();
 const emit = defineEmits<{ done: [] }>();
 
 const example = computed(() => `curl -s ${apiBaseUrl()}/me \\\n  -H "Authorization: Bearer ${props.secret}"`);
@@ -20,8 +20,8 @@ async function copy(text: string, what: string): Promise<void> {
 
 <template>
   <section class="secret-box" aria-live="polite">
-    <Message severity="warn" :closable="false" class="warning">
-      <strong>{{ $t('Copiez ce jeton maintenant :') }}</strong> {{ $t('il ne sera plus jamais affiché. Si vous le perdez, révoquez-le et créez-en un autre.') }} </Message>
+    <Message v-if="!revealed" severity="warn" :closable="false" class="warning">
+      <strong>{{ $t('Copiez ce jeton maintenant.') }}</strong> {{ $t('Vous pourrez le réafficher plus tard avec votre mot de passe (« Voir la clé »). Ne le partagez qu\'avec le script ou l\'agent qui doit l\'utiliser.') }} </Message>
     <p class="muted small">{{ $t('Jeton « {name} »', { name }) }}</p>
     <div class="row-secret">
       <input class="secret" :value="secret" readonly :aria-label="$t('Jeton d\'API')" @focus="($event.target as HTMLInputElement).select()" />

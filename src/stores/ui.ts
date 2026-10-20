@@ -5,7 +5,7 @@ import type { TicketInput } from '@/api';
 
 export type ProfileTab = 'profile' | 'appearance' | 'security' | 'tokens';
 
-export type TicketDraftDefaults = Partial<Pick<TicketInput, 'title' | 'status' | 'categoryId' | 'deliveryId' | 'assigneeIds' | 'startDate' | 'endDate'>>;
+export type TicketDraftDefaults = Partial<Pick<TicketInput, 'title' | 'status' | 'categoryId' | 'priorityId' | 'componentIds' | 'deliveryId' | 'assigneeIds' | 'startDate' | 'endDate'>>;
 
 /** État d'interface global : fenêtre de création de ticket, profil, etc. */
 export const useUiStore = defineStore('ui', () => {
@@ -15,6 +15,8 @@ export const useUiStore = defineStore('ui', () => {
   /** Demande d'ouverture du menu contextuel d'un ticket (clic droit ou bouton « ⋯ »). */
   const ticketMenu = shallowRef<{ ticketId: number; event: MouseEvent } | null>(null);
   const profileTab = ref<ProfileTab>('profile');
+  /** Ticket survolé : ses dépendances sont mises en évidence (liens et clignotement). */
+  const hoveredTicketId = ref<number | null>(null);
 
   function openCreate(defaults: TicketDraftDefaults = {}): void {
     createDefaults.value = { status: 'backlog' as TicketStatus, ...defaults };
@@ -34,5 +36,5 @@ export const useUiStore = defineStore('ui', () => {
     profileOpen.value = true;
   }
 
-  return { createDefaults, profileOpen, profileTab, ticketMenu, openCreate, closeCreate, openProfile, openTicketMenu };
+  return { createDefaults, profileOpen, profileTab, ticketMenu, hoveredTicketId, openCreate, closeCreate, openProfile, openTicketMenu };
 });

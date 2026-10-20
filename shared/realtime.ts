@@ -5,6 +5,8 @@ import type {
   AttachmentDTO,
   CategoryDTO,
   CommentDTO,
+  ComponentDTO,
+  PriorityDTO,
   DeliveryDTO,
   HistoryEntryDTO,
   ProjectDTO,
@@ -27,6 +29,10 @@ export type ProjectEvent =
   | { type: 'activity.created'; activity: ActivityDTO }
   | { type: 'category.upserted'; category: CategoryDTO }
   | { type: 'category.deleted'; categoryId: number }
+  | { type: 'priority.upserted'; priority: PriorityDTO }
+  | { type: 'priority.deleted'; priorityId: number }
+  | { type: 'component.upserted'; component: ComponentDTO }
+  | { type: 'component.deleted'; componentId: number }
   | { type: 'delivery.upserted'; delivery: DeliveryDTO }
   | { type: 'delivery.deleted'; deliveryId: number }
   | { type: 'project.updated'; project: ProjectDTO }

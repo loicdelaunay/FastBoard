@@ -7,8 +7,8 @@ import { formatDateTime, formatRelative } from '@/utils/format';
 import { SCOPE_LABEL, TOKEN_STATE_LABEL, tokenState } from '@/utils/tokens';
 
 import { t } from '@/i18n';
-defineProps<{ tokens: ApiTokenDTO[]; showOwner?: boolean }>();
-const emit = defineEmits<{ revoke: [token: ApiTokenDTO] }>();
+defineProps<{ tokens: ApiTokenDTO[]; showOwner?: boolean; canReveal?: boolean }>();
+const emit = defineEmits<{ revoke: [token: ApiTokenDTO]; edit: [token: ApiTokenDTO]; reveal: [token: ApiTokenDTO] }>();
 
 const projects = useProjectsStore();
 
@@ -28,7 +28,8 @@ const SEVERITY = { active: 'success', expired: 'warn', revoked: 'secondary' } as
     <li v-for="token in tokens" :key="token.id" class="token card" :class="{ inactive: tokenState(token) !== 'active' }">
       <div class="main">
         <div class="title">
-          <strong class="name truncate">{{ token.name }}</strong>
+          <strong class="name truncate">{{ token.displayName || token.name }}</strong>
+          <span v-if="token.displayName && token.displayName !== token.name" class="muted small truncate tech">({{ token.name }})</span>
           <Tag :value="TOKEN_STATE_LABEL[tokenState(token)]" :severity="SEVERITY[tokenState(token)]" />
           <Tag :value="SCOPE_LABEL[token.scope]" :severity="token.scope === 'read' ? 'info' : 'contrast'" />
         </div>
@@ -43,6 +44,30 @@ const SEVERITY = { active: 'success', expired: 'warn', revoked: 'secondary' } as
           <span v-else><i class="pi pi-infinity"></i> {{ $t('n\'expire pas') }}</span>
         </p>
       </div>
+      <div class="buttons">
+      <Button
+        v-if="canReveal && token.revealable && tokenState(token) !== 'revoked'"
+        v-tooltip.top="$t('Voir la clé')"
+        icon="pi pi-eye"
+        severity="secondary"
+        text
+        rounded
+        size="small"
+        :aria-label="$t('Voir la clé du jeton {name}', { name: token.name })"
+        @click="emit('reveal', token)"
+      />
+      <Button
+        v-if="tokenState(token) !== 'revoked'"
+        v-tooltip.top="$t('Renommer ou prolonger')"
+        :icon="tokenState(token) === 'expired' ? 'pi pi-history' : 'pi pi-pencil'"
+        :label="tokenState(token) === 'expired' ? $t('Prolonger') : undefined"
+        severity="secondary"
+        text
+        :rounded="tokenState(token) !== 'expired'"
+        size="small"
+        :aria-label="$t('Modifier le jeton {name}', { name: token.name })"
+        @click="emit('edit', token)"
+      />
       <Button
         v-if="tokenState(token) !== 'revoked'"
         :label="$t('Révoquer')"
@@ -53,6 +78,7 @@ const SEVERITY = { active: 'success', expired: 'warn', revoked: 'secondary' } as
         :aria-label="$t('Révoquer le jeton {name}', { name: token.name })"
         @click="emit('revoke', token)"
       />
+      </div>
     </li>
   </ul>
   <p v-else class="empty muted">{{ $t('Aucun jeton pour l\'instant.') }}</p>
@@ -88,6 +114,14 @@ const SEVERITY = { active: 'success', expired: 'warn', revoked: 'secondary' } as
 }
 .name {
   max-width: 16rem;
+}
+.tech {
+  max-width: 10rem;
+}
+.buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
 }
 .prefix {
   font: 0.8rem ui-monospace, 'Cascadia Mono', Consolas, monospace;

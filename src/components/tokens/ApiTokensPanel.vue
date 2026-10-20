@@ -10,6 +10,8 @@ import { useProjectsStore } from '@/stores/projects';
 import { notify, notifyError } from '@/utils/notify';
 import TokenCreateForm from './TokenCreateForm.vue';
 import TokenList from './TokenList.vue';
+import TokenEditDialog from './TokenEditDialog.vue';
+import TokenRevealDialog from './TokenRevealDialog.vue';
 import TokenSecretBox from './TokenSecretBox.vue';
 
 import { t } from '@/i18n';
@@ -21,6 +23,13 @@ const tokens = ref<ApiTokenDTO[]>([]);
 const loading = ref(true);
 const creating = ref(false);
 const fresh = ref<{ secret: string; name: string } | null>(null);
+const editing = ref<ApiTokenDTO | null>(null);
+const revealing = ref<ApiTokenDTO | null>(null);
+
+function onSaved(token: ApiTokenDTO): void {
+  editing.value = null;
+  tokens.value = tokens.value.map((entry) => (entry.id === token.id ? token : entry));
+}
 
 async function load(): Promise<void> {
   try {
@@ -84,7 +93,9 @@ function askRevoke(token: ApiTokenDTO): void {
 
     <h4 class="list-title">{{ $t('Mes jetons') }}</h4>
     <p v-if="loading" class="muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</p>
-    <TokenList v-else :tokens="tokens" @revoke="askRevoke" />
+    <TokenList v-else :tokens="tokens" can-reveal @revoke="askRevoke" @edit="(token) => (editing = token)" @reveal="(token) => (revealing = token)" />
+    <TokenEditDialog :token="editing" @close="editing = null" @saved="onSaved" />
+    <TokenRevealDialog :token="revealing" @close="revealing = null" />
   </div>
 </template>
 

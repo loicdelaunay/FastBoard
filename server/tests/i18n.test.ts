@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { en } from '../../src/i18n/en.ts';
 import { GLOBAL_PERMISSIONS, PROJECT_PERMISSIONS, SYSTEM_ROLES } from '../../shared/permissions.ts';
 import { THEMES } from '../../shared/themes.ts';
-import { DEFAULT_CATEGORIES, STATUS_META } from '../../shared/constants.ts';
+import { DEFAULT_CATEGORIES, DEFAULT_PRIORITIES, LINK_REASONS, STATUS_META } from '../../shared/constants.ts';
+import { CHANGELOG } from '../../shared/changelog.ts';
 import { LOG_LEVEL_META, MONITORING_RANGES } from '../../shared/monitoring.ts';
 
 const srcDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'src');
@@ -40,10 +41,13 @@ describe('traductions', () => {
     assert.deepEqual(missing.map(([key, file]) => `${file}: ${key}`), []);
   });
 
-  it("l'anglais couvre les libellés partagés (statuts, permissions, rôles, thèmes, supervision)", () => {
+  it("l'anglais couvre les libellés partagés (statuts, permissions, rôles, thèmes, supervision, priorités, journal des versions)", () => {
     const shared = [
       ...Object.values(STATUS_META).map((meta) => meta.label),
       ...DEFAULT_CATEGORIES.map((category) => category.name),
+      ...DEFAULT_PRIORITIES.map((priority) => priority.name),
+      ...LINK_REASONS,
+      ...CHANGELOG.flatMap((release) => release.changes.flatMap((change) => [change.category, change.text])),
       ...[...GLOBAL_PERMISSIONS, ...PROJECT_PERMISSIONS].flatMap((permission) => [permission.label, permission.description, permission.group]),
       ...SYSTEM_ROLES.flatMap((role) => [role.name, role.description]),
       ...THEMES.map((theme) => theme.label),

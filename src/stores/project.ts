@@ -10,6 +10,7 @@ import type {
   DeliveryDTO,
   HistoryEntryDTO,
   ProjectDTO,
+  ProjectListItemDTO,
   ProjectMemberDTO,
   ProjectSnapshotDTO,
   TicketDTO,
@@ -26,7 +27,9 @@ const POSITION_STEP = 1024;
 const FLASH_MS = 2200;
 
 /** Champs appliqués tout de suite en local (le serveur confirme ensuite). */
-const OPTIMISTIC_KEYS = ['title', 'description', 'status', 'categoryId', 'deliveryId', 'startDate', 'endDate', 'progress'] as const;
+const OPTIMISTIC_KEYS = ['title', 'description', 'status', 'categoryId', 'priorityId', 'componentIds', 'deliveryId', 'startDate', 'endDate', 'progress'] as const;
+
+export type ListKind = 'priority' | 'component';
 
 type ProjectStatus = 'idle' | 'loading' | 'ready' | 'error' | 'revoked';
 
@@ -42,6 +45,10 @@ export const useProjectStore = defineStore('project', () => {
   const rawCategories = ref<CategoryDTO[]>([]);
   /** Catégories ; les noms par défaut (créés avec le projet) sont affichés dans la langue de l'interface. */
   const categories = computed(() => rawCategories.value.map((category) => ({ ...category, name: t(category.name) })));
+  const rawPriorities = ref<ProjectListItemDTO[]>([]);
+  /** Priorités, de la plus haute à la plus basse ; les noms par défaut sont traduits. */
+  const priorities = computed(() => rawPriorities.value.map((priority) => ({ ...priority, name: t(priority.name) })));
+  const components = ref<ProjectListItemDTO[]>([]);
   const deliveries = ref<DeliveryDTO[]>([]);
   const tickets = ref<TicketDTO[]>([]);
   const permissions = ref<string[]>([]);
@@ -63,6 +70,10 @@ export const useProjectStore = defineStore('project', () => {
   const usersById = computed(() => new Map(users.value.map((user) => [user.id, user])));
   const categoriesById = computed(() => new Map(categories.value.map((category) => [category.id, category])));
   const deliveriesById = computed(() => new Map(deliveries.value.map((delivery) => [delivery.id, delivery])));
+  const prioritiesById = computed(() => new Map(priorities.value.map((priority) => [priority.id, priority])));
+  const componentsById = computed(() => new Map(components.value.map((component) => [component.id, component])));
+  /** Rang d'une priorité (0 = la plus haute) ; les tickets sans priorité passent en dernier. */
+  const priorityRank = computed(() => new Map(priorities.value.map((priority, index) => [priority.id, index])));
 
   // --- Réglages : automatisations et colonnes personnalisées ---
   const settings = computed<ProjectSettingsDTO>(() => project.value?.settings ?? defaultSettings());
@@ -100,6 +111,8 @@ export const useProjectStore = defineStore('project', () => {
     members.value = [];
     users.value = [];
     rawCategories.value = [];
+    rawPriorities.value = [];
+    components.value = [];
     deliveries.value = [];
     tickets.value = [];
     permissions.value = [];
@@ -125,6 +138,8 @@ export const useProjectStore = defineStore('project', () => {
     members.value = snapshot.members;
     users.value = snapshot.users;
     rawCategories.value = snapshot.categories;
+    rawPriorities.value = snapshot.priorities ?? [];
+    components.value = snapshot.components ?? [];
     deliveries.value = snapshot.deliveries;
     tickets.value = snapshot.tickets;
     permissions.value = snapshot.permissions;
@@ -282,6 +297,26 @@ export const useProjectStore = defineStore('project', () => {
           if (ticket.categoryId === event.categoryId) {
             ticket.categoryId = null;
           }
+        }
+        break;
+      case 'priority.upserted':
+        upsertBy(rawPriorities.value, event.priority);
+        rawPriorities.value.sort((a, b) => a.position - b.position || a.id - b.id);
+        break;
+      case 'priority.deleted':
+        rawPriorities.value = rawPriorities.value.filter((priority) => priority.id !== event.priorityId);
+        for (const ticket of tickets.value) {
+          if (ticket.priorityId === event.priorityId) ticket.priorityId = null;
+        }
+        break;
+      case 'component.upserted':
+        upsertBy(components.value, event.component);
+        components.value.sort((a, b) => a.position - b.position || a.id - b.id);
+        break;
+      case 'component.deleted':
+        components.value = components.value.filter((component) => component.id !== event.componentId);
+        for (const ticket of tickets.value) {
+          if (ticket.componentIds.includes(event.componentId)) ticket.componentIds = ticket.componentIds.filter((id) => id !== event.componentId);
         }
         break;
       case 'delivery.upserted':
@@ -473,6 +508,53 @@ export const useProjectStore = defineStore('project', () => {
     upsertTicket(ticket);
   }
 
+  // --- Sous-tâches et dépendances ---
+
+  async function addSubtask(ticketId: number, title: string, assigneeId: number | null = null): Promise<void> {
+    upsertTicket((await api.addSubtask(ticketId, title, assigneeId)).ticket);
+  }
+
+  async function updateSubtask(ticketId: number, subtaskId: number, patch: { title?: string; done?: boolean; assigneeId?: number | null; position?: number }): Promise<void> {
+    const subtask = requireTicket(ticketId).subtasks.find((entry) => entry.id === subtaskId);
+    const previous = subtask ? { ...subtask } : null;
+    if (subtask && patch.done !== undefined) subtask.done = patch.done;
+    if (subtask && patch.title !== undefined) subtask.title = patch.title;
+    try {
+      upsertTicket((await api.updateSubtask(subtaskId, patch)).ticket);
+    } catch (cause) {
+      if (subtask && previous) Object.assign(subtask, previous);
+      throw cause;
+    }
+  }
+
+  async function deleteSubtask(subtaskId: number): Promise<void> {
+    upsertTicket((await api.deleteSubtask(subtaskId)).ticket);
+  }
+
+  async function addLink(ticketId: number, targetId: number, reason: string): Promise<void> {
+    upsertTicket((await api.addLink(ticketId, targetId, reason)).ticket);
+  }
+
+  async function deleteLink(linkId: number): Promise<void> {
+    upsertTicket((await api.deleteLink(linkId)).ticket);
+  }
+
+  /** Dépendances d'un ticket : celles qu'il porte et celles des autres tickets qui pointent vers lui. */
+  function linksOf(ticketId: number): Array<{ id: number; reason: string; other: TicketDTO; incoming: boolean }> {
+    const result: Array<{ id: number; reason: string; other: TicketDTO; incoming: boolean }> = [];
+    const ticket = ticketsById.value.get(ticketId);
+    for (const link of ticket?.links ?? []) {
+      const other = ticketsById.value.get(link.targetId);
+      if (other) result.push({ id: link.id, reason: link.reason, other, incoming: false });
+    }
+    for (const other of tickets.value) {
+      for (const link of other.links) {
+        if (link.targetId === ticketId) result.push({ id: link.id, reason: link.reason, other, incoming: true });
+      }
+    }
+    return result;
+  }
+
   async function deleteTicket(ticketId: number): Promise<void> {
     await api.deleteTicket(ticketId);
     deletedLocally.add(ticketId);
@@ -561,6 +643,33 @@ export const useProjectStore = defineStore('project', () => {
     applyEvent({ type: 'category.deleted', categoryId }, { projectId: projectId.value, origin: clientId, actorId: null, at: '' });
   }
 
+  async function saveListItem(kind: ListKind, input: { name?: string; color?: string; icon?: string; position?: number }, itemId?: number): Promise<void> {
+    if (projectId.value === null) {
+      return;
+    }
+    const meta = { projectId: projectId.value, origin: clientId, actorId: null, at: '' };
+    const item = itemId
+      ? await api.updateListItem(projectId.value, kind, itemId, input)
+      : await api.createListItem(projectId.value, kind, { name: input.name ?? '', color: input.color ?? '#64748b', icon: input.icon ?? 'pi pi-tag' });
+    applyEvent(kind === 'priority' ? { type: 'priority.upserted', priority: item } : { type: 'component.upserted', component: item }, meta);
+    if (input.position !== undefined) {
+      // Les autres éléments ont été renumérotés côté serveur : leurs évènements arrivent aussi, on recharge l'ordre local.
+      const list = kind === 'priority' ? rawPriorities.value : components.value;
+      const others = list.filter((entry) => entry.id !== item.id);
+      others.splice(input.position, 0, item);
+      others.forEach((entry, index) => (entry.position = index));
+    }
+  }
+
+  async function deleteListItem(kind: ListKind, itemId: number): Promise<void> {
+    if (projectId.value === null) {
+      return;
+    }
+    await api.deleteListItem(projectId.value, kind, itemId);
+    const meta = { projectId: projectId.value, origin: clientId, actorId: null, at: '' };
+    applyEvent(kind === 'priority' ? { type: 'priority.deleted', priorityId: itemId } : { type: 'component.deleted', componentId: itemId }, meta);
+  }
+
   async function saveDelivery(input: DeliveryInput, deliveryId?: number): Promise<void> {
     if (projectId.value === null) {
       return;
@@ -581,19 +690,20 @@ export const useProjectStore = defineStore('project', () => {
 
   return {
     // état
-    projectId, project, settings, columns, visibleColumns, statusOrder, statusMeta, members, users, categories, deliveries, tickets, permissions, presence, status, error, flashes, comments, history, attachments,
+    projectId, project, settings, columns, visibleColumns, statusOrder, statusMeta, members, users, categories, priorities, rawPriorities, components, deliveries, tickets, permissions, presence, status, error, flashes, comments, history, attachments,
     unseenActivity, setActivityViewOpen,
     // index
-    ticketsById, usersById, categoriesById, deliveriesById,
+    ticketsById, usersById, categoriesById, deliveriesById, prioritiesById, componentsById, priorityRank,
     // droits
     can, readOnly, archived,
     // cycle de vie
     load, reload, leave,
     // tickets
     createTicket, updateTicket, moveTicket, updatePart, deleteTicket, wasDeletedLocally,
+    addSubtask, updateSubtask, deleteSubtask, addLink, deleteLink, linksOf,
     loadComments, loadHistory, loadAttachments, addAttachment, removeAttachment, addComment, editComment, removeComment,
     // configuration
-    updateProjectInfo, saveCategory, deleteCategory, saveDelivery, deleteDelivery,
+    updateProjectInfo, saveCategory, deleteCategory, saveListItem, deleteListItem, saveDelivery, deleteDelivery,
     // annuler / rétablir
     canUndo: undoStack.canUndo,
     canRedo: undoStack.canRedo,

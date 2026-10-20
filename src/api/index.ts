@@ -15,6 +15,10 @@ import type {
   HistoryEntryDTO,
   MeDTO,
   ProjectDTO,
+  ProjectListItemDTO,
+  SearchKind,
+  SearchResultDTO,
+  UserSummaryPageDTO,
   ProjectSnapshotDTO,
   ProjectSummaryDTO,
   RoleDTO,
@@ -23,6 +27,8 @@ import type {
   UserSummaryDTO,
 } from '@shared/types';
 import type { LogEntryDTO, LogLevel, MonitoringRange, MonitoringSnapshotDTO } from '@shared/monitoring';
+import type { BackupDestinationDTO, BackupOverviewDTO, BackupRunDTO } from '@shared/backup';
+import type { ServiceActionResultDTO, ServiceScope, ServiceStatusDTO } from '@shared/system';
 import { ApiError, http, httpHeaders } from './http';
 
 import { t } from '@/i18n';
@@ -32,6 +38,8 @@ export interface TicketInput {
   description?: string;
   status?: TicketStatus;
   categoryId?: number | null;
+  priorityId?: number | null;
+  componentIds?: number[];
   deliveryId?: number | null;
   startDate?: string | null;
   endDate?: string | null;
@@ -56,6 +64,7 @@ export interface RoleInput {
 
 export interface TokenInput {
   name: string;
+  displayName?: string | null;
   scope: ApiTokenScope;
   projectIds: number[] | null;
   expiresInDays: number | null;
@@ -64,7 +73,8 @@ export interface TokenInput {
 export interface ActivityFilters {
   group?: ActivityGroup[];
   userId?: number;
-  viaApi?: boolean;
+  /** `api` : actions faites via un jeton ; `ui` : depuis l'interface. */
+  source?: 'api' | 'ui';
   ticketId?: number;
   before?: number;
   limit?: number;
@@ -149,6 +159,9 @@ export const api = {
   myTokens: () => http<{ tokens: ApiTokenDTO[] }>('GET', '/me/tokens'),
   createToken: (input: TokenInput) => http<{ token: ApiTokenDTO; secret: string }>('POST', '/me/tokens', { body: input }),
   revokeToken: (tokenId: number) => http<{ ok: true }>('DELETE', `/me/tokens/${tokenId}`),
+  updateToken: (tokenId: number, patch: { displayName?: string | null; expiresInDays?: number | null }) =>
+    http<{ token: ApiTokenDTO }>('PATCH', `/me/tokens/${tokenId}`, { body: patch }),
+  revealToken: (tokenId: number, password: string) => http<{ secret: string }>('POST', `/me/tokens/${tokenId}/reveal`, { body: { password } }),
   updateMe: (patch: { name?: string; theme?: string; locale?: Locale }) => http<{ user: MeDTO }>('PATCH', '/me', { body: patch }),
   changePassword: (currentPassword: string, newPassword: string) =>
     http<{ ok: true }>('POST', '/me/password', { body: { currentPassword, newPassword } }),
@@ -156,6 +169,12 @@ export const api = {
     http<{ user: MeDTO }>('PUT', '/me/avatar', { rawBody: blob, contentType: blob.type || 'image/webp' }),
   removeAvatar: () => http<{ user: MeDTO }>('DELETE', '/me/avatar'),
   directory: () => http<{ users: UserSummaryDTO[] }>('GET', '/users'),
+  userSummary: (userId: number) => http<{ summary: UserSummaryPageDTO }>('GET', `/users/${userId}/summary`),
+  search: (q: string, options: { limit?: number; type?: SearchKind[] } = {}) => {
+    const query = new URLSearchParams({ q, limit: String(options.limit ?? 6) });
+    if (options.type?.length) query.set('type', options.type.join(','));
+    return http<SearchResultDTO>('GET', `/search?${query}`);
+  },
   projectRoles: () => http<{ roles: RoleDTO[] }>('GET', '/roles?scope=project'),
   globalRoles: () => http<{ roles: RoleDTO[] }>('GET', '/roles?scope=global'),
 
@@ -182,6 +201,13 @@ export const api = {
   deleteCategory: (projectId: number, categoryId: number) =>
     http<{ ok: true }>('DELETE', `/projects/${projectId}/categories/${categoryId}`),
 
+  createListItem: (projectId: number, kind: 'priority' | 'component', input: { name: string; color: string; icon: string }) =>
+    http<Record<'priority' | 'component', ProjectListItemDTO>>('POST', `/projects/${projectId}/${kind === 'priority' ? 'priorities' : 'components'}`, { body: input }).then((r) => r[kind]),
+  updateListItem: (projectId: number, kind: 'priority' | 'component', itemId: number, patch: { name?: string; color?: string; icon?: string; position?: number }) =>
+    http<Record<'priority' | 'component', ProjectListItemDTO>>('PATCH', `/projects/${projectId}/${kind === 'priority' ? 'priorities' : 'components'}/${itemId}`, { body: patch }).then((r) => r[kind]),
+  deleteListItem: (projectId: number, kind: 'priority' | 'component', itemId: number) =>
+    http<{ ok: true }>('DELETE', `/projects/${projectId}/${kind === 'priority' ? 'priorities' : 'components'}/${itemId}`),
+
   createDelivery: (projectId: number, input: DeliveryInput) =>
     http<{ delivery: DeliveryDTO }>('POST', `/projects/${projectId}/deliveries`, { body: input }),
   updateDelivery: (projectId: number, deliveryId: number, patch: Partial<DeliveryInput>) =>
@@ -200,6 +226,15 @@ export const api = {
   updatePart: (ticketId: number, userId: number, patch: { done?: boolean; progress?: number; note?: string }) =>
     http<{ ticket: TicketDTO }>('PATCH', `/tickets/${ticketId}/assignees/${userId}`, { body: patch }),
 
+  addSubtask: (ticketId: number, title: string, assigneeId: number | null = null) =>
+    http<{ ticket: TicketDTO }>('POST', `/tickets/${ticketId}/subtasks`, { body: { title, assigneeId } }),
+  updateSubtask: (subtaskId: number, patch: { title?: string; done?: boolean; assigneeId?: number | null; position?: number }) =>
+    http<{ ticket: TicketDTO }>('PATCH', `/subtasks/${subtaskId}`, { body: patch }),
+  deleteSubtask: (subtaskId: number) => http<{ ticket: TicketDTO }>('DELETE', `/subtasks/${subtaskId}`),
+  addLink: (ticketId: number, targetId: number, reason: string) =>
+    http<{ ticket: TicketDTO }>('POST', `/tickets/${ticketId}/links`, { body: { targetId, reason } }),
+  deleteLink: (linkId: number) => http<{ ticket: TicketDTO }>('DELETE', `/links/${linkId}`),
+
   comments: (ticketId: number) => http<{ comments: CommentDTO[] }>('GET', `/tickets/${ticketId}/comments`),
   addComment: (ticketId: number, body: string, parentId: number | null) =>
     http<{ comment: CommentDTO }>('POST', `/tickets/${ticketId}/comments`, { body: { body, parentId } }),
@@ -214,7 +249,7 @@ export const api = {
     const query = new URLSearchParams();
     if (filters.group?.length) query.set('group', filters.group.join(','));
     if (filters.userId !== undefined) query.set('userId', String(filters.userId));
-    if (filters.viaApi) query.set('viaApi', 'true');
+    if (filters.source) query.set('source', filters.source);
     if (filters.ticketId !== undefined) query.set('ticketId', String(filters.ticketId));
     if (filters.before !== undefined) query.set('before', String(filters.before));
     query.set('limit', String(filters.limit ?? 40));
@@ -232,6 +267,16 @@ export const api = {
   adminDeleteUser: (userId: number) => http<{ ok: true }>('DELETE', `/admin/users/${userId}`),
   adminTokens: () => http<{ tokens: ApiTokenDTO[] }>('GET', '/admin/tokens'),
   adminRevokeToken: (tokenId: number) => http<{ ok: true }>('DELETE', `/admin/tokens/${tokenId}`),
+  adminUpdateToken: (tokenId: number, patch: { displayName?: string | null; expiresInDays?: number | null }) =>
+    http<{ token: ApiTokenDTO }>('PATCH', `/admin/tokens/${tokenId}`, { body: patch }),
+  adminBackups: () => http<BackupOverviewDTO>('GET', '/admin/backups'),
+  adminSaveBackups: (config: { enabled: boolean; destinations: Array<Omit<BackupDestinationDTO, 'id'> & { id?: string }> }) =>
+    http<BackupOverviewDTO>('PUT', '/admin/backups', { body: config }),
+  adminTestFolder: (path: string) => http<{ ok: boolean; message: string }>('POST', '/admin/backups/test-folder', { body: { path } }),
+  adminRunBackup: (destinationId: string) => http<{ run: BackupRunDTO; overview: BackupOverviewDTO }>('POST', `/admin/backups/${destinationId}/run`),
+  adminService: () => http<{ status: ServiceStatusDTO }>('GET', '/admin/service'),
+  adminServiceAction: (action: 'install' | 'uninstall' | 'start' | 'stop', scope: ServiceScope, dryRun = false) =>
+    http<ServiceActionResultDTO>('POST', '/admin/service', { body: { action, scope, dryRun } }),
   adminMonitoring: (range: MonitoringRange) => http<MonitoringSnapshotDTO>('GET', `/admin/monitoring?range=${range}`),
   adminLogs: (filters: LogFilters) => http<{ logs: LogEntryDTO[]; nextBefore: number | null }>('GET', `/admin/logs?${logQuery(filters)}`),
   adminRoles: () =>

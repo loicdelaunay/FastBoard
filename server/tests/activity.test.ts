@@ -213,12 +213,12 @@ describe('migration v2 : reprise de l\'existant', () => {
     assert.equal(JSON.parse(rows[1]!.data).excerpt, 'Bonjour');
 
     const perms = (key: string) => JSON.parse(db.get<{ permissions: string }>("SELECT permissions FROM roles WHERE key = ?", key)!.permissions) as string[];
-    assert.deepEqual(perms('admin'), ['admin.access', 'users.view', 'tokens.create', 'tokens.manage', 'monitoring.view', 'logs.view']);
+    assert.deepEqual(perms('admin'), ['admin.access', 'users.view', 'tokens.create', 'tokens.manage', 'monitoring.view', 'logs.view', 'backups.manage', 'system.manage']);
     assert.deepEqual(perms('member'), ['projects.create', 'tokens.create']);
     assert.deepEqual(perms('guest'), []);
     assert.deepEqual(perms('editor'), ['ticket.create', 'attachment.create']);
     assert.deepEqual(perms('manager'), ['ticket.create', 'attachment.create', 'attachment.moderate']);
-    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 7);
+    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 8);
     for (const table of ['ticket_attachments', 'app_logs', 'metrics_minutes']) {
       assert.ok(db.get('SELECT 1 FROM sqlite_master WHERE name = ?', table), `la table ${table} est créée`);
     }

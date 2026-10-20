@@ -28,6 +28,8 @@ const description = ref('');
 const values = reactive<TicketFieldValues>({
   status: 'backlog',
   categoryId: null,
+  priorityId: null,
+  componentIds: [],
   deliveryId: null,
   startDate: null,
   endDate: null,
@@ -47,6 +49,8 @@ watch(
     Object.assign(values, {
       status: defaults.status ?? 'backlog',
       categoryId: defaults.categoryId ?? null,
+      priorityId: defaults.priorityId ?? null,
+      componentIds: [...(defaults.componentIds ?? [])],
       deliveryId: defaults.deliveryId ?? null,
       startDate: defaults.startDate ?? null,
       endDate: defaults.endDate ?? null,
@@ -75,6 +79,8 @@ async function submit(another: boolean): Promise<void> {
       description: description.value,
       status: values.status,
       categoryId: values.categoryId,
+      priorityId: values.priorityId,
+      componentIds: values.componentIds,
       deliveryId: values.deliveryId,
       startDate: values.startDate,
       endDate: values.endDate,

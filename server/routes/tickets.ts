@@ -7,7 +7,9 @@ import { requireProject, type AuthUser } from '../services/access.ts';
 import { createComment, deleteComment, listComments, requireComment, updateComment } from '../services/comments.ts';
 import { listHistory } from '../services/history.ts';
 import { deleteTicket, getTicketDTO, moveTicket, requireTicket, ticketKeyOf, updatePart, updateTicket } from '../services/tickets.ts';
-import { commentEditSchema, commentSchema, moveTicketSchema, partSchema, updateTicketSchema } from '../http/schemas.ts';
+import { commentEditSchema, commentSchema, linkSchema, moveTicketSchema, partSchema, subtaskPatchSchema, subtaskSchema, updateTicketSchema } from '../http/schemas.ts';
+import { createLink, deleteLink, requireLink } from '../services/links.ts';
+import { createSubtask, deleteSubtask, requireSubtask, updateSubtask } from '../services/subtasks.ts';
 
 export function ticketsRouter(ctx: AppContext): Router {
   const router = express.Router();
@@ -57,6 +59,49 @@ export function ticketsRouter(ctx: AppContext): Router {
     }
     requireProject(ctx, user, access.project.id, ownPart ? 'ticket.update_own_part' : 'ticket.edit');
     res.json({ ticket: updatePart(ctx, actorOf(req, res), ticketId, targetUserId, parse(partSchema, req.body)) });
+  });
+
+  // --- Sous-tâches ---------------------------------------------------------------------------------------------------
+
+  router.post('/tickets/:id/subtasks', (req, res) => {
+    const ticketId = idParam(req.params.id);
+    ticketAccess(currentUser(res), ticketId, 'ticket.edit');
+    res.status(201).json({ ticket: createSubtask(ctx, actorOf(req, res), ticketId, parse(subtaskSchema, req.body)) });
+  });
+
+  /** `ticket.edit` modifie tout ; la personne chargée d'une sous-tâche peut la cocher avec `ticket.update_own_part`. */
+  router.patch('/subtasks/:id', (req, res) => {
+    const user = currentUser(res);
+    const subtaskId = idParam(req.params.id);
+    const row = requireSubtask(ctx.db, subtaskId);
+    const patch = parse(subtaskPatchSchema, req.body);
+    const { access } = ticketAccess(user, row.ticket_id);
+    const onlyDone = Object.keys(patch).every((key) => key === 'done');
+    const own = onlyDone && row.assignee_id === user.id && access.permissions.has('ticket.update_own_part');
+    requireProject(ctx, user, access.project.id, own ? 'ticket.update_own_part' : 'ticket.edit');
+    res.json({ ticket: updateSubtask(ctx, actorOf(req, res), subtaskId, patch) });
+  });
+
+  router.delete('/subtasks/:id', (req, res) => {
+    const subtaskId = idParam(req.params.id);
+    const row = requireSubtask(ctx.db, subtaskId);
+    ticketAccess(currentUser(res), row.ticket_id, 'ticket.edit');
+    res.json({ ticket: deleteSubtask(ctx, actorOf(req, res), subtaskId) });
+  });
+
+  // --- Dépendances ---------------------------------------------------------------------------------------------------
+
+  router.post('/tickets/:id/links', (req, res) => {
+    const ticketId = idParam(req.params.id);
+    ticketAccess(currentUser(res), ticketId, 'ticket.edit');
+    res.status(201).json({ ticket: createLink(ctx, actorOf(req, res), ticketId, parse(linkSchema, req.body)) });
+  });
+
+  router.delete('/links/:id', (req, res) => {
+    const linkId = idParam(req.params.id);
+    const row = requireLink(ctx.db, linkId);
+    ticketAccess(currentUser(res), row.ticket_id, 'ticket.edit');
+    res.json({ ticket: deleteLink(ctx, actorOf(req, res), linkId) });
   });
 
   // --- Commentaires --------------------------------------------------------------------------------------------------

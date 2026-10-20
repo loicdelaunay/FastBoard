@@ -2,13 +2,14 @@ import express, { type Request, type Router } from 'express';
 import { LIMITS } from '../../shared/constants.ts';
 import { hashPassword, verifyDummyPassword, verifyPassword } from '../auth/password.ts';
 import { createSession, destroySession, destroyUserSessions } from '../auth/sessions.ts';
-import { createApiToken, listApiTokens, revokeApiToken } from '../auth/tokens.ts';
+import { createApiToken, listApiTokens, revealApiToken, revokeApiToken, updateApiToken } from '../auth/tokens.ts';
 import type { AppContext } from '../context.ts';
 import { nowIso } from '../db/database.ts';
 import { serializeSessionCookie } from '../http/cookies.ts';
 import { badRequest, HttpError, notFound, unauthorized } from '../http/errors.ts';
 import { currentUser, sessionOnly, sessionToken } from '../http/middleware.ts';
-import { createTokenSchema, loginSchema, passwordSchema, profileSchema } from '../http/schemas.ts';
+import { createTokenSchema, loginSchema, passwordSchema, profileSchema, revealTokenSchema, searchQuerySchema, updateTokenSchema } from '../http/schemas.ts';
+import { globalSearch, userSummary } from '../services/search.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { getAuthUser, requireGlobal, toMeDTO } from '../services/access.ts';
 import { clearAvatar, getAvatar, listDirectory, setAvatar, updateOwnProfile } from '../services/users.ts';
@@ -135,6 +136,16 @@ export function accountRouter(ctx: AppContext): Router {
     res.status(201).json({ token, secret });
   });
 
+  router.patch('/me/tokens/:id', sessionOnly(), (req, res) => {
+    const user = currentUser(res);
+    res.json({ token: updateApiToken(ctx, idParam(req.params.id), { userId: user.id, canManageAll: false }, parse(updateTokenSchema, req.body)) });
+  });
+
+  router.post('/me/tokens/:id/reveal', sessionOnly(), async (req, res) => {
+    const user = currentUser(res);
+    res.json({ secret: await revealApiToken(ctx, idParam(req.params.id), user.id, parse(revealTokenSchema, req.body).password) });
+  });
+
   router.delete('/me/tokens/:id', sessionOnly(), (req, res) => {
     const user = currentUser(res);
     revokeApiToken(ctx, idParam(req.params.id), { userId: user.id, canManageAll: false });
@@ -194,6 +205,15 @@ export function accountRouter(ctx: AppContext): Router {
 
   router.get('/users', (_req, res) => {
     res.json({ users: listDirectory(ctx.db) });
+  });
+
+  router.get('/users/:id/summary', (req, res) => {
+    res.json({ summary: userSummary(ctx.db, currentUser(res), idParam(req.params.id)) });
+  });
+
+  router.get('/search', (req, res) => {
+    const query = parse(searchQuerySchema, req.query);
+    res.json(globalSearch(ctx.db, currentUser(res), query.q, { limit: query.limit, kinds: query.type }));
   });
 
   router.get('/users/:id/avatar', (req, res) => {

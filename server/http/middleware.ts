@@ -108,5 +108,5 @@ export function currentUser(res: Response): AuthUser {
 export function actorOf(req: Request, res: Response): Actor {
   const user = currentUser(res);
   const origin = req.get(CLIENT_ID_HEADER);
-  return { userId: user.id, origin: origin ? origin.slice(0, 64) : null, via: user.token?.name ?? null };
+  return { userId: user.id, origin: origin ? origin.slice(0, 64) : null, via: user.token ? user.token.displayName || user.token.name : null };
 }

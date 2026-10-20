@@ -7,7 +7,6 @@ import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
 import SelectButton from 'primevue/selectbutton';
 import Skeleton from 'primevue/skeleton';
-import ToggleSwitch from 'primevue/toggleswitch';
 import ActivityItem from '@/components/activity/ActivityItem.vue';
 import { useActivityFeed, type GroupFilter } from '@/composables/useActivityFeed';
 import { useTicketRoute } from '@/composables/useTicketRoute';
@@ -25,6 +24,12 @@ const groupOptions: Array<{ label: string; value: GroupFilter; icon: string }> =
   { label: t('Commentaires'), value: 'comment', icon: 'pi pi-comment' },
   { label: t('Configuration'), value: 'config', icon: 'pi pi-cog' },
   { label: t('Membres'), value: 'member', icon: 'pi pi-users' },
+];
+
+const sourceOptions = [
+  { label: t('Toutes origines'), value: 'all', icon: 'pi pi-globe' },
+  { label: t('Interface'), value: 'ui', icon: 'pi pi-desktop' },
+  { label: t('API / agents'), value: 'api', icon: 'pi pi-microchip-ai' },
 ];
 
 const personOptions = computed(() => project.users.map((user) => ({ label: user.name, value: user.id })));
@@ -51,10 +56,18 @@ const personOptions = computed(() => project.users.map((user) => ({ label: user.
               <InputText v-model="filters.search" :placeholder="$t('Filtrer : ticket, personne, mot…')" fluid :aria-label="$t('Filtrer l\'activité')" />
             </IconField>
             <Select v-model="filters.userId" :options="personOptions" option-label="label" option-value="value" :placeholder="$t('Tout le monde')" show-clear class="person" :aria-label="$t('Personne')" />
-            <label class="row api-toggle" v-tooltip.bottom="$t('Actions faites via un jeton d\'API (agents, scripts)')">
-              <ToggleSwitch v-model="filters.viaApi" />
-              <span class="small">{{ $t('API / agents') }}</span>
-            </label>
+            <Select
+              v-model="filters.source"
+              v-tooltip.bottom="$t('Origine : interface, ou jeton d\'API (agents, scripts)')"
+              :options="sourceOptions"
+              option-label="label"
+              option-value="value"
+              class="source"
+              :aria-label="$t('Origine des actions')"
+            >
+              <template #value="{ value }"><span class="row source-value"><i :class="sourceOptions.find((o) => o.value === value)?.icon"></i>{{ sourceOptions.find((o) => o.value === value)?.label }}</span></template>
+              <template #option="{ option }"><span class="row source-value"><i :class="option.icon"></i>{{ option.label }}</span></template>
+            </Select>
             <Button v-if="feed.activeFilters.value" :label="$t('Effacer')" icon="pi pi-filter-slash" text size="small" @click="feed.reset" />
           </div>
         </div>
@@ -146,8 +159,8 @@ const personOptions = computed(() => project.users.map((user) => ({ label: user.
 .person {
   width: 12rem;
 }
-.api-toggle {
-  cursor: pointer;
+.source-value {
+  gap: 0.45rem;
 }
 .skeletons {
   display: flex;

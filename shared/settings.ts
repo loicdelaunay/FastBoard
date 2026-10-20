@@ -21,6 +21,10 @@ export interface ProjectSettingsDTO {
   autoReopen: boolean;
   /** Pluie de confettis quand un ticket arrive dans « Terminé ». */
   confetti: boolean;
+  /** Indicateur d'inactivité sur les tickets restés longtemps dans la même colonne (à la manière de Jira). */
+  staleIndicator: boolean;
+  /** Nombre de jours sans changement de colonne à partir duquel un ticket est signalé. */
+  staleDays: number;
   /** Les six colonnes, dans l'ordre d'affichage. */
   columns: ColumnConfig[];
 }
@@ -30,7 +34,7 @@ export function defaultColumns(): ColumnConfig[] {
 }
 
 export function defaultSettings(): ProjectSettingsDTO {
-  return { autoMoveDone: true, autoReopen: true, confetti: true, columns: defaultColumns() };
+  return { autoMoveDone: true, autoReopen: true, confetti: true, staleIndicator: false, staleDays: 3, columns: defaultColumns() };
 }
 
 const isColor = (value: unknown): value is string => typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
@@ -42,7 +46,7 @@ const isColor = (value: unknown): value is string => typeof value === 'string' &
 export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
   const defaults = defaultSettings();
   const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
+  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
 
   const seen = new Set<TicketStatus>();
   const columns: ColumnConfig[] = [];
@@ -66,5 +70,6 @@ export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
       columns.push(column);
     }
   }
-  return { autoMoveDone: flag('autoMoveDone'), autoReopen: flag('autoReopen'), confetti: flag('confetti'), columns };
+  const staleDays = typeof source.staleDays === 'number' && Number.isInteger(source.staleDays) && source.staleDays >= 1 && source.staleDays <= 365 ? source.staleDays : defaults.staleDays;
+  return { autoMoveDone: flag('autoMoveDone'), autoReopen: flag('autoReopen'), confetti: flag('confetti'), staleIndicator: flag('staleIndicator'), staleDays, columns };
 }

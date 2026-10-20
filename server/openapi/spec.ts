@@ -3,10 +3,11 @@
  * Les corps de requête et les paramètres d'URL sont générés depuis les schémas de validation réels (`http/schemas.ts`) :
  * la documentation ne peut pas diverger des routes. Le test `openapi.test.ts` vérifie en plus que chaque route est décrite.
  */
-import { TICKET_STATUSES } from '../../shared/constants.ts';
+import { LINK_REASONS, TICKET_STATUSES } from '../../shared/constants.ts';
+import { APP_VERSION } from '../../shared/changelog.ts';
 import { z } from '../http/validate.ts';
 import * as S from '../http/schemas.ts';
-import { arr, componentSchemas, int, obj, ref, str, type Schema } from './components.ts';
+import { arr, bool, componentSchemas, int, obj, ref, str, type Schema } from './components.ts';
 
 type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -22,6 +23,8 @@ interface Operation {
   permission?: string;
   /** Description des paramètres de chemin. */
   params?: Record<string, string>;
+  /** Paramètres de chemin textuels (entiers par défaut). */
+  stringParams?: string[];
   body?: z.ZodType;
   rawBody?: { contentType: string; description: string };
   query?: z.ZodType;
@@ -134,6 +137,28 @@ const OPERATIONS: Operation[] = [
     ok: obj({ token: ref('ApiToken'), secret: str("Secret en clair, à transmettre à l'agent. Non récupérable ensuite.") }),
   },
   {
+    method: 'patch',
+    path: '/me/tokens/{id}',
+    tag: "Jetons d'API",
+    access: 'session',
+    summary: "Renommer (nom d'affichage) ou prolonger un de mes jetons",
+    description: "`expiresInDays` repart d'aujourd'hui (un jeton expiré peut ainsi être prolongé) ; `null` = n'expire plus. Un jeton révoqué ne peut plus être modifié.",
+    params: { id: 'Identifiant du jeton.' },
+    body: S.updateTokenSchema,
+    ok: obj({ token: ref('ApiToken') }),
+  },
+  {
+    method: 'post',
+    path: '/me/tokens/{id}/reveal',
+    tag: "Jetons d'API",
+    access: 'session',
+    summary: 'Réafficher le secret d\'un de mes jetons',
+    description: "Exige le mot de passe du compte. Possible pour les jetons créés depuis la version 1.1 (`revealable`), dont le secret est conservé chiffré.",
+    params: { id: 'Identifiant du jeton.' },
+    body: S.revealTokenSchema,
+    ok: obj({ secret: str('Secret du jeton (`fb_…`).') }),
+  },
+  {
     method: 'delete',
     path: '/me/tokens/{id}',
     tag: "Jetons d'API",
@@ -164,6 +189,24 @@ const OPERATIONS: Operation[] = [
     summary: "Image de profil d'un utilisateur",
     params: { id: "Identifiant de l'utilisateur." },
     okRaw: { contentType: 'image/*', description: 'Image (404 si aucune).' },
+  },
+  {
+    method: 'get',
+    path: '/users/{id}/summary',
+    tag: 'Profil',
+    summary: "Résumé de l'activité d'un utilisateur",
+    description: 'Projets communs, tickets assignés en cours, actions des 30 derniers jours : limité aux projets que vous pouvez voir.',
+    params: { id: "Identifiant de l'utilisateur." },
+    ok: obj({ summary: ref('UserSummaryPage') }),
+  },
+  {
+    method: 'get',
+    path: '/search',
+    tag: 'Recherche',
+    summary: 'Recherche globale (projets, tickets, utilisateurs)',
+    description: 'Accents et casse ignorés ; une clé exacte (`APP-12`) arrive en tête. Chaque type retourne au plus `limit` résultats et son `total`.',
+    query: S.searchQuerySchema,
+    ok: ref('SearchResult'),
   },
   {
     method: 'get',
@@ -319,6 +362,29 @@ const OPERATIONS: Operation[] = [
     ok: ref('Ok'),
   },
 
+  // --- Priorités et composants ----------------------------------------------------------------------------------------
+  ...(['priority', 'component'] as const).flatMap((kind): Operation[] => {
+    const plural = kind === 'priority' ? 'priorities' : 'components';
+    const label = kind === 'priority' ? 'une priorité' : 'un composant';
+    const tag = kind === 'priority' ? 'Priorités' : 'Composants';
+    const params = { ...PROJECT_ID, [`${kind}Id`]: kind === 'priority' ? 'Identifiant de la priorité.' : 'Identifiant du composant.' };
+    const schema = kind === 'priority' ? 'Priority' : 'Component';
+    return [
+      { method: 'post', path: `/projects/{id}/${plural}`, tag, permission: 'project.edit', summary: `Créer ${label}`, params: PROJECT_ID, body: S.listItemSchema, status: 201, ok: obj({ [kind]: ref(schema) }) },
+      { method: 'patch', path: `/projects/{id}/${plural}/{${kind}Id}`, tag, permission: 'project.edit', summary: `Modifier ou déplacer ${label}`, params, body: S.listItemPatchSchema, ok: obj({ [kind]: ref(schema) }) },
+      {
+        method: 'delete',
+        path: `/projects/{id}/${plural}/{${kind}Id}`,
+        tag,
+        permission: 'project.edit',
+        summary: `Supprimer ${label}`,
+        description: kind === 'priority' ? 'Les tickets concernés perdent leur priorité.' : 'Le composant est retiré des tickets.',
+        params,
+        ok: ref('Ok'),
+      },
+    ];
+  }),
+
   // --- Livraisons ------------------------------------------------------------------------------------------------------
   {
     method: 'post',
@@ -414,6 +480,43 @@ const OPERATIONS: Operation[] = [
     ok: obj({ history: arr(ref('HistoryEntry')) }),
   },
 
+  // --- Sous-tâches et dépendances --------------------------------------------------------------------------------------
+  {
+    method: 'post',
+    path: '/tickets/{id}/subtasks',
+    tag: 'Sous-tâches',
+    permission: 'ticket.edit',
+    summary: 'Ajouter une sous-tâche',
+    params: TICKET_ID,
+    body: S.subtaskSchema,
+    status: 201,
+    ok: obj({ ticket: ref('Ticket') }),
+  },
+  {
+    method: 'patch',
+    path: '/subtasks/{id}',
+    tag: 'Sous-tâches',
+    permission: 'ticket.edit (ou ticket.update_own_part pour cocher une sous-tâche dont on est responsable)',
+    summary: 'Modifier, cocher ou déplacer une sous-tâche',
+    params: { id: 'Identifiant de la sous-tâche.' },
+    body: S.subtaskPatchSchema,
+    ok: obj({ ticket: ref('Ticket') }),
+  },
+  { method: 'delete', path: '/subtasks/{id}', tag: 'Sous-tâches', permission: 'ticket.edit', summary: 'Supprimer une sous-tâche', params: { id: 'Identifiant de la sous-tâche.' }, ok: obj({ ticket: ref('Ticket') }) },
+  {
+    method: 'post',
+    path: '/tickets/{id}/links',
+    tag: 'Dépendances',
+    permission: 'ticket.edit',
+    summary: 'Ajouter une dépendance vers un autre ticket du projet',
+    description: `Raisons proposées : ${LINK_REASONS.map((reason) => `« ${reason} »`).join(', ')} ; tout autre texte court est accepté. Les dépendances entrantes se déduisent des autres tickets (\`links[].targetId\`).`,
+    params: TICKET_ID,
+    body: S.linkSchema,
+    status: 201,
+    ok: obj({ ticket: ref('Ticket') }),
+  },
+  { method: 'delete', path: '/links/{id}', tag: 'Dépendances', permission: 'ticket.edit', summary: 'Supprimer une dépendance', params: { id: 'Identifiant de la dépendance.' }, ok: obj({ ticket: ref('Ticket') }) },
+
   // --- Pièces jointes --------------------------------------------------------------------------------------------------
   {
     method: 'get',
@@ -507,6 +610,7 @@ const OPERATIONS: Operation[] = [
   { method: 'patch', path: '/admin/roles/{id}', tag: 'Administration', access: 'session', permission: 'roles.manage', summary: 'Modifier un rôle', params: ID, body: S.updateRoleSchema, ok: obj({ role: ref('Role') }) },
   { method: 'delete', path: '/admin/roles/{id}', tag: 'Administration', access: 'session', permission: 'roles.manage', summary: 'Supprimer un rôle', params: ID, ok: ref('Ok') },
   { method: 'get', path: '/admin/tokens', tag: 'Administration', access: 'session', permission: 'tokens.manage', summary: "Lister les jetons d'API de tous les utilisateurs", ok: obj({ tokens: arr(ref('ApiToken')) }) },
+  { method: 'patch', path: '/admin/tokens/{id}', tag: 'Administration', access: 'session', permission: 'tokens.manage', summary: "Renommer ou prolonger n'importe quel jeton", params: { id: 'Identifiant du jeton.' }, body: S.updateTokenSchema, ok: obj({ token: ref('ApiToken') }) },
   { method: 'delete', path: '/admin/tokens/{id}', tag: 'Administration', access: 'session', permission: 'tokens.manage', summary: "Révoquer n'importe quel jeton", params: { id: 'Identifiant du jeton.' }, ok: ref('Ok') },
   {
     method: 'get',
@@ -541,6 +645,43 @@ const OPERATIONS: Operation[] = [
     query: S.logQuerySchema,
     okRaw: { contentType: 'application/x-ndjson', description: 'Fichier NDJSON.' },
   },
+  { method: 'get', path: '/admin/backups', tag: 'Administration', access: 'session', permission: 'backups.manage', summary: 'Configuration, état et historique des sauvegardes', ok: ref('BackupOverview') },
+  {
+    method: 'put',
+    path: '/admin/backups',
+    tag: 'Administration',
+    access: 'session',
+    permission: 'backups.manage',
+    summary: 'Enregistrer la configuration des sauvegardes',
+    description: "Remplace la liste des destinations. Conservation : `all`, `count` {keep}, `age` {days}, `smart` (1W:1D,4W:1W,12M:1M) ou `custom` {rules} (« durée:intervalle », unités s m h D W M Y, `U` = tout garder).",
+    body: S.backupConfigSchema,
+    ok: ref('BackupOverview'),
+  },
+  { method: 'post', path: '/admin/backups/test-folder', tag: 'Administration', access: 'session', permission: 'backups.manage', summary: "Vérifier qu'un dossier est accessible en écriture", body: S.folderTestSchema, ok: obj({ ok: bool(), message: str() }) },
+  {
+    method: 'post',
+    path: '/admin/backups/{destinationId}/run',
+    tag: 'Administration',
+    access: 'session',
+    permission: 'backups.manage',
+    summary: 'Lancer une sauvegarde maintenant',
+    description: 'Attend la fin de la sauvegarde ; `run.status` vaut `success` ou `failed` (`message`).',
+    params: { destinationId: 'Identifiant de la destination.' },
+    stringParams: ['destinationId'],
+    ok: obj({ run: ref('BackupRun'), overview: ref('BackupOverview') }),
+  },
+  { method: 'get', path: '/admin/service', tag: 'Administration', access: 'session', permission: 'system.manage', summary: "État de l'installation en tant que service", ok: obj({ status: { type: 'object', description: 'Plateforme, installation détectée, droits, commande lancée, fichiers et commandes prévus.' } }) },
+  {
+    method: 'post',
+    path: '/admin/service',
+    tag: 'Administration',
+    access: 'session',
+    permission: 'system.manage',
+    summary: 'Installer, retirer, démarrer ou arrêter le service',
+    description: 'Windows : tâche planifiée (ouverture de session ou démarrage de la machine) ; Linux : unité systemd ; macOS : launchd. Le service relance le serveur s\'il s\'arrête. `dryRun` retourne les commandes sans rien exécuter.',
+    body: S.serviceActionSchema,
+    ok: obj({ ok: bool(), dryRun: bool(), commands: arr(str()), output: str(), status: { type: 'object' } }),
+  },
 ];
 
 function buildOperation(operation: Operation): Schema {
@@ -553,7 +694,7 @@ function buildOperation(operation: Operation): Schema {
 
   const parameters: Schema[] = [];
   for (const name of [...operation.path.matchAll(/\{(\w+)\}/g)].map((match) => match[1]!)) {
-    parameters.push({ name, in: 'path', required: true, description: operation.params?.[name] ?? 'Identifiant.', schema: int() });
+    parameters.push({ name, in: 'path', required: true, description: operation.params?.[name] ?? 'Identifiant.', schema: operation.stringParams?.includes(name) ? str() : int() });
   }
   if (operation.query) parameters.push(...queryParameters(operation.query));
   if (operation.extraParams) parameters.push(...operation.extraParams);
@@ -599,7 +740,8 @@ API REST de **FastBoard** (suivi de projet : Kanban, liste, Gantt, activité). T
 - Erreurs : \`{ "error": { "code", "message", "details"? } }\` avec le statut HTTP correspondant (400 validation, 401 authentification, 403 droits, 404 introuvable, 409 conflit, 429 trop de requêtes).
 - Un jeton agit **avec les droits de son propriétaire**, jamais davantage. Un jeton \`read\` ne peut appeler que des routes \`GET\`.
 - Débit limité par jeton (600 requêtes par minute par défaut) ; en-têtes \`X-RateLimit-*\` et \`Retry-After\`.
-- Chaque action d'un jeton est attribuée à son propriétaire dans l'historique et le journal d'activité, avec la mention « via <nom du jeton> ».
+- Chaque action d'un jeton est attribuée à son propriétaire dans l'historique et le journal d'activité, avec la mention « via <nom d'affichage du jeton> ».
+- Mentions dans les textes (description, commentaires) : \`@[Nom](user:12)\` pour une personne, \`@[APP-12](ticket:34)\` pour un ticket.
 - Guide détaillé avec recettes : \`GET /docs/guide.md\`.
 `.trim();
 
@@ -612,7 +754,7 @@ export function buildOpenApiDocument(): Schema {
     openapi: '3.1.0',
     info: {
       title: 'FastBoard API',
-      version: '1.0.0',
+      version: APP_VERSION,
       description: INTRO,
     },
     servers: [{ url: '/api', description: 'Serveur courant' }],
@@ -627,7 +769,12 @@ export function buildOpenApiDocument(): Schema {
       { name: 'Commentaires' },
       { name: 'Activité' },
       { name: 'Membres' },
+      { name: 'Recherche' },
+      { name: 'Sous-tâches' },
+      { name: 'Dépendances' },
       { name: 'Catégories' },
+      { name: 'Priorités' },
+      { name: 'Composants' },
       { name: 'Livraisons' },
       { name: 'Administration', description: "Interface uniquement : refusé avec un jeton d'API." },
     ],

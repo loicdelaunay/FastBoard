@@ -5,7 +5,7 @@
 export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
-export const LOG_SOURCES = ['system', 'http', 'auth', 'admin', 'project', 'storage', 'db', 'realtime'] as const;
+export const LOG_SOURCES = ['system', 'http', 'auth', 'admin', 'project', 'storage', 'db', 'realtime', 'backup', 'service'] as const;
 export type LogSource = (typeof LOG_SOURCES)[number];
 
 export const LOG_LEVEL_META: Record<LogLevel, { label: string; severity: 'secondary' | 'info' | 'warn' | 'danger' }> = {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import SelectButton from 'primevue/selectbutton';
+import Select from 'primevue/select';
 import Button from 'primevue/button';
 import { formatDateShort } from '@shared/dates';
 import AlertList from '@/components/analyzer/AlertList.vue';
@@ -37,8 +37,13 @@ watch(
 );
 
 const scopeOptions = computed(() => [
-  { label: t('Toutes les livraisons'), value: 'all' as AnalysisScope },
-  ...project.deliveries.map((delivery) => ({ label: delivery.name, value: delivery.id as AnalysisScope })),
+  { label: t('Toutes les livraisons'), value: 'all' as AnalysisScope, color: null as string | null, dates: '' },
+  ...project.deliveries.map((delivery) => ({
+    label: delivery.name,
+    value: delivery.id as AnalysisScope,
+    color: delivery.color as string | null,
+    dates: `${formatDateShort(delivery.startDate)} → ${formatDateShort(delivery.endDate)}`,
+  })),
 ]);
 
 const scopeTitle = computed(() => (analysis.delivery.value ? t('Livraison « {name} »', { name: analysis.delivery.value.name }) : t('Ensemble du projet')));
@@ -108,7 +113,25 @@ const categoryOptions = {
     <div class="scroll">
       <div class="inner">
         <div class="scope-bar">
-          <SelectButton v-model="scope" :options="scopeOptions" option-label="label" option-value="value" :allow-empty="false" :aria-label="$t('Périmètre de l\'analyse')" class="scopes" />
+          <label class="scope-field">
+            <span class="muted small">{{ $t('Version analysée') }}</span>
+            <Select v-model="scope" :options="scopeOptions" option-label="label" option-value="value" filter :filter-placeholder="$t('Rechercher une livraison')" class="scopes" :aria-label="$t('Périmètre de l\'analyse')">
+              <template #value="{ value }">
+                <span class="scope-option">
+                  <i class="pi" :class="value === 'all' ? 'pi-th-large' : 'pi-truck'" :style="{ color: scopeOptions.find((o) => o.value === value)?.color ?? undefined }"></i>
+                  <strong>{{ scopeOptions.find((o) => o.value === value)?.label }}</strong>
+                  <span v-if="scopeOptions.find((o) => o.value === value)?.dates" class="muted small">{{ scopeOptions.find((o) => o.value === value)?.dates }}</span>
+                </span>
+              </template>
+              <template #option="{ option }">
+                <span class="scope-option">
+                  <i class="pi" :class="option.value === 'all' ? 'pi-th-large' : 'pi-truck'" :style="{ color: option.color ?? undefined }"></i>
+                  <span>{{ option.label }}</span>
+                  <span v-if="option.dates" class="muted small">{{ option.dates }}</span>
+                </span>
+              </template>
+            </Select>
+          </label>
           <Button
             v-if="project.tickets.length"
             :label="$t('Exporter en PDF')"
@@ -182,10 +205,18 @@ const categoryOptions = {
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
 }
-.scopes {
+.scope-field {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
+  align-items: center;
+  gap: 0.6rem;
+}
+.scopes {
+  min-width: min(100%, 20rem);
+}
+.scope-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 .charts {
   display: grid;

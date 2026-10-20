@@ -5,7 +5,7 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useProjectStore } from '@/stores/project';
 import { formatBytes } from '@/utils/files';
 import { formatDateTime, formatRelative } from '@/utils/format';
-import { FIELD_LABELS, formatChangeValue, historyIcon } from '@/utils/historyFormat';
+import { FIELD_LABELS, SUBTASK_ACTIONS, formatChangeValue, historyIcon, linkReasonLabel } from '@/utils/historyFormat';
 import { notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
@@ -44,6 +44,7 @@ function icon(entry: HistoryEntryDTO): string {
           <div class="who">
             <UserAvatar :user="author(entry)" size="small" />
             <strong>{{ author(entry)?.name ?? $t('Système') }}</strong>
+            <span v-if="entry.via" v-tooltip.top="$t('Via le jeton d\'API « {via} »', { via: entry.via })" class="via small"><i class="pi pi-microchip-ai"></i> {{ $t('via « {via} »', { via: entry.via }) }}</span>
             <time :datetime="entry.createdAt" :title="formatDateTime(entry.createdAt)" class="muted small">{{ formatRelative(entry.createdAt) }}</time>
           </div>
 
@@ -65,6 +66,15 @@ function icon(entry: HistoryEntryDTO): string {
 
           <p v-else-if="entry.data.kind === 'attachment'" class="text">
             {{ entry.data.action === 'added' ? $t('a joint') : $t('a retiré') }} <strong>{{ entry.data.name }}</strong> ({{ formatBytes(entry.data.size) }}).
+          </p>
+
+          <p v-else-if="entry.data.kind === 'subtask'" class="text">
+            {{ SUBTASK_ACTIONS[entry.data.action] }} <strong>« {{ entry.data.title }} »</strong><template v-if="entry.data.previousTitle"> {{ $t('(avant : « {previousName} »)', { previousName: entry.data.previousTitle }) }}</template>.
+          </p>
+
+          <p v-else-if="entry.data.kind === 'link'" class="text">
+            {{ entry.data.action === 'added' ? $t('a ajouté la dépendance') : $t('a retiré la dépendance') }} <em>{{ linkReasonLabel(entry.data.reason) }}</em>
+            <strong>{{ entry.data.target.key }}</strong> « {{ entry.data.target.title }} ».
           </p>
 
           <p v-else-if="entry.data.kind === 'part'" class="text">
@@ -127,6 +137,16 @@ function icon(entry: HistoryEntryDTO): string {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.15rem 0.5rem;
+}
+.via {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fb-accent) 14%, transparent);
+  color: var(--fb-accent);
+  font-weight: 600;
 }
 .text {
   margin: 0.2rem 0 0;

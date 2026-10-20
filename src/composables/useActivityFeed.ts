@@ -35,6 +35,8 @@ function searchableText(activity: ActivityDTO, authorName: string | undefined): 
       parts.push(data.ticketKey, data.ticketTitle);
       if (data.entry.kind === 'assignees') parts.push(...data.entry.added.map((u) => u.name), ...data.entry.removed.map((u) => u.name));
       if (data.entry.kind === 'part') parts.push(data.entry.user.name);
+      if (data.entry.kind === 'subtask') parts.push(data.entry.title, data.entry.previousTitle);
+      if (data.entry.kind === 'link') parts.push(data.entry.reason, data.entry.target.key, data.entry.target.title);
       if (data.entry.kind === 'created') parts.push(...(data.entry.assignees ?? []).map((u) => u.name));
       break;
     case 'ticket_deleted':
@@ -44,6 +46,8 @@ function searchableText(activity: ActivityDTO, authorName: string | undefined): 
       parts.push(data.ticketKey, data.ticketTitle, data.excerpt);
       break;
     case 'category':
+    case 'priority':
+    case 'component':
     case 'delivery':
       parts.push(data.name, data.previousName);
       break;
@@ -59,7 +63,8 @@ function searchableText(activity: ActivityDTO, authorName: string | undefined): 
 /** Fil d'activité du projet courant : chargement paginé, filtres côté serveur, insertion en direct. */
 export function useActivityFeed() {
   const project = useProjectStore();
-  const filters = reactive({ group: 'all' as GroupFilter, userId: null as number | null, viaApi: false, search: '' });
+  /** Origine des actions : toutes, interface uniquement, ou API (agents, scripts) uniquement. */
+  const filters = reactive({ group: 'all' as GroupFilter, userId: null as number | null, source: 'all' as 'all' | 'ui' | 'api', search: '' });
   const items = ref<ActivityDTO[]>([]);
   const nextBefore = ref<number | null>(null);
   const loading = ref(true);
@@ -71,7 +76,7 @@ export function useActivityFeed() {
     return {
       group: filters.group === 'all' ? undefined : [filters.group],
       userId: filters.userId ?? undefined,
-      viaApi: filters.viaApi || undefined,
+      source: filters.source === 'all' ? undefined : filters.source,
     };
   }
 
@@ -117,7 +122,7 @@ export function useActivityFeed() {
     return (
       (filters.group === 'all' || activity.group === filters.group) &&
       (filters.userId === null || activity.userId === filters.userId) &&
-      (!filters.viaApi || activity.via !== null)
+      (filters.source === 'all' || (filters.source === 'api') === (activity.via !== null))
     );
   }
 
@@ -144,7 +149,7 @@ export function useActivityFeed() {
     project.setActivityViewOpen(false);
   });
 
-  watch(() => [filters.group, filters.userId, filters.viaApi], () => void load());
+  watch(() => [filters.group, filters.userId, filters.source], () => void load());
   watch(() => project.projectId, () => void load());
 
   const visible = computed(() =>
@@ -169,12 +174,12 @@ export function useActivityFeed() {
     return groups;
   });
 
-  const activeFilters = computed(() => Number(filters.group !== 'all') + Number(filters.userId !== null) + Number(filters.viaApi) + Number(Boolean(filters.search.trim())));
+  const activeFilters = computed(() => Number(filters.group !== 'all') + Number(filters.userId !== null) + Number(filters.source !== 'all') + Number(Boolean(filters.search.trim())));
 
   function reset(): void {
     filters.group = 'all';
     filters.userId = null;
-    filters.viaApi = false;
+    filters.source = 'all';
     filters.search = '';
   }
 

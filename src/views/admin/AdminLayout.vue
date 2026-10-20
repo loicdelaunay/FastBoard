@@ -12,6 +12,8 @@ const links = computed(() =>
     { name: 'admin-tokens', label: t('Jetons d\'API'), icon: 'pi pi-key', allowed: auth.can('tokens.manage') },
     { name: 'admin-performance', label: t('Performances'), icon: 'pi pi-chart-line', allowed: auth.can('monitoring.view') },
     { name: 'admin-logs', label: t('Journaux'), icon: 'pi pi-list', allowed: auth.can('logs.view') },
+    { name: 'admin-backups', label: t('Sauvegardes'), icon: 'pi pi-database', allowed: auth.can('backups.manage') },
+    { name: 'admin-service', label: t('Installation'), icon: 'pi pi-server', allowed: auth.can('system.manage') },
   ].filter((link) => link.allowed),
 );
 </script>

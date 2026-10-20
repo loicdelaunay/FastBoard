@@ -1,4 +1,4 @@
-import { DEFAULT_CATEGORIES } from '../../shared/constants.ts';
+import { DEFAULT_CATEGORIES, DEFAULT_PRIORITIES } from '../../shared/constants.ts';
 import { suggestProjectKey } from '../../shared/projectKey.ts';
 import { ticketProgress } from '../../shared/progress.ts';
 import type {
@@ -16,6 +16,7 @@ import { badRequest, conflict, notFound } from '../http/errors.ts';
 import type { AuthUser, ProjectAccess } from './access.ts';
 import { logActivity } from './activity.ts';
 import { removeStoredFiles, storagesOfProject } from './attachments.ts';
+import { listItems } from './projectLists.ts';
 import { describeSettingsChange, mergeSettings, type SettingsPatch } from './projectSettings.ts';
 import { hasPermission } from '../../shared/permissions.ts';
 import {
@@ -66,6 +67,8 @@ export function buildSnapshot(db: Db, access: ProjectAccess): ProjectSnapshotDTO
     categories: db
       .all<CategoryRow>('SELECT * FROM categories WHERE project_id = ? ORDER BY position, id', projectId)
       .map(toCategoryDTO),
+    priorities: listItems(db, 'priority', projectId),
+    components: listItems(db, 'component', projectId),
     deliveries: db
       .all<DeliveryRow>('SELECT * FROM deliveries WHERE project_id = ? ORDER BY start_date, position, id', projectId)
       .map(toDeliveryDTO),
@@ -138,6 +141,9 @@ export function createProject(
     db.run('INSERT INTO project_members (project_id, user_id, role_id, created_at) VALUES (?, ?, ?, ?)', lastInsertRowid, owner.id, ownerRole.id, now);
     DEFAULT_CATEGORIES.forEach((category, index) => {
       db.run('INSERT INTO categories (project_id, name, color, position) VALUES (?, ?, ?, ?)', lastInsertRowid, category.name, category.color, index);
+    });
+    DEFAULT_PRIORITIES.forEach((priority, index) => {
+      db.run('INSERT INTO priorities (project_id, name, color, icon, position) VALUES (?, ?, ?, ?, ?)', lastInsertRowid, priority.name, priority.color, priority.icon, index);
     });
     return lastInsertRowid;
   });

@@ -1,7 +1,7 @@
 {
   "name": "fastboard",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Suivi de projet collaboratif temps réel (Kanban, Liste, Gantt, Analyseur) — Vue 3, PrimeVue, SQLite, WebSocket",
   "type": "module",
   "engines": {

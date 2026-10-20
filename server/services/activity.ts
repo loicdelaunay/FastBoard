@@ -7,6 +7,8 @@ const GROUP_OF: Record<ActivityData['kind'], ActivityGroup> = {
   ticket_deleted: 'ticket',
   comment: 'comment',
   category: 'config',
+  priority: 'config',
+  component: 'config',
   delivery: 'config',
   project: 'config',
   member: 'member',
@@ -58,8 +60,8 @@ export interface ActivityQuery {
   before?: number;
   groups?: ActivityGroup[];
   userId?: number;
-  /** Uniquement les actions faites via un jeton d'API. */
-  viaApi?: boolean;
+  /** `api` : uniquement les actions faites via un jeton d'API ; `ui` : uniquement celles faites depuis l'interface. */
+  source?: 'api' | 'ui';
   ticketId?: number;
 }
 
@@ -78,8 +80,10 @@ export function listActivities(db: Db, projectId: number, query: ActivityQuery):
     where.push('user_id = ?');
     params.push(query.userId);
   }
-  if (query.viaApi) {
+  if (query.source === 'api') {
     where.push('via IS NOT NULL');
+  } else if (query.source === 'ui') {
+    where.push('via IS NULL');
   }
   if (query.ticketId !== undefined) {
     where.push("json_extract(data, '$.ticketId') = ?");

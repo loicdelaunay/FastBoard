@@ -71,9 +71,11 @@ Les corps de requête sont en JSON **encodé en UTF-8** (`-H "Content-Type: appl
 
 ## 3. Le modèle en bref
 
-**Projet** : porte une *clé* (`APP`) ; ses tickets s'appellent `APP-1`, `APP-2`… (`ticket.number` + clé du projet). Chaque projet a ses **catégories** (réglables) et ses **livraisons** (nom, `startDate`, `endDate`).
+**Projet** : porte une *clé* (`APP`) ; ses tickets s'appellent `APP-1`, `APP-2`… (`ticket.number` + clé du projet). Chaque projet a ses **catégories**, ses **priorités** (ordonnées de la plus haute à la plus basse), ses **composants** (nom, icône, couleur) et ses **livraisons** (nom, `startDate`, `endDate`).
 
-**Ticket** : `title`, `description`, `status`, `categoryId`, `deliveryId` (livraison ciblée), `startDate`/`endDate` (sinon ils suivent la livraison), plusieurs **assignés**.
+**Ticket** : `title`, `description`, `status`, `categoryId`, `priorityId`, `componentIds` (plusieurs), `deliveryId` (livraison ciblée), `startDate`/`endDate` (sinon ils suivent la livraison), plusieurs **assignés**, des **sous-tâches** (`subtasks`) et des **dépendances** vers d'autres tickets du projet (`links` : `targetId` + `reason`). `statusChangedAt` date le dernier changement de colonne (indicateur d'inactivité).
+
+**Mentions** dans `description` et les commentaires : `@[Alice Martin](user:12)` pour une personne, `@[APP-12](ticket:34)` pour un ticket (l'interface les affiche en pastilles cliquables).
 
 **Statuts** (colonnes du Kanban) :
 
@@ -121,7 +123,7 @@ curl -s $FASTBOARD/api/tickets/12/history  -H "Authorization: Bearer $TOKEN"
 curl -s $FASTBOARD/api/tickets/12/comments -H "Authorization: Bearer $TOKEN"
 ```
 
-Filtres de `GET /projects/{id}/tickets` : `status` (liste séparée par des virgules), `categoryId`, `deliveryId` (id ou `none`), `assigneeId` (id, `me` ou `none`), `key`, `q`, `updatedSince` (ISO 8601), `limit` (≤ 500), `offset`. La réponse contient `total` (avant pagination).
+Filtres de `GET /projects/{id}/tickets` : `status` (liste séparée par des virgules), `categoryId`, `priorityId`, `componentId`, `deliveryId` (id ou `none`), `assigneeId` (id, `me` ou `none`), `key`, `q`, `updatedSince` (ISO 8601), `limit` (≤ 500), `offset`. La réponse contient `total` (avant pagination).
 
 ### Créer un ticket
 
@@ -129,8 +131,10 @@ Filtres de `GET /projects/{id}/tickets` : `status` (liste séparée par des virg
 curl -s -X POST $FASTBOARD/api/projects/1/tickets \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{ "title": "Corriger le calcul de TVA", "description": "Arrondi faux sur les remises.",
-        "status": "todo", "categoryId": 2, "deliveryId": 4, "assigneeIds": [3], "endDate": "2026-11-20" }'
+        "status": "todo", "categoryId": 2, "priorityId": 2, "componentIds": [5], "deliveryId": 4, "assigneeIds": [3], "endDate": "2026-11-20" }'
 ```
+
+Les identifiants de priorités et de composants sont dans `GET /projects/{id}` (`priorities`, `components`).
 
 ### Déplacer un ticket (action du Kanban)
 
@@ -154,6 +158,30 @@ curl -s -X PATCH $FASTBOARD/api/tickets/12 -H "Authorization: Bearer $TOKEN" -H 
 ```
 
 `assigneeIds` **remplace** la liste des assignés (les parts des personnes conservées sont gardées). Passer `categoryId`, `deliveryId`, `startDate` ou `endDate` à `null` les vide.
+
+### Sous-tâches
+
+```bash
+# Ajouter, cocher, renommer, réordonner (position = rang, 0 = première), supprimer
+curl -s -X POST $FASTBOARD/api/tickets/12/subtasks -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "title": "Écrire les tests", "assigneeId": 3 }'
+curl -s -X PATCH $FASTBOARD/api/subtasks/7 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "done": true }'
+curl -s -X DELETE $FASTBOARD/api/subtasks/7 -H "Authorization: Bearer $TOKEN"
+```
+
+Chaque appel retourne le ticket à jour. Cocher une sous-tâche dont on est responsable demande `ticket.update_own_part` ; le reste demande `ticket.edit`.
+
+### Dépendances entre tickets
+
+```bash
+# APP-12 (id 12) est bloqué par le ticket 9 ; raisons proposées : « Bloqué par », « Bloque », « Dépend de »,
+# « Est requis par », « Lié à », « Duplique », « Est dupliqué par », « Cause », « Est causé par » — ou un texte libre
+curl -s -X POST $FASTBOARD/api/tickets/12/links -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "targetId": 9, "reason": "Bloqué par" }'
+curl -s -X DELETE $FASTBOARD/api/links/4 -H "Authorization: Bearer $TOKEN"
+```
+
+Une dépendance est portée par un ticket (`links`) ; les dépendances *entrantes* se lisent sur les autres tickets du projet (`links[].targetId`).
 
 ### Déclarer l'avancement ou la fin d'une part
 
@@ -215,17 +243,27 @@ curl -s "$FASTBOARD/api/projects/1/activity" -H "Authorization: Bearer $TOKEN"
 # Page suivante (plus anciens) : réutiliser nextBefore tant qu'il n'est pas null
 curl -s "$FASTBOARD/api/projects/1/activity?before=420" -H "Authorization: Bearer $TOKEN"
 
-# Filtres : group=ticket,comment,config,member · userId · viaApi=true (actions des agents) · ticketId
+# Filtres : group=ticket,comment,config,member · userId · source=api (actions des agents) ou source=ui · ticketId
 curl -s "$FASTBOARD/api/projects/1/activity?group=ticket&ticketId=12&limit=20" -H "Authorization: Bearer $TOKEN"
 ```
 
-Chaque évènement a un `group`, un `data.kind` (`ticket`, `ticket_deleted`, `comment`, `category`, `delivery`, `member`, `project`), l'auteur (`userId`) et `via` (nom du jeton si l'action vient de l'API). Pour surveiller le tableau en continu, interrogez toutes les 10–30 secondes en mémorisant le plus grand `id` déjà vu, ou utilisez le WebSocket (§5).
+Chaque évènement a un `group`, un `data.kind` (`ticket`, `ticket_deleted`, `comment`, `category`, `priority`, `component`, `delivery`, `member`, `project`), l'auteur (`userId`) et `via` (nom d'affichage du jeton si l'action vient de l'API). L'historique d'un ticket (`GET /tickets/{id}/history`) porte aussi `via`. Pour surveiller le tableau en continu, interrogez toutes les 10–30 secondes en mémorisant le plus grand `id` déjà vu, ou utilisez le WebSocket (§5).
 
-### Catégories et livraisons
+### Recherche globale
+
+```bash
+# Projets, tickets et utilisateurs visibles ; une clé exacte arrive en tête
+curl -s "$FASTBOARD/api/search?q=paiement&type=tickets&limit=20" -H "Authorization: Bearer $TOKEN"
+```
+
+### Catégories, priorités, composants et livraisons
 
 ```bash
 curl -s -X POST $FASTBOARD/api/projects/1/categories -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{ "name": "Sécurité", "color": "#ef4444" }'
+
+curl -s -X POST $FASTBOARD/api/projects/1/components -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "name": "API", "color": "#0ea5e9", "icon": "pi pi-server" }'
 
 curl -s -X POST $FASTBOARD/api/projects/1/deliveries -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{ "name": "V1.2 — Paiement", "startDate": "2026-12-01", "endDate": "2027-01-31", "color": "#10b981" }'
@@ -246,7 +284,7 @@ Le serveur diffuse les évènements d'un projet en WebSocket : `ws://<hôte>/ws`
 { "t": "event", "projectId": 1, "event": { "type": "activity.created", "activity": { … } }, … }
 ```
 
-Types d'évènements : `ticket.created|updated|deleted`, `tickets.reordered`, `comment.created|updated|deleted`, `history.created`, `activity.created`, `category.*`, `delivery.*`, `project.updated`, `members.changed`. La définition complète est dans `shared/realtime.ts`.
+Types d'évènements : `ticket.created|updated|deleted`, `tickets.reordered`, `comment.created|updated|deleted`, `history.created`, `activity.created`, `category.*`, `priority.*`, `component.*`, `delivery.*`, `project.updated`, `members.changed`. La définition complète est dans `shared/realtime.ts`.
 
 ---
 

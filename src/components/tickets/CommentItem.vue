@@ -2,7 +2,8 @@
 import { computed, ref } from 'vue';
 import { useConfirm } from 'primevue/useconfirm';
 import Button from 'primevue/button';
-import Textarea from 'primevue/textarea';
+import MentionTextarea from '@/components/common/MentionTextarea.vue';
+import RichText from '@/components/common/RichText.vue';
 import type { CommentDTO } from '@shared/types';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useAuthStore } from '@/stores/auth';
@@ -95,13 +96,13 @@ function askDelete(): void {
 
       <p v-if="comment.deleted" class="body muted"><em>{{ $t('Message supprimé') }}</em></p>
       <div v-else-if="editing" class="edit">
-        <Textarea v-model="draft" auto-resize rows="2" maxlength="5000" fluid autofocus @keydown.ctrl.enter="saveEdit" @keydown.esc="editing = false" />
+        <MentionTextarea v-model="draft" auto-resize rows="2" maxlength="5000" fluid autofocus @keydown.ctrl.enter="saveEdit" @keydown.esc="editing = false" />
         <div class="row">
           <Button :label="$t('Enregistrer')" size="small" :loading="saving" @click="saveEdit" />
           <Button :label="$t('Annuler')" size="small" severity="secondary" text @click="editing = false" />
         </div>
       </div>
-      <p v-else class="body">{{ comment.body }}</p>
+      <p v-else class="body"><RichText :text="comment.body" /></p>
 
       <div v-if="!editing && (canReply || canEdit || canDelete)" class="actions">
         <button v-if="canReply" type="button" class="link" @click="replying = !replying"><i class="pi pi-reply"></i> {{ $t('Répondre') }}</button>

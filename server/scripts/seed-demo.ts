@@ -12,6 +12,7 @@ import { migrate } from '../db/migrations.ts';
 import { seedSystem } from '../db/seed.ts';
 import { Logger } from '../monitoring/logger.ts';
 import { Metrics } from '../monitoring/metrics.ts';
+import { SecretBox } from '../auth/secretBox.ts';
 import { Hub } from '../realtime/hub.ts';
 import { getAuthUser } from '../services/access.ts';
 import { createComment } from '../services/comments.ts';
@@ -32,6 +33,7 @@ const ctx: AppContext = {
   logger: new Logger(db, { minLevel: 'error', toConsole: false }),
   metrics: new Metrics(db, { wsClients: () => 0 }),
   uploadsDir: config.uploadsDir ?? '',
+  secrets: new SecretBox(config.dbPath),
 };
 
 if (db.get('SELECT 1 FROM projects WHERE name = ?', PROJECT_NAME)) {

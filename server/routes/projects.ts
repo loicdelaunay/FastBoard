@@ -11,6 +11,8 @@ import {
   createTicketSchema,
   deliveryPatchSchema,
   deliverySchema,
+  listItemPatchSchema,
+  listItemSchema,
   memberRoleSchema,
   memberSchema,
   ticketQuerySchema,
@@ -38,6 +40,7 @@ import {
   updateDelivery,
 } from '../services/projectConfig.ts';
 import { parsePermissions } from '../services/rows.ts';
+import { createItem, deleteItem, updateItem } from '../services/projectLists.ts';
 import { createTicket, queryTickets } from '../services/tickets.ts';
 
 export function projectsRouter(ctx: AppContext): Router {
@@ -157,6 +160,46 @@ export function projectsRouter(ctx: AppContext): Router {
     res.json({ ok: true });
   });
 
+  // --- Priorités et composants (même forme : nom, couleur, icône, ordre) --------------------------------------------
+
+  router.post('/projects/:id/priorities', (req, res) => {
+    const projectId = idParam(req.params.id);
+    requireProject(ctx, currentUser(res), projectId, 'project.edit');
+    res.status(201).json({ priority: createItem(ctx, actorOf(req, res), 'priority', projectId, parse(listItemSchema, req.body)) });
+  });
+
+  router.patch('/projects/:id/priorities/:priorityId', (req, res) => {
+    const projectId = idParam(req.params.id);
+    requireProject(ctx, currentUser(res), projectId, 'project.edit');
+    res.json({ priority: updateItem(ctx, actorOf(req, res), 'priority', projectId, idParam(req.params.priorityId), parse(listItemPatchSchema, req.body)) });
+  });
+
+  router.delete('/projects/:id/priorities/:priorityId', (req, res) => {
+    const projectId = idParam(req.params.id);
+    requireProject(ctx, currentUser(res), projectId, 'project.edit');
+    deleteItem(ctx, actorOf(req, res), 'priority', projectId, idParam(req.params.priorityId));
+    res.json({ ok: true });
+  });
+
+  router.post('/projects/:id/components', (req, res) => {
+    const projectId = idParam(req.params.id);
+    requireProject(ctx, currentUser(res), projectId, 'project.edit');
+    res.status(201).json({ component: createItem(ctx, actorOf(req, res), 'component', projectId, parse(listItemSchema, req.body)) });
+  });
+
+  router.patch('/projects/:id/components/:componentId', (req, res) => {
+    const projectId = idParam(req.params.id);
+    requireProject(ctx, currentUser(res), projectId, 'project.edit');
+    res.json({ component: updateItem(ctx, actorOf(req, res), 'component', projectId, idParam(req.params.componentId), parse(listItemPatchSchema, req.body)) });
+  });
+
+  router.delete('/projects/:id/components/:componentId', (req, res) => {
+    const projectId = idParam(req.params.id);
+    requireProject(ctx, currentUser(res), projectId, 'project.edit');
+    deleteItem(ctx, actorOf(req, res), 'component', projectId, idParam(req.params.componentId));
+    res.json({ ok: true });
+  });
+
   // --- Livraisons ----------------------------------------------------------------------------------------------------
 
   router.post('/projects/:id/deliveries', (req, res) => {
@@ -191,6 +234,8 @@ export function projectsRouter(ctx: AppContext): Router {
       queryTickets(ctx.db, projectId, {
         statuses: query.status,
         categoryId: query.categoryId,
+        priorityId: query.priorityId,
+        componentId: query.componentId,
         deliveryId: query.deliveryId === 'none' ? null : query.deliveryId,
         assigneeId: query.assigneeId === 'me' ? user.id : query.assigneeId,
         key: query.key,
@@ -213,7 +258,7 @@ export function projectsRouter(ctx: AppContext): Router {
         before: query.before,
         groups: query.group,
         userId: query.userId,
-        viaApi: query.viaApi,
+        source: query.source ?? (query.viaApi ? 'api' : undefined),
         ticketId: query.ticketId,
       }),
     );

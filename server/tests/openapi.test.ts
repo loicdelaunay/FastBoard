@@ -106,7 +106,7 @@ describe("documentation de l'API (OpenAPI / Swagger)", () => {
     assert.equal(createToken.properties.expiresInDays.default, 90);
 
     const query = spec.paths['/projects/{id}/tickets'].get.parameters.filter((p: Json) => p.in === 'query').map((p: Json) => p.name);
-    assert.deepEqual(query.sort(), ['assigneeId', 'categoryId', 'deliveryId', 'key', 'limit', 'offset', 'q', 'status', 'updatedSince']);
+    assert.deepEqual(query.sort(), ['assigneeId', 'categoryId', 'componentId', 'deliveryId', 'key', 'limit', 'offset', 'priorityId', 'q', 'status', 'updatedSince']);
     const activityQuery = spec.paths['/projects/{id}/activity'].get.parameters.filter((p: Json) => p.in === 'query').map((p: Json) => p.name);
     assert.ok(activityQuery.includes('before') && activityQuery.includes('viaApi'));
   });

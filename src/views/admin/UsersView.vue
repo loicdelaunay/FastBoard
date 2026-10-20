@@ -8,10 +8,13 @@ import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
 import InputText from 'primevue/inputtext';
 import Tag from 'primevue/tag';
+import { RouterLink } from 'vue-router';
 import type { AdminUserDTO, RoleDTO } from '@shared/types';
 import { api } from '@/api';
 import UserFormDialog from '@/components/admin/UserFormDialog.vue';
+import ColumnValueFilter from '@/components/common/ColumnValueFilter.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import { useColumnFilters } from '@/composables/useColumnFilters';
 import { useAuthStore } from '@/stores/auth';
 import { formatRelative } from '@/utils/format';
 import { notify, notifyError } from '@/utils/notify';
@@ -30,7 +33,18 @@ const dialogOpen = ref(false);
 const editing = ref<AdminUserDTO | null>(null);
 let timer: number | null = null;
 
-const filtered = computed(() => users.value.filter((user) => matchesQuery(search.value, [user.name, user.email, user.roleName])));
+const filtered = computed(() =>
+  users.value
+    .filter((user) => matchesQuery(search.value, [user.name, user.email, user.roleName, t(user.roleName)]))
+    .map((user) => ({
+      ...user,
+      roleLabel: t(user.roleName),
+      statusLabel: !user.isActive ? t('Désactivé') : online.value.has(user.id) ? t('En ligne') : t('Hors ligne'),
+      lastLogin: user.lastLoginAt ?? '',
+    })),
+);
+const columnFilters = useColumnFilters(filtered, ['roleLabel', 'statusLabel']);
+const filterProps = { showFilterMatchModes: false, showFilterOperator: false, showAddButton: false, showApplyButton: false } as const;
 
 async function load(): Promise<void> {
   try {
@@ -108,31 +122,33 @@ async function toggleActive(user: AdminUserDTO): Promise<void> {
       <InputText v-model="search" :placeholder="$t('Rechercher un nom, un e-mail, un rôle…')" fluid />
     </IconField>
 
-    <DataTable :value="filtered" :loading="loading" data-key="id" size="small" row-hover paginator :rows="20" class="table">
+    <DataTable v-model:filters="columnFilters.filters.value" filter-display="menu" :value="filtered" :loading="loading" data-key="id" size="small" row-hover paginator :rows="20" removable-sort class="table">
       <template #empty><p class="muted">{{ $t('Aucun utilisateur.') }}</p></template>
       <Column :header="$t('Utilisateur')" sort-field="name" sortable style="min-width: 15rem">
         <template #body="{ data }">
           <div class="row">
             <UserAvatar :user="data" :ring="online.has(data.id) ? 'online' : 'none'" />
             <div class="who">
-              <strong>{{ data.name }}</strong>
+              <RouterLink :to="{ name: 'user', params: { id: data.id } }" class="name-link"><strong>{{ data.name }}</strong></RouterLink>
               <span class="muted small">{{ data.email }}</span>
             </div>
           </div>
         </template>
       </Column>
-      <Column field="roleName" :header="$t('Rôle')" sortable style="min-width: 10rem">
-        <template #body="{ data }"><Tag :value="$t(data.roleName)" :severity="data.roleKey === 'super_admin' ? 'danger' : data.roleKey === 'admin' ? 'warn' : 'secondary'" /></template>
+      <Column field="roleLabel" :header="$t('Rôle')" sortable v-bind="filterProps" style="min-width: 10rem">
+        <template #body="{ data }"><Tag :value="data.roleLabel" :severity="data.roleKey === 'super_admin' ? 'danger' : data.roleKey === 'admin' ? 'warn' : 'secondary'" /></template>
+        <template #filter="{ filterModel, filterCallback }"><ColumnValueFilter :filter-model="filterModel" :options="columnFilters.optionsFor('roleLabel')" @apply="filterCallback()" /></template>
       </Column>
-      <Column :header="$t('Statut')" style="width: 8rem">
+      <Column field="statusLabel" :header="$t('Statut')" sortable v-bind="filterProps" style="width: 9rem">
+        <template #filter="{ filterModel, filterCallback }"><ColumnValueFilter :filter-model="filterModel" :options="columnFilters.optionsFor('statusLabel')" @apply="filterCallback()" /></template>
         <template #body="{ data }">
           <Tag v-if="!data.isActive" :value="$t('Désactivé')" severity="contrast" />
           <span v-else-if="online.has(data.id)" class="online"><i class="dot"></i> {{ $t('En ligne') }}</span>
           <span v-else class="muted small">{{ $t('Hors ligne') }}</span>
         </template>
       </Column>
-      <Column :header="$t('Dernière connexion')" style="min-width: 10rem">
-        <template #body="{ data }"><span class="muted small">{{ data.lastLoginAt ? formatRelative(data.lastLoginAt) : 'Jamais' }}</span></template>
+      <Column field="lastLogin" :header="$t('Dernière connexion')" sortable style="min-width: 10rem">
+        <template #body="{ data }"><span class="muted small">{{ data.lastLoginAt ? formatRelative(data.lastLoginAt) : $t('Jamais') }}</span></template>
       </Column>
       <Column header="" style="width: 9rem">
         <template #body="{ data }">
@@ -188,5 +204,13 @@ async function toggleActive(user: AdminUserDTO): Promise<void> {
   height: 0.5rem;
   border-radius: 50%;
   background: #22c55e;
+}
+.name-link {
+  color: inherit;
+  text-decoration: none;
+}
+.name-link:hover {
+  color: var(--fb-accent);
+  text-decoration: underline;
 }
 </style>

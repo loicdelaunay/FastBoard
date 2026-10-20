@@ -1,3 +1,4 @@
+import { DEFAULT_PRIORITIES } from '../../shared/constants.ts';
 import type { Db } from './database.ts';
 
 /** Migrations ordonnées ; `PRAGMA user_version` mémorise la dernière appliquée. */
@@ -293,6 +294,94 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
   // v7 : langue de l'interface choisie par chaque utilisateur (NULL = suivre la langue du navigateur).
   (db) => {
     db.exec('ALTER TABLE users ADD COLUMN locale TEXT');
+  },
+
+  // v8 : priorités et composants par projet, sous-tâches, dépendances, inactivité, « via » dans l'historique,
+  // jetons ré-affichables, réglages de l'application (sauvegardes) et historique des sauvegardes.
+  (db) => {
+    db.exec(`
+      CREATE TABLE priorities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        color TEXT NOT NULL DEFAULT '#6366f1',
+        icon TEXT NOT NULL DEFAULT 'pi pi-flag',
+        position INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (project_id, name)
+      );
+      CREATE TABLE components (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        color TEXT NOT NULL DEFAULT '#6366f1',
+        icon TEXT NOT NULL DEFAULT 'pi pi-box',
+        position INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (project_id, name)
+      );
+      CREATE TABLE ticket_components (
+        ticket_id INTEGER NOT NULL REFERENCES tickets (id) ON DELETE CASCADE,
+        component_id INTEGER NOT NULL REFERENCES components (id) ON DELETE CASCADE,
+        PRIMARY KEY (ticket_id, component_id)
+      );
+      CREATE INDEX idx_ticket_components_component ON ticket_components (component_id);
+      CREATE TABLE ticket_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL REFERENCES tickets (id) ON DELETE CASCADE,
+        target_id INTEGER NOT NULL REFERENCES tickets (id) ON DELETE CASCADE,
+        reason TEXT NOT NULL,
+        created_by INTEGER REFERENCES users (id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (ticket_id, target_id, reason)
+      );
+      CREATE INDEX idx_ticket_links_target ON ticket_links (target_id);
+      CREATE TABLE ticket_subtasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL REFERENCES tickets (id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        done INTEGER NOT NULL DEFAULT 0,
+        position REAL NOT NULL DEFAULT 0,
+        assignee_id INTEGER REFERENCES users (id) ON DELETE SET NULL,
+        created_by INTEGER REFERENCES users (id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        done_at TEXT
+      );
+      CREATE INDEX idx_ticket_subtasks_ticket ON ticket_subtasks (ticket_id);
+      ALTER TABLE tickets ADD COLUMN priority_id INTEGER REFERENCES priorities (id) ON DELETE SET NULL;
+      ALTER TABLE tickets ADD COLUMN status_changed_at TEXT;
+      UPDATE tickets SET status_changed_at = COALESCE(completed_at, updated_at);
+      ALTER TABLE ticket_history ADD COLUMN via TEXT;
+      ALTER TABLE api_tokens ADD COLUMN display_name TEXT;
+      ALTER TABLE api_tokens ADD COLUMN secret_enc TEXT;
+      CREATE TABLE app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE backup_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        destination_id TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        status TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        set_id TEXT,
+        file TEXT,
+        size INTEGER,
+        files INTEGER,
+        manifest TEXT,
+        trigger TEXT NOT NULL DEFAULT 'schedule',
+        message TEXT
+      );
+      CREATE INDEX idx_backup_runs_destination ON backup_runs (destination_id, id);
+    `);
+    // Chaque projet existant reçoit les priorités par défaut.
+    const projects = db.all<{ id: number }>('SELECT id FROM projects');
+    for (const project of projects) {
+      DEFAULT_PRIORITIES.forEach((priority, index) => {
+        db.run('INSERT INTO priorities (project_id, name, color, icon, position) VALUES (?, ?, ?, ?, ?)', project.id, priority.name, priority.color, priority.icon, index);
+      });
+    }
+    grantSystemRoles(db, 'global', { admin: ['backups.manage', 'system.manage'] });
   },
 ];
 

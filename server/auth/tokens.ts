@@ -3,6 +3,7 @@ import type { ApiTokenDTO, ApiTokenScope } from '../../shared/types.ts';
 import type { AppContext } from '../context.ts';
 import { nowIso, type Db } from '../db/database.ts';
 import { badRequest, notFound } from '../http/errors.ts';
+import { verifyPassword } from './password.ts';
 import { getAuthUser, type AuthUser } from '../services/access.ts';
 
 /** Tous les jetons commencent par ce préfixe : facile à repérer (et à détecter dans un dépôt par un scanner de secrets). */
@@ -15,8 +16,10 @@ interface TokenRow {
   id: number;
   user_id: number;
   name: string;
+  display_name: string | null;
   prefix: string;
   token_hash: string;
+  secret_enc: string | null;
   scope: ApiTokenScope;
   project_ids: string | null;
   created_at: string;
@@ -45,6 +48,8 @@ function toDTO(row: TokenRow, owner?: { id: number; name: string }): ApiTokenDTO
   return {
     id: row.id,
     name: row.name,
+    displayName: row.display_name,
+    revealable: row.secret_enc !== null,
     prefix: row.prefix,
     scope: row.scope,
     projectIds: parseProjectIds(row.project_ids),
@@ -58,6 +63,7 @@ function toDTO(row: TokenRow, owner?: { id: number; name: string }): ApiTokenDTO
 
 export interface CreateTokenInput {
   name: string;
+  displayName?: string | null;
   scope: ApiTokenScope;
   /** `null` = tous les projets accessibles à l'utilisateur. */
   projectIds: number[] | null;
@@ -65,7 +71,7 @@ export interface CreateTokenInput {
   expiresInDays: number | null;
 }
 
-/** Crée un jeton ; le secret en clair n'est retourné qu'ici et n'est jamais stocké. */
+/** Crée un jeton ; le secret n'est stocké que chiffré (réaffichable par son propriétaire, mot de passe à l'appui). */
 export function createApiToken(ctx: AppContext, user: AuthUser, input: CreateTokenInput): { token: ApiTokenDTO; secret: string } {
   const { db } = ctx;
   if (input.projectIds !== null) {
@@ -82,12 +88,14 @@ export function createApiToken(ctx: AppContext, user: AuthUser, input: CreateTok
   const now = new Date();
   const expiresAt = input.expiresInDays === null ? null : new Date(now.getTime() + input.expiresInDays * 86_400_000).toISOString();
   const { lastInsertRowid } = db.run(
-    `INSERT INTO api_tokens (user_id, name, prefix, token_hash, scope, project_ids, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO api_tokens (user_id, name, display_name, prefix, token_hash, secret_enc, scope, project_ids, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     user.id,
     input.name,
+    input.displayName || null,
     secret.slice(0, PREFIX_LENGTH),
     hashSecret(secret),
+    ctx.secrets.seal(secret),
     input.scope,
     input.projectIds === null ? null : JSON.stringify([...new Set(input.projectIds)]),
     now.toISOString(),
@@ -108,6 +116,56 @@ export function listAllApiTokens(db: Db): ApiTokenDTO[] {
     'SELECT t.*, u.name AS owner_name FROM api_tokens t JOIN users u ON u.id = t.user_id ORDER BY t.id DESC',
   );
   return rows.map((row) => toDTO(row, { id: row.user_id, name: row.owner_name }));
+}
+
+function requireOwnedToken(db: Db, tokenId: number, actor: { userId: number; canManageAll: boolean }): TokenRow {
+  const row = db.get<TokenRow>('SELECT * FROM api_tokens WHERE id = ?', tokenId);
+  if (!row || (row.user_id !== actor.userId && !actor.canManageAll)) {
+    throw notFound('Jeton introuvable.');
+  }
+  return row;
+}
+
+export interface UpdateTokenInput {
+  displayName?: string | null;
+  /** Nouvelle échéance, comptée à partir d'aujourd'hui ; `null` = n'expire plus. */
+  expiresInDays?: number | null;
+}
+
+/** Renomme (nom d'affichage) ou prolonge un jeton non révoqué ; un jeton expiré peut être prolongé. */
+export function updateApiToken(ctx: AppContext, tokenId: number, actor: { userId: number; canManageAll: boolean }, input: UpdateTokenInput): ApiTokenDTO {
+  const row = requireOwnedToken(ctx.db, tokenId, actor);
+  if (row.revoked_at !== null) {
+    throw badRequest('Un jeton révoqué ne peut plus être modifié.');
+  }
+  const displayName = input.displayName !== undefined ? input.displayName || null : row.display_name;
+  const expiresAt =
+    input.expiresInDays === undefined ? row.expires_at : input.expiresInDays === null ? null : new Date(Date.now() + input.expiresInDays * 86_400_000).toISOString();
+  ctx.db.run('UPDATE api_tokens SET display_name = ?, expires_at = ? WHERE id = ?', displayName, expiresAt, tokenId);
+  if (expiresAt !== row.expires_at) {
+    ctx.logger.info('auth', `Jeton d'API prolongé : ${row.name}`, { tokenId, expiresAt }, actor.userId);
+  }
+  const owner = ctx.db.get<{ name: string }>('SELECT name FROM users WHERE id = ?', row.user_id);
+  const fresh = ctx.db.get<TokenRow>('SELECT * FROM api_tokens WHERE id = ?', tokenId)!;
+  return toDTO(fresh, actor.canManageAll ? { id: row.user_id, name: owner?.name ?? '' } : undefined);
+}
+
+/** Réaffiche le secret d'un jeton à son propriétaire, après vérification de son mot de passe. */
+export async function revealApiToken(ctx: AppContext, tokenId: number, userId: number, password: string): Promise<string> {
+  const row = requireOwnedToken(ctx.db, tokenId, { userId, canManageAll: false });
+  const account = ctx.db.get<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = ?', userId);
+  if (!account || !(await verifyPassword(password, account.password_hash))) {
+    throw badRequest('Mot de passe incorrect.');
+  }
+  if (row.revoked_at !== null) {
+    throw badRequest('Ce jeton est révoqué.');
+  }
+  const secret = row.secret_enc ? ctx.secrets.open(row.secret_enc) : null;
+  if (!secret) {
+    throw badRequest("Ce jeton a été créé avant la version 1.1 ou sa clé de chiffrement a changé : il ne peut pas être réaffiché. Créez-en un nouveau.");
+  }
+  ctx.logger.info('auth', `Jeton d'API réaffiché : ${row.name}`, { tokenId }, userId);
+  return secret;
 }
 
 /** Révoque un jeton (le propriétaire, ou un administrateur des jetons) ; les connexions WebSocket qui l'utilisent sont coupées. */
@@ -143,5 +201,5 @@ export function resolveApiToken(ctx: AppContext, secret: string | undefined): Au
   if (row.last_used_at === null || now - Date.parse(row.last_used_at) > LAST_USED_GRANULARITY_MS) {
     ctx.db.run('UPDATE api_tokens SET last_used_at = ? WHERE id = ?', new Date(now).toISOString(), row.id);
   }
-  return { ...user, token: { id: row.id, name: row.name, scope: row.scope, projectIds: parseProjectIds(row.project_ids) } };
+  return { ...user, token: { id: row.id, name: row.name, displayName: row.display_name, scope: row.scope, projectIds: parseProjectIds(row.project_ids) } };
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import Button from 'primevue/button';
-import Textarea from 'primevue/textarea';
+import MentionTextarea from '@/components/common/MentionTextarea.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
@@ -10,7 +10,7 @@ import { notifyError } from '@/utils/notify';
 import { t } from '@/i18n';
 const props = withDefaults(
   defineProps<{ ticketId: number; parentId?: number | null; placeholder?: string; autofocus?: boolean }>(),
-  { parentId: null, placeholder: t('Écrire un commentaire…'), autofocus: false },
+  { parentId: null, placeholder: t('Écrire un commentaire… (@ pour mentionner)'), autofocus: false },
 );
 const emit = defineEmits<{ sent: []; cancel: [] }>();
 
@@ -41,7 +41,7 @@ async function send(): Promise<void> {
   <form class="composer" @submit.prevent="send">
     <UserAvatar :user="auth.user" />
     <div class="box">
-      <Textarea
+      <MentionTextarea
         v-model="body"
         :placeholder="placeholder"
         :autofocus="autofocus"

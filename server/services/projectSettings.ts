@@ -52,6 +52,8 @@ export function describeSettingsChange(before: ProjectSettingsDTO, after: Projec
   toggle('déplacement automatique vers Terminé', before.autoMoveDone, after.autoMoveDone);
   toggle('réouverture automatique', before.autoReopen, after.autoReopen);
   toggle('confettis', before.confetti, after.confetti);
+  toggle("indicateur d'inactivité", before.staleIndicator, after.staleIndicator);
+  if (before.staleDays !== after.staleDays) parts.push(`inactivité après ${after.staleDays} j`);
   if (JSON.stringify(before.columns) !== JSON.stringify(after.columns)) {
     parts.push('colonnes du Kanban');
   }

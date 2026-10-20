@@ -1,6 +1,10 @@
 import { exec } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 import { startServer, type RunningServer } from './app.ts';
+import { loadConfig } from './config.ts';
+import { writeSupervisorPid } from './system/service.ts';
+import { runSupervisor } from './system/supervisor.ts';
 import { readAsset, runningAsExecutable } from './runtime.ts';
 
 if (runningAsExecutable) {
@@ -83,4 +87,11 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
-void main();
+if (process.argv.includes('--supervise')) {
+  // Mode service : ce processus ne sert rien lui-même, il garde le serveur en vie.
+  const { dbPath } = loadConfig();
+  writeSupervisorPid(dbPath);
+  runSupervisor(path.join(path.dirname(path.resolve(dbPath)), 'service.log'));
+} else {
+  void main();
+}

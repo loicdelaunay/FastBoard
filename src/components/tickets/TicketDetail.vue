@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import Tab from 'primevue/tab';
@@ -7,9 +7,10 @@ import TabList from 'primevue/tablist';
 import TabPanel from 'primevue/tabpanel';
 import TabPanels from 'primevue/tabpanels';
 import Tabs from 'primevue/tabs';
-import Textarea from 'primevue/textarea';
 import type { TicketDTO } from '@shared/types';
 import type { TicketInput } from '@/api';
+import MentionTextarea from '@/components/common/MentionTextarea.vue';
+import RichText from '@/components/common/RichText.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useFileDrop } from '@/composables/useFileDrop';
 import { useTicketActions } from '@/composables/useTicketActions';
@@ -20,7 +21,10 @@ import TicketAttachments from './TicketAttachments.vue';
 import TicketComments from './TicketComments.vue';
 import TicketFieldsGrid, { type TicketFieldValues } from './TicketFieldsGrid.vue';
 import TicketHistory from './TicketHistory.vue';
+import StaleBar from './StaleBar.vue';
+import TicketLinks from './TicketLinks.vue';
 import TicketParts from './TicketParts.vue';
+import TicketSubtasks from './TicketSubtasks.vue';
 
 import { t } from '@/i18n';
 const props = defineProps<{ ticket: TicketDTO }>();
@@ -33,6 +37,9 @@ const title = ref(props.ticket.title);
 const description = ref(props.ticket.description);
 const titleFocused = ref(false);
 const descriptionFocused = ref(false);
+/** La description s'affiche mise en forme (mentions, liens) ; un clic passe en édition. */
+const editingDescription = ref(false);
+const descriptionInput = ref<InstanceType<typeof MentionTextarea> | null>(null);
 const tab = ref<'comments' | 'history'>('comments');
 
 const root = ref<HTMLElement | null>(null);
@@ -75,6 +82,8 @@ const creator = computed(() => (props.ticket.createdBy ? project.usersById.get(p
 const values = computed<TicketFieldValues>(() => ({
   status: props.ticket.status,
   categoryId: props.ticket.categoryId,
+  priorityId: props.ticket.priorityId,
+  componentIds: props.ticket.componentIds,
   deliveryId: props.ticket.deliveryId,
   startDate: props.ticket.startDate,
   endDate: props.ticket.endDate,
@@ -101,8 +110,16 @@ async function commitTitle(): Promise<void> {
   }
 }
 
+function editDescription(event?: MouseEvent): void {
+  // Un clic sur un lien ou une mention les suit au lieu de passer en édition.
+  if (!editable.value || (event?.target as HTMLElement | null)?.closest('a, button')) return;
+  editingDescription.value = true;
+  void nextTick(() => descriptionInput.value?.focus());
+}
+
 async function commitDescription(): Promise<void> {
   descriptionFocused.value = false;
+  editingDescription.value = false;
   if (description.value !== props.ticket.description) {
     await save({ description: description.value }, t('Description du ticket'));
   }
@@ -136,22 +153,41 @@ function askDelete(): void {
     <div class="main">
       <div class="field">
         <label for="ticket-description">{{ $t('Description') }}</label>
-        <Textarea
+        <MentionTextarea
+          v-if="editingDescription"
           id="ticket-description"
+          ref="descriptionInput"
           v-model="description"
           rows="4"
           auto-resize
-          :readonly="!editable"
           maxlength="20000"
-          :placeholder="$t('Contexte, critères d\'acceptation, liens utiles…')"
+          :placeholder="$t('Contexte, critères d\'acceptation, liens utiles… (@ pour mentionner)')"
           @focus="descriptionFocused = true"
           @blur="commitDescription"
+          @keydown.esc="($event.target as HTMLTextAreaElement).blur()"
         />
+        <div
+          v-else
+          class="description-view"
+          :class="{ editable, empty: !description.trim() }"
+          :tabindex="editable ? 0 : -1"
+          :role="editable ? 'button' : undefined"
+          :aria-label="editable ? $t('Modifier la description') : undefined"
+          @click="editDescription"
+          @keydown.enter.prevent="editDescription()"
+        >
+          <RichText v-if="description.trim()" :text="description" />
+          <span v-else class="muted">{{ editable ? $t('Ajouter une description… (@ pour mentionner une personne ou un ticket)') : $t('Aucune description.') }}</span>
+        </div>
       </div>
 
       <TicketAttachments ref="attachments" :ticket="ticket" :dragging="dragging" />
 
       <TicketParts :ticket="ticket" />
+
+      <TicketSubtasks :ticket="ticket" />
+
+      <TicketLinks :ticket="ticket" />
 
       <Tabs v-model:value="tab" class="tabs">
         <TabList>
@@ -166,6 +202,7 @@ function askDelete(): void {
     </div>
 
     <aside class="side">
+      <StaleBar :ticket="ticket" />
       <TicketFieldsGrid :values="values" :disabled="!editable" :initial-delivery-id="ticket.initialDeliveryId" @change="onFieldChange" />
 
       <dl class="meta">
@@ -243,6 +280,22 @@ function askDelete(): void {
 .title-input:focus {
   border-color: var(--fb-border);
   background: var(--fb-panel);
+}
+.description-view {
+  min-height: 2.6rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  line-height: 1.55;
+}
+.description-view.editable {
+  cursor: text;
+  border-color: var(--fb-border);
+}
+.description-view.editable:hover,
+.description-view.editable:focus-visible {
+  border-color: var(--fb-accent);
+  outline: none;
 }
 .side {
   display: flex;

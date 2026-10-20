@@ -4,7 +4,10 @@ import { useRoute, useRouter } from 'vue-router';
 import Menu from 'primevue/menu';
 import type { MenuItem } from 'primevue/menuitem';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import { APP_VERSION } from '@shared/changelog';
+import ChangelogDialog from './ChangelogDialog.vue';
 import ConnectionBadge from './ConnectionBadge.vue';
+import GlobalSearch from './GlobalSearch.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
 
@@ -15,11 +18,13 @@ const router = useRouter();
 const route = useRoute();
 const onProjects = computed(() => route.path === '/' || route.path.startsWith('/p/'));
 const menu = ref<InstanceType<typeof Menu> | null>(null);
+const changelogOpen = ref(false);
 
 const items = computed<MenuItem[]>(() => [
   { label: auth.user?.email ?? '', disabled: true, class: 'menu-email' },
   { separator: true },
   { label: t('Mon profil'), icon: 'pi pi-user', command: () => ui.openProfile('profile') },
+  { label: t('Mon activité'), icon: 'pi pi-chart-bar', command: () => auth.user && void router.push({ name: 'user', params: { id: auth.user.id } }) },
   { label: t('Apparence et thème'), icon: 'pi pi-palette', command: () => ui.openProfile('appearance') },
   { label: t('Sécurité'), icon: 'pi pi-lock', command: () => ui.openProfile('security') },
   { label: t('Jetons d\'API'), icon: 'pi pi-key', command: () => ui.openProfile('tokens') },
@@ -42,10 +47,16 @@ function toggle(event: Event): void {
 
 <template>
   <header class="app-header">
-    <router-link to="/" class="brand" :aria-label="$t('FastBoard — projets')">
-      <img src="/favicon.svg" alt="" width="28" height="28" />
-      <span class="brand-name">{{ $t('FastBoard') }}</span>
-    </router-link>
+    <div class="brand">
+      <router-link to="/" class="brand-link" :aria-label="$t('FastBoard — projets')">
+        <img src="/favicon.svg" alt="" width="28" height="28" />
+      </router-link>
+      <div class="brand-text">
+        <router-link to="/" class="brand-name" tabindex="-1">{{ $t('FastBoard') }}</router-link>
+        <button type="button" class="version-chip" :aria-label="$t('Version {version} : voir les nouveautés', { version: APP_VERSION })" @click="changelogOpen = true">v{{ APP_VERSION }}</button>
+      </div>
+    </div>
+    <ChangelogDialog v-model:visible="changelogOpen" />
 
     <nav class="nav" :aria-label="$t('Navigation principale')">
       <router-link to="/" class="nav-link" :class="{ active: onProjects }">
@@ -57,6 +68,7 @@ function toggle(event: Event): void {
     </nav>
 
     <div class="spacer"></div>
+    <GlobalSearch />
     <ConnectionBadge />
 
     <button class="user-button" type="button" aria-haspopup="true" :aria-label="$t('Menu du compte')" @click="toggle">
@@ -84,10 +96,40 @@ function toggle(event: Event): void {
   display: inline-flex;
   align-items: center;
   gap: 0.6rem;
+}
+.brand-link {
+  display: inline-flex;
+}
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+  line-height: 1.1;
+}
+.brand-name {
   color: var(--fb-text);
   font-weight: 800;
   font-size: 1.1rem;
   letter-spacing: -0.02em;
+}
+.version-chip {
+  padding: 0 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--fb-accent) 40%, transparent);
+  border-radius: 999px;
+  background: var(--fb-accent-soft);
+  color: var(--fb-accent);
+  font: inherit;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.version-chip:hover,
+.version-chip:focus-visible {
+  background: var(--fb-accent);
+  color: #fff;
+  outline: none;
 }
 .nav {
   display: flex;
@@ -141,7 +183,7 @@ function toggle(event: Event): void {
   color: var(--fb-muted);
 }
 @media (max-width: 720px) {
-  .brand-name,
+  .brand-text,
   .user-name,
   .chevron,
   .nav-link span {

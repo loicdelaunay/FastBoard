@@ -8,7 +8,7 @@ import { logActivity } from './activity.ts';
 import { removeStoredFiles, storagesOfTicket } from './attachments.ts';
 import { addHistory } from './history.ts';
 import { assertStatusAvailable, getProjectSettings } from './projectSettings.ts';
-import type { AssigneeRow, TicketRow } from './rows.ts';
+import { toLinkDTO, toSubtaskDTO, type AssigneeRow, type LinkRow, type SubtaskRow, type TicketRow } from './rows.ts';
 
 const POSITION_STEP = 1024;
 const MIN_GAP = 1e-6;
@@ -18,6 +18,8 @@ export interface CreateTicketInput {
   description?: string;
   status?: TicketStatus;
   categoryId?: number | null;
+  priorityId?: number | null;
+  componentIds?: number[];
   deliveryId?: number | null;
   startDate?: string | null;
   endDate?: string | null;
@@ -42,7 +44,17 @@ function toAssigneeDTO(row: AssigneeRow): AssigneeDTO {
   return { userId: row.user_id, done: row.done === 1, progress: row.progress, doneAt: row.done_at, note: row.note };
 }
 
-function toTicketDTO(row: TicketRow, assignees: AssigneeRow[], commentCount: number, attachmentCount: number): TicketDTO {
+/** Données rattachées à un ticket, lues à part (une requête par type pour tout un projet). */
+interface TicketExtras {
+  assignees: AssigneeRow[];
+  commentCount: number;
+  attachmentCount: number;
+  componentIds: number[];
+  subtasks: SubtaskRow[];
+  links: LinkRow[];
+}
+
+function toTicketDTO(row: TicketRow, extras: TicketExtras): TicketDTO {
   return {
     id: row.id,
     projectId: row.project_id,
@@ -51,15 +63,20 @@ function toTicketDTO(row: TicketRow, assignees: AssigneeRow[], commentCount: num
     description: row.description,
     status: row.status,
     categoryId: row.category_id,
+    priorityId: row.priority_id,
+    componentIds: extras.componentIds,
     deliveryId: row.delivery_id,
     initialDeliveryId: row.initial_delivery_id,
     startDate: row.start_date,
     endDate: row.end_date,
     progress: row.progress,
     position: row.position,
-    assignees: assignees.map(toAssigneeDTO),
-    commentCount,
-    attachmentCount,
+    assignees: extras.assignees.map(toAssigneeDTO),
+    commentCount: extras.commentCount,
+    attachmentCount: extras.attachmentCount,
+    subtasks: extras.subtasks.map(toSubtaskDTO),
+    links: extras.links.map(toLinkDTO),
+    statusChangedAt: row.status_changed_at ?? row.updated_at,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -79,51 +96,75 @@ export function requireTicket(db: Db, ticketId: number): TicketRow {
   return ticket;
 }
 
+function groupBy<T>(rows: T[], key: (row: T) => number): Map<number, T[]> {
+  const map = new Map<number, T[]>();
+  for (const row of rows) {
+    const list = map.get(key(row));
+    if (list) list.push(row);
+    else map.set(key(row), [row]);
+  }
+  return map;
+}
+
+/** Lit les données rattachées aux tickets visés par `scope` (`t.project_id = ?` ou `t.id = ?`). */
+function loadExtras(db: Db, scope: 'project' | 'ticket', id: number): (ticketId: number) => TicketExtras {
+  const where = scope === 'project' ? 't.project_id = ?' : 't.id = ?';
+  const assignees = groupBy(
+    db.all<AssigneeRow>(`SELECT a.* FROM ticket_assignees a JOIN tickets t ON t.id = a.ticket_id WHERE ${where} ORDER BY a.assigned_at, a.user_id`, id),
+    (row) => row.ticket_id,
+  );
+  const comments = new Map(
+    db
+      .all<{ ticket_id: number; n: number }>(`SELECT c.ticket_id, COUNT(*) AS n FROM ticket_comments c JOIN tickets t ON t.id = c.ticket_id WHERE ${where} AND c.deleted_at IS NULL GROUP BY c.ticket_id`, id)
+      .map((entry) => [entry.ticket_id, entry.n]),
+  );
+  const files = new Map(
+    db
+      .all<{ ticket_id: number; n: number }>(`SELECT a.ticket_id, COUNT(*) AS n FROM ticket_attachments a JOIN tickets t ON t.id = a.ticket_id WHERE ${where} GROUP BY a.ticket_id`, id)
+      .map((entry) => [entry.ticket_id, entry.n]),
+  );
+  const components = groupBy(
+    db.all<{ ticket_id: number; component_id: number }>(
+      `SELECT tc.ticket_id, tc.component_id FROM ticket_components tc JOIN tickets t ON t.id = tc.ticket_id JOIN components c ON c.id = tc.component_id
+        WHERE ${where} ORDER BY c.position, c.id`,
+      id,
+    ),
+    (row) => row.ticket_id,
+  );
+  const subtasks = groupBy(
+    db.all<SubtaskRow>(`SELECT s.* FROM ticket_subtasks s JOIN tickets t ON t.id = s.ticket_id WHERE ${where} ORDER BY s.position, s.id`, id),
+    (row) => row.ticket_id,
+  );
+  const links = groupBy(
+    db.all<LinkRow>(`SELECT l.* FROM ticket_links l JOIN tickets t ON t.id = l.ticket_id WHERE ${where} ORDER BY l.id`, id),
+    (row) => row.ticket_id,
+  );
+  return (ticketId) => ({
+    assignees: assignees.get(ticketId) ?? [],
+    commentCount: comments.get(ticketId) ?? 0,
+    attachmentCount: files.get(ticketId) ?? 0,
+    componentIds: (components.get(ticketId) ?? []).map((row) => row.component_id),
+    subtasks: subtasks.get(ticketId) ?? [],
+    links: links.get(ticketId) ?? [],
+  });
+}
+
 export function getTicketDTO(db: Db, ticketId: number): TicketDTO {
   const row = requireTicket(db, ticketId);
-  const assignees = db.all<AssigneeRow>(
-    'SELECT * FROM ticket_assignees WHERE ticket_id = ? ORDER BY assigned_at, user_id',
-    ticketId,
-  );
-  const count = db.get<{ n: number }>(
-    'SELECT COUNT(*) AS n FROM ticket_comments WHERE ticket_id = ? AND deleted_at IS NULL',
-    ticketId,
-  );
-  const files = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM ticket_attachments WHERE ticket_id = ?', ticketId);
-  return toTicketDTO(row, assignees, count?.n ?? 0, files?.n ?? 0);
+  return toTicketDTO(row, loadExtras(db, 'ticket', ticketId)(ticketId));
 }
 
 export function listTicketDTOs(db: Db, projectId: number): TicketDTO[] {
   const rows = db.all<TicketRow>('SELECT * FROM tickets WHERE project_id = ? ORDER BY position, id', projectId);
-  const assigneeRows = db.all<AssigneeRow>(
-    `SELECT a.* FROM ticket_assignees a JOIN tickets t ON t.id = a.ticket_id
-      WHERE t.project_id = ? ORDER BY a.assigned_at, a.user_id`,
-    projectId,
-  );
-  const counts = db.all<{ ticket_id: number; n: number }>(
-    `SELECT c.ticket_id, COUNT(*) AS n FROM ticket_comments c JOIN tickets t ON t.id = c.ticket_id
-      WHERE t.project_id = ? AND c.deleted_at IS NULL GROUP BY c.ticket_id`,
-    projectId,
-  );
-  const assigneesByTicket = new Map<number, AssigneeRow[]>();
-  for (const row of assigneeRows) {
-    const list = assigneesByTicket.get(row.ticket_id) ?? [];
-    list.push(row);
-    assigneesByTicket.set(row.ticket_id, list);
-  }
-  const fileCounts = db.all<{ ticket_id: number; n: number }>(
-    `SELECT a.ticket_id, COUNT(*) AS n FROM ticket_attachments a JOIN tickets t ON t.id = a.ticket_id
-      WHERE t.project_id = ? GROUP BY a.ticket_id`,
-    projectId,
-  );
-  const countByTicket = new Map(counts.map((entry) => [entry.ticket_id, entry.n]));
-  const filesByTicket = new Map(fileCounts.map((entry) => [entry.ticket_id, entry.n]));
-  return rows.map((row) => toTicketDTO(row, assigneesByTicket.get(row.id) ?? [], countByTicket.get(row.id) ?? 0, filesByTicket.get(row.id) ?? 0));
+  const extras = loadExtras(db, 'project', projectId);
+  return rows.map((row) => toTicketDTO(row, extras(row.id)));
 }
 
 export interface TicketFilters {
   statuses?: TicketStatus[];
   categoryId?: number;
+  priorityId?: number;
+  componentId?: number;
   /** `null` = tickets sans livraison. */
   deliveryId?: number | null;
   /** `'none'` n'est pas géré ici : voir `assigneeId === undefined`. Un entier filtre sur un assigné. */
@@ -135,7 +176,7 @@ export interface TicketFilters {
   offset: number;
 }
 
-function foldText(value: string): string {
+export function foldText(value: string): string {
   return value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
 
@@ -148,6 +189,8 @@ export function queryTickets(db: Db, projectId: number, filters: TicketFilters):
   const matching = listTicketDTOs(db, projectId).filter((ticket) => {
     if (filters.statuses?.length && !filters.statuses.includes(ticket.status)) return false;
     if (filters.categoryId !== undefined && ticket.categoryId !== filters.categoryId) return false;
+    if (filters.priorityId !== undefined && ticket.priorityId !== filters.priorityId) return false;
+    if (filters.componentId !== undefined && !ticket.componentIds.includes(filters.componentId)) return false;
     if (filters.deliveryId !== undefined && ticket.deliveryId !== filters.deliveryId) return false;
     if (filters.assigneeId === 'none' && ticket.assignees.length > 0) return false;
     if (typeof filters.assigneeId === 'number' && !ticket.assignees.some((a) => a.userId === filters.assigneeId)) return false;
@@ -187,6 +230,50 @@ function assertCategory(db: Db, projectId: number, categoryId: number | null | u
   }
 }
 
+function assertPriority(db: Db, projectId: number, priorityId: number | null | undefined): void {
+  if (priorityId == null) {
+    return;
+  }
+  if (!db.get('SELECT 1 FROM priorities WHERE id = ? AND project_id = ?', priorityId, projectId)) {
+    throw badRequest("Cette priorité n'appartient pas au projet.");
+  }
+}
+
+function assertComponents(db: Db, projectId: number, componentIds: number[]): void {
+  for (const componentId of componentIds) {
+    if (!db.get('SELECT 1 FROM components WHERE id = ? AND project_id = ?', componentId, projectId)) {
+      throw badRequest("Ce composant n'appartient pas au projet.");
+    }
+  }
+}
+
+function priorityName(db: Db, id: number | null): string | null {
+  return id === null ? null : (db.get<{ name: string }>('SELECT name FROM priorities WHERE id = ?', id)?.name ?? null);
+}
+
+function componentNames(db: Db, ticketId: number): string {
+  return db
+    .all<{ name: string }>('SELECT c.name FROM ticket_components tc JOIN components c ON c.id = tc.component_id WHERE tc.ticket_id = ? ORDER BY c.position, c.id', ticketId)
+    .map((row) => row.name)
+    .join(', ');
+}
+
+/** Remplace les composants d'un ticket ; retourne la modification pour l'historique, ou `null` si rien ne change. */
+function replaceComponents(db: Db, ticketId: number, projectId: number, componentIds: number[]): HistoryChange | null {
+  const next = [...new Set(componentIds)];
+  assertComponents(db, projectId, next);
+  const current = db.all<{ component_id: number }>('SELECT component_id FROM ticket_components WHERE ticket_id = ?', ticketId).map((row) => row.component_id);
+  if (current.length === next.length && current.every((id) => next.includes(id))) {
+    return null;
+  }
+  const before = componentNames(db, ticketId);
+  db.run('DELETE FROM ticket_components WHERE ticket_id = ?', ticketId);
+  for (const componentId of next) {
+    db.run('INSERT INTO ticket_components (ticket_id, component_id) VALUES (?, ?)', ticketId, componentId);
+  }
+  return { field: 'components', from: before || null, to: componentNames(db, ticketId) || null };
+}
+
 function assertDelivery(db: Db, projectId: number, deliveryId: number | null | undefined): void {
   if (deliveryId == null) {
     return;
@@ -196,7 +283,7 @@ function assertDelivery(db: Db, projectId: number, deliveryId: number | null | u
   }
 }
 
-function assertMembers(db: Db, projectId: number, userIds: number[]): void {
+export function assertMembers(db: Db, projectId: number, userIds: number[]): void {
   for (const userId of userIds) {
     const member = db.get(
       `SELECT 1 FROM project_members m JOIN users u ON u.id = m.user_id
@@ -246,6 +333,7 @@ function statusSets(db: Db, row: TicketRow, status: TicketStatus): Record<string
   return {
     status,
     completed_at: status === 'done' ? nowIso() : null,
+    status_changed_at: nowIso(),
     position: endPosition(db, row.project_id, status, row.id),
   };
 }
@@ -259,6 +347,21 @@ interface Collector {
 export function ticketKeyOf(db: Db, ticket: Pick<TicketRow, 'project_id' | 'number'>): string {
   const project = db.get<{ key: string }>('SELECT key FROM projects WHERE id = ?', ticket.project_id);
   return `${project?.key ?? '#'}-${ticket.number}`;
+}
+
+/**
+ * Publie une modification faite hors de ce module (sous-tâches, dépendances…) : ticket à jour, entrées d'historique
+ * et journal d'activité, comme pour les modifications faites ici.
+ */
+export function publishTicketChange(ctx: AppContext, actor: Actor, ticketId: number, history: HistoryEntryDTO[]): TicketDTO {
+  const ticket = getTicketDTO(ctx.db, ticketId);
+  flush(ctx, actor, ticket.projectId, ticketId, { events: [{ type: 'ticket.updated', ticket }], history });
+  return ticket;
+}
+
+/** Marque le ticket comme modifié (sans autre changement). */
+export function touchTicket(db: Db, ticketId: number): void {
+  db.run('UPDATE tickets SET updated_at = ? WHERE id = ?', nowIso(), ticketId);
 }
 
 /** Diffuse les évènements du ticket et les inscrit dans le journal d'activité du projet. */
@@ -305,7 +408,7 @@ function reconcileStatus(
   if (allDone && row.status !== 'done' && settings.autoMoveDone) {
     applySets(db, ticketId, statusSets(db, row, 'done'));
     collector.history.push(
-      addHistory(db, ticketId, actor.userId, {
+      addHistory(db, ticketId, actor, {
         kind: 'updated',
         auto: 'all_parts_done',
         changes: [{ field: 'status', from: row.status, to: 'done' }],
@@ -314,7 +417,7 @@ function reconcileStatus(
   } else if (!allDone && options.reopened && row.status === 'done' && settings.autoReopen) {
     applySets(db, ticketId, statusSets(db, row, 'in_progress'));
     collector.history.push(
-      addHistory(db, ticketId, actor.userId, {
+      addHistory(db, ticketId, actor, {
         kind: 'updated',
         auto: 'part_reopened',
         changes: [{ field: 'status', from: 'done', to: 'in_progress' }],
@@ -333,6 +436,7 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
 
   const ticketId = db.transaction(() => {
     assertCategory(db, projectId, input.categoryId);
+    assertPriority(db, projectId, input.priorityId);
     assertDelivery(db, projectId, input.deliveryId);
     const assigneeIds = [...new Set(input.assigneeIds ?? [])];
     assertMembers(db, projectId, assigneeIds);
@@ -350,15 +454,16 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
     }
     const now = nowIso();
     const { lastInsertRowid } = db.run(
-      `INSERT INTO tickets (project_id, number, title, description, status, category_id, delivery_id, initial_delivery_id,
-                            start_date, end_date, progress, position, created_by, created_at, updated_at, completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tickets (project_id, number, title, description, status, category_id, priority_id, delivery_id, initial_delivery_id,
+                            start_date, end_date, progress, position, created_by, created_at, updated_at, completed_at, status_changed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       projectId,
       sequence.ticket_seq,
       input.title,
       input.description ?? '',
       status,
       input.categoryId ?? null,
+      input.priorityId ?? null,
       input.deliveryId ?? null,
       input.deliveryId ?? null,
       input.startDate ?? null,
@@ -369,7 +474,11 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
       now,
       now,
       status === 'done' ? now : null,
+      now,
     );
+    if (input.componentIds?.length) {
+      replaceComponents(db, lastInsertRowid, projectId, input.componentIds);
+    }
     for (const userId of assigneeIds) {
       db.run(
         'INSERT INTO ticket_assignees (ticket_id, user_id, done, progress, done_at, assigned_at) VALUES (?, ?, 0, 0, NULL, ?)',
@@ -378,10 +487,10 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
         now,
       );
     }
-    collector.history.push(addHistory(db, lastInsertRowid, actor.userId, { kind: 'created', title: input.title }));
+    collector.history.push(addHistory(db, lastInsertRowid, actor, { kind: 'created', title: input.title }));
     if (assigneeIds.length > 0) {
       collector.history.push(
-        addHistory(db, lastInsertRowid, actor.userId, {
+        addHistory(db, lastInsertRowid, actor, {
           kind: 'assignees',
           added: assigneeIds.map((userId) => userRef(db, userId)),
           removed: [],
@@ -421,6 +530,18 @@ export function updateTicket(ctx: AppContext, actor: Actor, ticketId: number, in
       sets.category_id = input.categoryId;
       changes.push({ field: 'category', from: categoryName(db, row.category_id), to: categoryName(db, input.categoryId) });
     }
+    if (input.priorityId !== undefined && input.priorityId !== row.priority_id) {
+      assertPriority(db, projectId, input.priorityId);
+      sets.priority_id = input.priorityId;
+      changes.push({ field: 'priority', from: priorityName(db, row.priority_id), to: priorityName(db, input.priorityId) });
+    }
+    if (input.componentIds !== undefined) {
+      const change = replaceComponents(db, ticketId, projectId, input.componentIds);
+      if (change) {
+        changes.push(change);
+        touchTicket(db, ticketId);
+      }
+    }
     if (input.deliveryId !== undefined && input.deliveryId !== row.delivery_id) {
       assertDelivery(db, projectId, input.deliveryId);
       sets.delivery_id = input.deliveryId;
@@ -452,7 +573,7 @@ export function updateTicket(ctx: AppContext, actor: Actor, ticketId: number, in
 
     applySets(db, ticketId, sets);
     if (changes.length > 0) {
-      collector.history.push(addHistory(db, ticketId, actor.userId, { kind: 'updated', changes }));
+      collector.history.push(addHistory(db, ticketId, actor, { kind: 'updated', changes }));
     }
 
     if (input.assigneeIds !== undefined) {
@@ -491,7 +612,7 @@ function replaceAssignees(db: Db, actor: Actor, row: TicketRow, nextIds: number[
   }
   db.run('UPDATE tickets SET updated_at = ? WHERE id = ?', now, row.id);
   collector.history.push(
-    addHistory(db, row.id, actor.userId, { kind: 'assignees', added: addedIds.map((id) => userRef(db, id)), removed }),
+    addHistory(db, row.id, actor, { kind: 'assignees', added: addedIds.map((id) => userRef(db, id)), removed }),
   );
   reconcileStatus(db, actor, row.id, collector, { reopened: addedIds.length > 0 });
 }
@@ -550,8 +671,9 @@ export function moveTicket(
     if (target.status !== row.status) {
       sets.status = target.status;
       sets.completed_at = target.status === 'done' ? nowIso() : null;
+      sets.status_changed_at = nowIso();
       collector.history.push(
-        addHistory(db, ticketId, actor.userId, {
+        addHistory(db, ticketId, actor, {
           kind: 'updated',
           changes: [{ field: 'status', from: row.status, to: target.status }],
         }),
@@ -604,13 +726,13 @@ export function updatePart(ctx: AppContext, actor: Actor, ticketId: number, user
 
     const user = userRef(db, userId);
     if (noteChanged) {
-      collector.history.push(addHistory(db, ticketId, actor.userId, { kind: 'part', user, note: truncate(nextNote, 200) }));
+      collector.history.push(addHistory(db, ticketId, actor, { kind: 'part', user, note: truncate(nextNote, 200) }));
     }
     if (doneChanged) {
-      collector.history.push(addHistory(db, ticketId, actor.userId, { kind: 'part', user, done: nextDone }));
+      collector.history.push(addHistory(db, ticketId, actor, { kind: 'part', user, done: nextDone }));
       reconcileStatus(db, actor, ticketId, collector, { reopened: !nextDone });
     } else if (progressChanged) {
-      collector.history.push(addHistory(db, ticketId, actor.userId, { kind: 'part', user, progress: nextProgress }));
+      collector.history.push(addHistory(db, ticketId, actor, { kind: 'part', user, progress: nextProgress }));
     }
   });
 

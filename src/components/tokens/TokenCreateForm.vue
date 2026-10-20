@@ -16,6 +16,7 @@ const projects = ref<ProjectSummaryDTO[]>([]);
 const saving = ref(false);
 const form = reactive({
   name: '',
+  displayName: '',
   scope: 'write' as TokenInput['scope'],
   allProjects: true,
   projectIds: [] as number[],
@@ -52,6 +53,7 @@ async function submit(): Promise<void> {
   try {
     const { secret, token } = await api.createToken({
       name: form.name.trim(),
+      displayName: form.displayName.trim() || null,
       scope: form.scope,
       projectIds: form.allProjects ? null : form.projectIds,
       expiresInDays: form.expiresInDays,
@@ -70,7 +72,13 @@ async function submit(): Promise<void> {
     <div class="field">
       <label for="token-name">{{ $t('Nom du jeton') }}</label>
       <InputText id="token-name" v-model="form.name" maxlength="60" :placeholder="$t('Ex. agent-planning')" autofocus />
-      <small class="muted">{{ $t('Il apparaîtra dans le journal d\'activité à côté de chaque action faite avec ce jeton.') }}</small>
+      <small class="muted">{{ $t('Identifiant technique du jeton (ex. le nom du script).') }}</small>
+    </div>
+
+    <div class="field">
+      <label for="token-display-name">{{ $t('Nom d\'affichage (facultatif)') }}</label>
+      <InputText id="token-display-name" v-model="form.displayName" maxlength="60" :placeholder="$t('Ex. Claude, Robot de planification')" />
+      <small class="muted">{{ $t('Affiché dans l\'activité et l\'historique des tickets à côté de chaque action faite avec ce jeton (« via … »).') }}</small>
     </div>
 
     <div class="field">

@@ -8,7 +8,7 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useProjectStore } from '@/stores/project';
 import { formatBytes } from '@/utils/files';
 import { formatDateTime, formatRelative } from '@/utils/format';
-import { FIELD_LABELS, formatChangeValue } from '@/utils/historyFormat';
+import { FIELD_LABELS, SUBTASK_ACTIONS, formatChangeValue, linkReasonLabel } from '@/utils/historyFormat';
 
 import { t } from '@/i18n';
 const props = defineProps<{ activity: ActivityDTO; fresh?: boolean }>();
@@ -34,6 +34,10 @@ const ICONS: Record<string, string> = {
   assignees: 'pi pi-users',
   part: 'pi pi-check-circle',
   attachment: 'pi pi-paperclip',
+  subtask: 'pi pi-list-check',
+  link: 'pi pi-link',
+  priority: 'pi pi-flag',
+  component: 'pi pi-box',
   ticket_deleted: 'pi pi-trash',
   comment: 'pi pi-comment',
   category: 'pi pi-tag',
@@ -144,9 +148,22 @@ const CONFIG_ACTIONS = { created: t('a créé'), updated: t('a modifié'), delet
             <span v-else class="key gone">{{ ticketData.ticketKey }}</span>
           </template>
           <template v-else-if="entry.kind === 'attachment'">
-            {{ entry.action === 'added' ? $t('a joint') : $t('a retiré') }} <strong class="file">{{ entry.name }}</strong> ({{ formatBytes(entry.size) }}) {{ entry.action === 'added' ? 'à' : 'de' }}
+            {{ entry.action === 'added' ? $t('a joint') : $t('a retiré') }} <strong class="file">{{ entry.name }}</strong> ({{ formatBytes(entry.size) }}) {{ entry.action === 'added' ? $t('à') : $t('de') }}
             <button v-if="canOpen(ticketData.ticketId)" type="button" class="key" @click="emit('open', ticketData.ticketId)">{{ ticketData.ticketKey }}</button>
             <span v-else class="key gone">{{ ticketData.ticketKey }}</span>
+          </template>
+          <template v-else-if="entry.kind === 'subtask'">
+            {{ SUBTASK_ACTIONS[entry.action] }} <strong>« {{ entry.title }} »</strong><template v-if="entry.previousTitle"> {{ $t('(avant : « {previousName} »)', { previousName: entry.previousTitle }) }}</template> {{ $t('sur') }}
+            <button v-if="canOpen(ticketData.ticketId)" type="button" class="key" @click="emit('open', ticketData.ticketId)">{{ ticketData.ticketKey }}</button>
+            <span v-else class="key gone">{{ ticketData.ticketKey }}</span>
+          </template>
+          <template v-else-if="entry.kind === 'link'">
+            {{ entry.action === 'added' ? $t('a ajouté une dépendance sur') : $t('a retiré une dépendance de') }}
+            <button v-if="canOpen(ticketData.ticketId)" type="button" class="key" @click="emit('open', ticketData.ticketId)">{{ ticketData.ticketKey }}</button>
+            <span v-else class="key gone">{{ ticketData.ticketKey }}</span>
+            : <em>{{ linkReasonLabel(entry.reason) }}</em>
+            <button v-if="canOpen(entry.target.id)" type="button" class="key" @click="emit('open', entry.target.id)">{{ entry.target.key }}</button>
+            <span v-else class="key gone">{{ entry.target.key }}</span>
           </template>
           <span v-if="entry.kind !== 'created'" class="title-ref">« {{ ticketData.ticketTitle }} »</span>
         </template>
@@ -166,6 +183,12 @@ const CONFIG_ACTIONS = { created: t('a créé'), updated: t('a modifié'), delet
         <!-- Configuration -->
         <template v-else-if="data.kind === 'category'">
           {{ $t('{action} la catégorie', { action: CONFIG_ACTIONS[data.action] }) }} <strong>« {{ data.name }} »</strong><template v-if="data.previousName"> {{ $t('(avant : « {previousName} »)', { previousName: data.previousName }) }}</template>
+        </template>
+        <template v-else-if="data.kind === 'priority'">
+          {{ $t('{action} la priorité', { action: CONFIG_ACTIONS[data.action] }) }} <strong>« {{ $t(data.name) }} »</strong><template v-if="data.previousName"> {{ $t('(avant : « {previousName} »)', { previousName: $t(data.previousName) }) }}</template>
+        </template>
+        <template v-else-if="data.kind === 'component'">
+          {{ $t('{action} le composant', { action: CONFIG_ACTIONS[data.action] }) }} <strong>« {{ data.name }} »</strong><template v-if="data.previousName"> {{ $t('(avant : « {previousName} »)', { previousName: data.previousName }) }}</template>
         </template>
         <template v-else-if="data.kind === 'delivery'">
           {{ $t('{action} la livraison', { action: CONFIG_ACTIONS[data.action] }) }} <strong>« {{ data.name }} »</strong><template v-if="data.previousName"> {{ $t('(avant : « {previousName} »)', { previousName: data.previousName }) }}</template>

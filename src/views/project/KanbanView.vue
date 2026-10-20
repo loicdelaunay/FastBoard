@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import type { TicketStatus } from '@shared/constants';
 import type { TicketDTO } from '@shared/types';
+import DependencyLines from '@/components/kanban/DependencyLines.vue';
 import KanbanColumn from '@/components/kanban/KanbanColumn.vue';
 import TicketFilterBar from '@/components/project/TicketFilterBar.vue';
 import { useKanbanDnd } from '@/composables/useKanbanDnd';
@@ -36,6 +37,7 @@ const columns = computed(() => {
 <template>
   <div class="kanban">
     <div class="bar"><TicketFilterBar :show-status="false" :total="project.tickets.length" :shown="filtered.length" /></div>
+    <div class="board-wrap">
     <div ref="board" class="board" @dragover="board && dnd.autoScroll($event, board)">
       <KanbanColumn
         v-for="column in columns"
@@ -46,6 +48,8 @@ const columns = computed(() => {
         :can-move="canMove"
         @open="openTicket"
       />
+    </div>
+    <DependencyLines :container="board" />
     </div>
   </div>
 </template>
@@ -60,8 +64,15 @@ const columns = computed(() => {
 .bar {
   padding: 0.75rem 1rem;
 }
+.board-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 .board {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   align-items: flex-start;

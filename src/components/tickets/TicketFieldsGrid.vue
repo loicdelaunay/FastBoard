@@ -13,6 +13,8 @@ import { dateToIso, isoToDate } from '@/utils/dates';
 export interface TicketFieldValues {
   status: TicketStatus;
   categoryId: number | null;
+  priorityId: number | null;
+  componentIds: number[];
   deliveryId: number | null;
   startDate: string | null;
   endDate: string | null;
@@ -67,6 +69,26 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
     </div>
 
     <div class="field">
+      <label>{{ $t('Priorité') }}</label>
+      <Select
+        :model-value="values.priorityId"
+        :options="project.priorities"
+        option-label="name"
+        option-value="id"
+        :placeholder="$t('Aucune')"
+        show-clear
+        :disabled="disabled"
+        @update:model-value="(value: number | null) => emit('change', { priorityId: value ?? null })"
+      >
+        <template #value="{ value }">
+          <ColorChip v-if="value && project.prioritiesById.get(value)" :label="project.prioritiesById.get(value)!.name" :color="project.prioritiesById.get(value)!.color" :icon="project.prioritiesById.get(value)!.icon" />
+          <span v-else class="muted">{{ $t('Aucune') }}</span>
+        </template>
+        <template #option="{ option }"><ColorChip :label="option.name" :color="option.color" :icon="option.icon" /></template>
+      </Select>
+    </div>
+
+    <div class="field">
       <label>{{ $t('Catégorie') }}</label>
       <Select
         :model-value="values.categoryId"
@@ -84,6 +106,30 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
         </template>
         <template #option="{ option }"><ColorChip :label="option.name" :color="option.color" /></template>
       </Select>
+    </div>
+
+    <div v-if="project.components.length" class="field">
+      <label>{{ $t('Composants') }}</label>
+      <MultiSelect
+        :model-value="values.componentIds"
+        :options="project.components"
+        option-label="name"
+        option-value="id"
+        :placeholder="$t('Aucun')"
+        filter
+        :disabled="disabled"
+        @update:model-value="(value: number[]) => emit('change', { componentIds: value })"
+      >
+        <template #value="{ value }">
+          <span v-if="value?.length" class="chips">
+            <template v-for="id in value" :key="id">
+              <ColorChip v-if="project.componentsById.get(id)" :label="project.componentsById.get(id)!.name" :color="project.componentsById.get(id)!.color" :icon="project.componentsById.get(id)!.icon" />
+            </template>
+          </span>
+          <span v-else class="muted">{{ $t('Aucun') }}</span>
+        </template>
+        <template #option="{ option }"><ColorChip :label="option.name" :color="option.color" :icon="option.icon" /></template>
+      </MultiSelect>
     </div>
 
     <div class="field">
@@ -144,6 +190,11 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.6rem;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
 }
 .slip {
   color: #d97706;

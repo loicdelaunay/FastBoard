@@ -31,6 +31,8 @@ const router = createRouter({
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
     { path: '/', name: 'projects', component: () => import('@/views/ProjectsView.vue') },
+    { path: '/search', name: 'search', component: () => import('@/views/SearchView.vue') },
+    { path: '/users/:id(\\d+)', name: 'user', component: () => import('@/views/UserView.vue') },
     {
       path: '/p/:projectId(\\d+)',
       component: () => import('@/views/project/ProjectLayout.vue'),
@@ -59,7 +61,9 @@ const router = createRouter({
             if (auth.can('roles.manage')) return { name: 'admin-roles' };
             if (auth.can('tokens.manage')) return { name: 'admin-tokens' };
             if (auth.can('monitoring.view')) return { name: 'admin-performance' };
-            return { name: 'admin-logs' };
+            if (auth.can('logs.view')) return { name: 'admin-logs' };
+            if (auth.can('backups.manage')) return { name: 'admin-backups' };
+            return { name: 'admin-service' };
           },
         },
         { path: 'users', name: 'admin-users', component: () => import('@/views/admin/UsersView.vue'), meta: { permission: 'users.view' } },
@@ -67,6 +71,8 @@ const router = createRouter({
         { path: 'tokens', name: 'admin-tokens', component: () => import('@/views/admin/TokensView.vue'), meta: { permission: 'tokens.manage' } },
         { path: 'performance', name: 'admin-performance', component: () => import('@/views/admin/PerformanceView.vue'), meta: { permission: 'monitoring.view' } },
         { path: 'logs', name: 'admin-logs', component: () => import('@/views/admin/LogsView.vue'), meta: { permission: 'logs.view' } },
+        { path: 'backups', name: 'admin-backups', component: () => import('@/views/admin/BackupsView.vue'), meta: { permission: 'backups.manage' } },
+        { path: 'service', name: 'admin-service', component: () => import('@/views/admin/ServiceView.vue'), meta: { permission: 'system.manage' } },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },

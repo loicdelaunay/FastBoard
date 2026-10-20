@@ -158,7 +158,7 @@ export async function storeAttachment(ctx: AppContext, actor: Actor, ticket: Tic
         nowIso(),
       );
       row = requireAttachment(db, lastInsertRowid);
-      return addHistory(db, ticket.id, actor.userId, { kind: 'attachment', action: 'added', name, size: counter.bytes });
+      return addHistory(db, ticket.id, actor, { kind: 'attachment', action: 'added', name, size: counter.bytes });
     });
     publish(ctx, actor, ticket, [{ type: 'attachment.created', attachment: toAttachmentDTO(row!), attachmentCount: countAttachments(db, ticket.id) }], historyEntry);
   } catch (error) {
@@ -188,7 +188,7 @@ export function deleteAttachment(ctx: AppContext, actor: Actor, ticket: TicketRo
   const { db } = ctx;
   const historyEntry = db.transaction(() => {
     db.run('DELETE FROM ticket_attachments WHERE id = ?', row.id);
-    return addHistory(db, ticket.id, actor.userId, { kind: 'attachment', action: 'removed', name: row.name, size: row.size });
+    return addHistory(db, ticket.id, actor, { kind: 'attachment', action: 'removed', name: row.name, size: row.size });
   });
   removeStoredFiles(ctx, [row.storage]);
   publish(ctx, actor, ticket, [{ type: 'attachment.deleted', attachment: toAttachmentDTO(row), attachmentCount: countAttachments(db, ticket.id) }], historyEntry);

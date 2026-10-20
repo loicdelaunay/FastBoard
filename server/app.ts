@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { SecretBox } from './auth/secretBox.ts';
+import { startBackupScheduler } from './backup/service.ts';
 import { purgeExpiredSessions } from './auth/sessions.ts';
 import { loadConfig, type AppConfig } from './config.ts';
 import type { AppContext } from './context.ts';
@@ -99,7 +101,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   const hub = new Hub();
   const logger = new Logger(db, { minLevel: config.logLevel, toConsole: config.logToConsole });
   const metrics = new Metrics(db, { wsClients: () => hub.clientCount });
-  const ctx: AppContext = { config, db, hub, logger, metrics, uploadsDir };
+  const ctx: AppContext = { config, db, hub, logger, metrics, uploadsDir, secrets: new SecretBox(config.dbPath) };
   db.onSlowQuery = (sql, ms) => logger.warn('db', `Requête SQL lente (${Math.round(ms)} ms)`, { sql: sql.replace(/\s+/g, ' ').slice(0, 300), ms: Math.round(ms) });
   logger.start();
   metrics.start();
@@ -167,6 +169,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
 
   const purge = setInterval(() => purgeExpiredSessions(ctx), 60 * 60 * 1000);
   purge.unref();
+  const stopBackups = startBackupScheduler(ctx);
 
   return {
     ctx,
@@ -175,6 +178,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
     createdSuperAdmin,
     close: async () => {
       clearInterval(purge);
+      stopBackups();
       hub.close();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

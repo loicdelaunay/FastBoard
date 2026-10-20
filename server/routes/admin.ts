@@ -1,9 +1,23 @@
 import express, { type Response, type Router } from 'express';
 import { permissionCatalog } from '../../shared/permissions.ts';
-import { listAllApiTokens, revokeApiToken } from '../auth/tokens.ts';
+import { listAllApiTokens, revokeApiToken, updateApiToken } from '../auth/tokens.ts';
 import type { AppContext } from '../context.ts';
 import { currentUser, sessionOnly } from '../http/middleware.ts';
-import { createRoleSchema, createUserSchema, logQuerySchema, monitoringQuerySchema, updateRoleSchema, updateUserSchema, type LogQueryParams } from '../http/schemas.ts';
+import {
+  backupConfigSchema,
+  createRoleSchema,
+  createUserSchema,
+  folderTestSchema,
+  logQuerySchema,
+  monitoringQuerySchema,
+  serviceActionSchema,
+  updateRoleSchema,
+  updateTokenSchema,
+  updateUserSchema,
+  type LogQueryParams,
+} from '../http/schemas.ts';
+import { backupOverview, forgetDestinationRuns, runBackup, saveBackupConfig, testFolder } from '../backup/service.ts';
+import { serviceAction, serviceStatus } from '../system/service.ts';
 import { queryLogs, type LogQuery } from '../monitoring/logger.ts';
 import { buildSnapshot as buildMonitoringSnapshot } from '../monitoring/snapshot.ts';
 import { idParam, parse } from '../http/validate.ts';
@@ -104,6 +118,15 @@ export function adminRouter(ctx: AppContext): Router {
     res.json({ tokens: listAllApiTokens(ctx.db) });
   });
 
+  router.patch('/admin/tokens/:id', (req, res) => {
+    const actor = currentUser(res);
+    requireGlobal(actor, 'tokens.manage');
+    const tokenId = idParam(req.params.id);
+    const token = updateApiToken(ctx, tokenId, { userId: actor.id, canManageAll: true }, parse(updateTokenSchema, req.body));
+    audit(res, `Jeton d'API modifié par un administrateur (#${tokenId})`, { tokenId, expiresAt: token.expiresAt });
+    res.json({ token });
+  });
+
   router.delete('/admin/tokens/:id', (req, res) => {
     const actor = currentUser(res);
     requireGlobal(actor, 'tokens.manage');
@@ -157,6 +180,49 @@ export function adminRouter(ctx: AppContext): Router {
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="fastboard-journaux-${new Date().toISOString().slice(0, 10)}.ndjson"`);
     res.send(lines.join('\n') + (lines.length ? '\n' : ''));
+  });
+
+  // --- Sauvegardes ---------------------------------------------------------------------------------------------------
+
+  router.get('/admin/backups', (_req, res) => {
+    requireGlobal(currentUser(res), 'backups.manage');
+    res.json(backupOverview(ctx));
+  });
+
+  router.put('/admin/backups', (req, res) => {
+    requireGlobal(currentUser(res), 'backups.manage');
+    const config = saveBackupConfig(ctx, parse(backupConfigSchema, req.body));
+    forgetDestinationRuns(ctx.db, config.destinations.map((destination) => destination.id));
+    audit(res, `Sauvegardes ${config.enabled ? 'activées' : 'désactivées'} (${config.destinations.length} destination(s))`, { destinations: config.destinations.map((d) => ({ name: d.name, path: d.path })) });
+    res.json(backupOverview(ctx));
+  });
+
+  router.post('/admin/backups/test-folder', (req, res) => {
+    requireGlobal(currentUser(res), 'backups.manage');
+    res.json(testFolder(parse(folderTestSchema, req.body).path));
+  });
+
+  /** Lance une sauvegarde et attend sa fin (le résultat est aussi visible dans l'historique). */
+  router.post('/admin/backups/:destinationId/run', async (req, res) => {
+    requireGlobal(currentUser(res), 'backups.manage');
+    const destinationId = String(req.params.destinationId);
+    audit(res, `Sauvegarde manuelle lancée (${destinationId})`);
+    const run = await runBackup(ctx, destinationId, 'manual');
+    res.json({ run, overview: backupOverview(ctx) });
+  });
+
+  // --- Installation en tant que service ------------------------------------------------------------------------------
+
+  router.get('/admin/service', async (_req, res) => {
+    requireGlobal(currentUser(res), 'system.manage');
+    res.json({ status: await serviceStatus(ctx) });
+  });
+
+  router.post('/admin/service', async (req, res) => {
+    requireGlobal(currentUser(res), 'system.manage');
+    const { action, scope, dryRun } = parse(serviceActionSchema, req.body);
+    if (!dryRun) audit(res, `Service : ${action} (${scope})`);
+    res.json(await serviceAction(ctx, action, scope, dryRun));
   });
 
   return router;

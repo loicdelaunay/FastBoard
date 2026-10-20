@@ -7,6 +7,7 @@ import InputText from 'primevue/inputtext';
 import ToggleSwitch from 'primevue/toggleswitch';
 import type { ApiTokenDTO } from '@shared/types';
 import { api } from '@/api';
+import TokenEditDialog from '@/components/tokens/TokenEditDialog.vue';
 import TokenList from '@/components/tokens/TokenList.vue';
 import { useProjectsStore } from '@/stores/projects';
 import { notify, notifyError } from '@/utils/notify';
@@ -21,10 +22,17 @@ const tokens = ref<ApiTokenDTO[]>([]);
 const loading = ref(true);
 const search = ref('');
 const onlyActive = ref(true);
+const editing = ref<ApiTokenDTO | null>(null);
+
+function onSaved(token: ApiTokenDTO): void {
+  editing.value = null;
+  void load();
+  void token;
+}
 
 const visible = computed(() =>
   tokens.value.filter(
-    (token) => (!onlyActive.value || tokenState(token) === 'active') && matchesQuery(search.value, [token.name, token.userName, token.prefix]),
+    (token) => (!onlyActive.value || tokenState(token) === 'active') && matchesQuery(search.value, [token.name, token.displayName, token.userName, token.prefix]),
   ),
 );
 const activeCount = computed(() => tokens.value.filter((token) => tokenState(token) === 'active').length);
@@ -86,7 +94,8 @@ function askRevoke(token: ApiTokenDTO): void {
     </div>
 
     <p v-if="loading" class="muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</p>
-    <TokenList v-else :tokens="visible" show-owner @revoke="askRevoke" />
+    <TokenList v-else :tokens="visible" show-owner @revoke="askRevoke" @edit="(token) => (editing = token)" />
+    <TokenEditDialog :token="editing" admin @close="editing = null" @saved="onSaved" />
   </div>
 </template>
 

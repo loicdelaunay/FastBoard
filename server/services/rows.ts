@@ -10,7 +10,10 @@ import type {
   HistoryData,
   HistoryEntryDTO,
   ProjectDTO,
+  ProjectListItemDTO,
   RoleDTO,
+  SubtaskDTO,
+  TicketLinkDTO,
   UserSummaryDTO,
 } from '../../shared/types.ts';
 
@@ -79,6 +82,8 @@ export interface TicketRow {
   category_id: number | null;
   delivery_id: number | null;
   initial_delivery_id: number | null;
+  priority_id: number | null;
+  status_changed_at: string | null;
   start_date: string | null;
   end_date: string | null;
   progress: number;
@@ -128,6 +133,7 @@ export interface HistoryRow {
   id: number;
   ticket_id: number;
   user_id: number | null;
+  via: string | null;
   data: string;
   created_at: string;
 }
@@ -229,5 +235,47 @@ export function toHistoryDTO(row: HistoryRow): HistoryEntryDTO {
   } catch {
     data = { kind: 'updated', changes: [] };
   }
-  return { id: row.id, ticketId: row.ticket_id, userId: row.user_id, data, createdAt: row.created_at };
+  return { id: row.id, ticketId: row.ticket_id, userId: row.user_id, via: row.via ?? null, data, createdAt: row.created_at };
+}
+
+export interface ListItemRow {
+  id: number;
+  project_id: number;
+  name: string;
+  color: string;
+  icon: string;
+  position: number;
+}
+
+export function toListItemDTO(row: ListItemRow): ProjectListItemDTO {
+  return { id: row.id, projectId: row.project_id, name: row.name, color: row.color, icon: row.icon, position: row.position };
+}
+
+export interface SubtaskRow {
+  id: number;
+  ticket_id: number;
+  title: string;
+  done: number;
+  position: number;
+  assignee_id: number | null;
+  created_by: number | null;
+  created_at: string;
+  done_at: string | null;
+}
+
+export function toSubtaskDTO(row: SubtaskRow): SubtaskDTO {
+  return { id: row.id, ticketId: row.ticket_id, title: row.title, done: row.done === 1, assigneeId: row.assignee_id, position: row.position, createdAt: row.created_at, doneAt: row.done_at };
+}
+
+export interface LinkRow {
+  id: number;
+  ticket_id: number;
+  target_id: number;
+  reason: string;
+  created_by: number | null;
+  created_at: string;
+}
+
+export function toLinkDTO(row: LinkRow): TicketLinkDTO {
+  return { id: row.id, ticketId: row.ticket_id, targetId: row.target_id, reason: row.reason, createdBy: row.created_by, createdAt: row.created_at };
 }
