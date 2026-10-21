@@ -555,8 +555,18 @@ export const useProjectStore = defineStore('project', () => {
     return result;
   }
 
+  async function setWatching(ticketId: number, watch: boolean): Promise<void> {
+    upsertTicket((await api.watchTicket(ticketId, watch)).ticket);
+  }
+
   async function deleteTicket(ticketId: number): Promise<void> {
     await api.deleteTicket(ticketId);
+    deletedLocally.add(ticketId);
+    tickets.value = tickets.value.filter((ticket) => ticket.id !== ticketId);
+  }
+
+  /** Retire un ticket parti dans un autre projet (sans le considérer comme supprimé par un collègue). */
+  function forgetTicket(ticketId: number): void {
     deletedLocally.add(ticketId);
     tickets.value = tickets.value.filter((ticket) => ticket.id !== ticketId);
   }
@@ -585,6 +595,16 @@ export const useProjectStore = defineStore('project', () => {
   /** Envoie un fichier ; l'évènement temps réel confirme ensuite pour les collègues (l'application est idempotente). */
   async function addAttachment(ticketId: number, file: File, onProgress?: (ratio: number) => void): Promise<AttachmentDTO> {
     const attachment = await uploadAttachment(ticketId, file, onProgress);
+    const list = attachments.value[ticketId];
+    if (list) {
+      upsertBy(list, attachment);
+      patchLocal(ticketId, { attachmentCount: list.length });
+    }
+    return attachment;
+  }
+
+  async function addAttachmentLink(ticketId: number, input: { kind: 'url' | 'path'; target: string; name?: string }): Promise<AttachmentDTO> {
+    const { attachment } = await api.addAttachmentLink(ticketId, input);
     const list = attachments.value[ticketId];
     if (list) {
       upsertBy(list, attachment);
@@ -699,9 +719,9 @@ export const useProjectStore = defineStore('project', () => {
     // cycle de vie
     load, reload, leave,
     // tickets
-    createTicket, updateTicket, moveTicket, updatePart, deleteTicket, wasDeletedLocally,
-    addSubtask, updateSubtask, deleteSubtask, addLink, deleteLink, linksOf,
-    loadComments, loadHistory, loadAttachments, addAttachment, removeAttachment, addComment, editComment, removeComment,
+    createTicket, updateTicket, moveTicket, updatePart, deleteTicket, forgetTicket, wasDeletedLocally,
+    setWatching, addSubtask, updateSubtask, deleteSubtask, addLink, deleteLink, linksOf,
+    loadComments, loadHistory, loadAttachments, addAttachment, addAttachmentLink, removeAttachment, addComment, editComment, removeComment,
     // configuration
     updateProjectInfo, saveCategory, deleteCategory, saveListItem, deleteListItem, saveDelivery, deleteDelivery,
     // annuler / rétablir

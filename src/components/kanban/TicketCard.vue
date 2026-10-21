@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { todayISO, formatDateShort } from '@shared/dates';
-import { ticketProgress } from '@shared/progress';
+import { progressOf } from '@/utils/progress';
 import type { TicketDTO } from '@shared/types';
 import ColorChip from '@/components/common/ColorChip.vue';
 import ProgressMeter from '@/components/common/ProgressMeter.vue';
@@ -10,7 +10,9 @@ import StaleBar from '@/components/tickets/StaleBar.vue';
 import { useProjectStore } from '@/stores/project';
 import { useUiStore } from '@/stores/ui';
 import { dueDate, isOverdue, ticketKey } from '@/utils/tickets';
+import { deliveryUrgency } from '@/utils/ticketSort';
 
+import { t } from '@/i18n';
 const props = defineProps<{ ticket: TicketDTO; draggable?: boolean; dragging?: boolean }>();
 const emit = defineEmits<{ open: [] }>();
 
@@ -19,7 +21,7 @@ const ui = useUiStore();
 
 const category = computed(() => (props.ticket.categoryId ? project.categoriesById.get(props.ticket.categoryId) : undefined));
 const delivery = computed(() => (props.ticket.deliveryId ? project.deliveriesById.get(props.ticket.deliveryId) : undefined));
-const progress = computed(() => ticketProgress(props.ticket));
+const progress = computed(() => progressOf(props.ticket));
 const priority = computed(() => (props.ticket.priorityId ? project.prioritiesById.get(props.ticket.priorityId) : undefined));
 const components = computed(() => props.ticket.componentIds.flatMap((id) => project.componentsById.get(id) ?? []));
 const subtasksDone = computed(() => props.ticket.subtasks.filter((subtask) => subtask.done).length);
@@ -36,6 +38,13 @@ const assignees = computed(() =>
 const doneIds = computed(() => props.ticket.assignees.filter((assignee) => assignee.done).map((assignee) => assignee.userId));
 const due = computed(() => dueDate(props.ticket, delivery.value));
 const overdue = computed(() => isOverdue(props.ticket, delivery.value, todayISO()));
+const urgency = computed(() => deliveryUrgency(props.ticket, delivery.value, project.settings, todayISO()));
+const urgencyLabel = computed(() => {
+  const { level, daysLeft } = urgency.value;
+  if (level === 'late') return t('Livraison dépassée de {n} jour|Livraison dépassée de {n} jours', { n: -daysLeft });
+  if (daysLeft === 0) return t("La livraison se termine aujourd'hui");
+  return t('Livraison dans {n} jour|Livraison dans {n} jours', { n: daysLeft });
+});
 const flashing = computed(() => project.flashes[props.ticket.id] !== undefined);
 const linkCount = computed(() => project.linksOf(props.ticket.id).length);
 /** Ce ticket est lié au ticket survolé : il clignote légèrement. */
@@ -90,7 +99,10 @@ function onLeave(): void {
         <span v-if="due" class="due" :class="{ late: overdue }" :title="overdue ? $t('En retard') : $t('Échéance')">
           <i class="pi pi-calendar"></i>{{ formatDateShort(due) }}
         </span>
-        <span v-if="delivery" class="delivery" :style="{ '--d': delivery.color }" :title="$t('Livraison : {name}', { name: delivery.name })">
+        <span v-if="delivery && urgency.level !== 'none'" v-tooltip.top="`${delivery.name} — ${urgencyLabel}`" class="delivery-chip" :class="urgency.level">
+          <i class="pi pi-truck"></i><span class="truncate">{{ delivery.name }}</span><strong>{{ urgency.level === 'late' ? `+${-urgency.daysLeft} j` : `J-${urgency.daysLeft}` }}</strong>
+        </span>
+        <span v-else-if="delivery" class="delivery" :style="{ '--d': delivery.color }" :title="$t('Livraison : {name}', { name: delivery.name })">
           <i class="pi pi-truck"></i><span class="truncate">{{ delivery.name }}</span>
         </span>
         <StaleBar :ticket="ticket" compact />
@@ -244,6 +256,29 @@ function onLeave(): void {
 .due.late {
   color: var(--fb-danger);
   font-weight: 700;
+}
+.delivery-chip {
+  --tone: #f59e0b;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 9rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
+  color: color-mix(in srgb, var(--tone) 75%, var(--fb-text));
+  font-weight: 600;
+}
+.delivery-chip i {
+  margin-right: 0;
+}
+.delivery-chip.urgent {
+  --tone: #ef4444;
+}
+.delivery-chip.late {
+  --tone: #b91c1c;
+  background: color-mix(in srgb, var(--tone) 28%, transparent);
 }
 .delivery {
   display: inline-flex;

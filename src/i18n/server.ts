@@ -5,6 +5,28 @@ import { currentLocale } from './index';
  * puis modèles à variables (noms, nombres), puis messages de validation (« champ : message »).
  */
 const EXACT: Record<string, string> = {
+  "Choisissez au moins un modèle.": "Choose at least one model.",
+  "Image invalide (PNG, JPEG, WebP ou GIF en base64).": "Invalid image (base64 PNG, JPEG, WebP or GIF).",
+  // 1.3
+  "L'assistant IA n'est pas activé sur ce site.": "The AI assistant is not enabled on this site.",
+  "Vous n'avez pas accès à l'assistant IA dans ce projet.": "You do not have access to the AI assistant in this project.",
+  "L'assistant IA est désactivé.": "The AI assistant is disabled.",
+  "Erreur interne de l'assistant.": "Internal assistant error.",
+  "Réponse du fournisseur d'IA inattendue (aucun message).": "Unexpected answer from the AI provider (no message).",
+  "Le dernier message doit venir de la personne.": "The last message must come from the person.",
+  // 1.2
+  "Adresse web invalide.": "Invalid web address.",
+  "Seules les adresses http, https, ftp et mailto sont acceptées.": "Only http, https, ftp and mailto addresses are accepted.",
+  "Indiquez un chemin absolu, par exemple C:\\Dossier\\fichier.pdf, \\\\serveur\\partage ou /home/moi/fichier.pdf.": "Enter an absolute path, for example C:\\Folder\\file.pdf, \\\\server\\share or /home/me/file.pdf.",
+  "Ce fichier ou ce dossier n'existe pas sur cette machine.": "This file or folder does not exist on this machine.",
+  "FastBoard ne tourne pas sur votre poste : ouvrez le chemin vous-même.": "FastBoard is not running on your computer: open the path yourself.",
+  "Cette pièce jointe n'est pas un chemin de fichier.": "This attachment is not a file path.",
+  "Cette pièce jointe est un lien : il n'y a pas de fichier à télécharger.": "This attachment is a link: there is no file to download.",
+  "Le ticket est déjà dans ce projet.": "The ticket is already in this project.",
+  "Le projet cible est archivé.": "The target project is archived.",
+  "Le fichier n'est pas une image PNG, JPEG ou WebP valide (512 Ko maximum).": "The file is not a valid PNG, JPEG or WebP image (512 KB maximum).",
+  "La fin de la maintenance doit suivre son début.": "The maintenance end must come after its start.",
+  "Aucun logo.": "No logo.",
   // 1.1 : priorités, composants, sous-tâches, dépendances, jetons, sauvegardes, service.
   'Priorité introuvable.': 'Priority not found.',
   'Composant introuvable.': 'Component not found.',
@@ -143,6 +165,9 @@ const TYPES: Record<string, string> = {
 const type = (word: string): string => TYPES[word] ?? word;
 
 const PATTERNS: Array<[RegExp, (match: RegExpExecArray) => string]> = [
+  [/^Fournisseur d'IA injoignable \((.+?)\) : (.+)$/, (m) => `AI provider unreachable (${m[1]}): ${m[2]}`],
+  [/^Le fournisseur d'IA a répondu (\d+) : (.*)$/, (m) => `The AI provider answered ${m[1]}: ${m[2]}`],
+  [/^Connexion réussie \((.+?)\) : (.*)$/, (m) => `Connection succeeded (${m[1]}): ${m[2]}`],
   [/^Un ticket ne peut pas avoir plus de (\d+) sous-tâches\.$/, (m) => `A ticket cannot have more than ${m[1]} subtasks.`],
   [/^Un ticket ne peut pas avoir plus de (\d+) dépendances\.$/, (m) => `A ticket cannot have more than ${m[1]} dependencies.`],
   [/^Le dossier de « (.+) » doit être un chemin absolu\.$/, (m) => `The folder of “${m[1]}” must be an absolute path.`],

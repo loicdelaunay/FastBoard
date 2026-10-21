@@ -6,10 +6,12 @@ import { idParam, parse } from '../http/validate.ts';
 import { requireProject, type AuthUser } from '../services/access.ts';
 import { createComment, deleteComment, listComments, requireComment, updateComment } from '../services/comments.ts';
 import { listHistory } from '../services/history.ts';
-import { deleteTicket, getTicketDTO, moveTicket, requireTicket, ticketKeyOf, updatePart, updateTicket } from '../services/tickets.ts';
-import { commentEditSchema, commentSchema, linkSchema, moveTicketSchema, partSchema, subtaskPatchSchema, subtaskSchema, updateTicketSchema } from '../http/schemas.ts';
+import { deleteTicket, getTicketDTO, moveTicket, requireTicket, ticketKeyOf, transferTicket, updatePart, updateTicket } from '../services/tickets.ts';
+import { commentEditSchema, commentSchema, linkSchema, moveTicketSchema, partSchema, subtaskPatchSchema, subtaskSchema, transferTicketSchema, updateTicketSchema } from '../http/schemas.ts';
 import { createLink, deleteLink, requireLink } from '../services/links.ts';
 import { createSubtask, deleteSubtask, requireSubtask, updateSubtask } from '../services/subtasks.ts';
+import { unwatchTicket, watchTicket } from '../services/notifications.ts';
+import { publishTicketChange } from '../services/tickets.ts';
 
 export function ticketsRouter(ctx: AppContext): Router {
   const router = express.Router();
@@ -40,6 +42,17 @@ export function ticketsRouter(ctx: AppContext): Router {
     res.json({ ticket: moveTicket(ctx, actorOf(req, res), ticketId, { status, beforeId }) });
   });
 
+  /** Déplacement vers un autre projet : `ticket.edit` dans le projet d'origine, `ticket.create` dans le projet cible. */
+  router.post('/tickets/:id/transfer', (req, res) => {
+    const user = currentUser(res);
+    const ticketId = idParam(req.params.id);
+    ticketAccess(user, ticketId, 'ticket.edit');
+    const target = parse(transferTicketSchema, req.body);
+    requireProject(ctx, user, target.projectId, 'ticket.create');
+    const ticket = transferTicket(ctx, actorOf(req, res), ticketId, target);
+    res.json({ ticket, key: ticketKeyOf(ctx.db, requireTicket(ctx.db, ticketId)) });
+  });
+
   router.delete('/tickets/:id', (req, res) => {
     const ticketId = idParam(req.params.id);
     ticketAccess(currentUser(res), ticketId, 'ticket.delete');
@@ -59,6 +72,24 @@ export function ticketsRouter(ctx: AppContext): Router {
     }
     requireProject(ctx, user, access.project.id, ownPart ? 'ticket.update_own_part' : 'ticket.edit');
     res.json({ ticket: updatePart(ctx, actorOf(req, res), ticketId, targetUserId, parse(partSchema, req.body)) });
+  });
+
+  // --- Suivi (notifications) -----------------------------------------------------------------------------------------
+
+  router.post('/tickets/:id/watch', (req, res) => {
+    const user = currentUser(res);
+    const ticketId = idParam(req.params.id);
+    ticketAccess(user, ticketId);
+    watchTicket(ctx.db, ticketId, user.id);
+    res.json({ ticket: publishTicketChange(ctx, actorOf(req, res), ticketId, []) });
+  });
+
+  router.delete('/tickets/:id/watch', (req, res) => {
+    const user = currentUser(res);
+    const ticketId = idParam(req.params.id);
+    ticketAccess(user, ticketId);
+    unwatchTicket(ctx.db, ticketId, user.id);
+    res.json({ ticket: publishTicketChange(ctx, actorOf(req, res), ticketId, []) });
   });
 
   // --- Sous-tâches ---------------------------------------------------------------------------------------------------

@@ -53,6 +53,8 @@ export function historyIcon(data: HistoryData): string {
       return data.action === 'done' ? 'pi pi-check-square' : 'pi pi-list-check';
     case 'link':
       return 'pi pi-link';
+    case 'transferred':
+      return 'pi pi-folder';
     case 'part':
       if (data.note !== undefined) {
         return 'pi pi-flag';

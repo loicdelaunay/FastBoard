@@ -5,7 +5,10 @@ import Button from 'primevue/button';
 import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
 import InputText from 'primevue/inputtext';
+import ContextMenu from 'primevue/contextmenu';
+import type { MenuItem } from 'primevue/menuitem';
 import ToggleSwitch from 'primevue/toggleswitch';
+import type { ProjectSummaryDTO } from '@shared/types';
 import ProjectCard from '@/components/projects/ProjectCard.vue';
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue';
 import { useAuthStore } from '@/stores/auth';
@@ -29,6 +32,33 @@ onMounted(() => {
 const visibleProjects = computed(() =>
   store.projects.filter((project) => (showArchived.value || !project.archived) && matchesQuery(search.value, [project.name, project.key, project.description])),
 );
+const menu = ref<InstanceType<typeof ContextMenu> | null>(null);
+const menuProject = ref<ProjectSummaryDTO | null>(null);
+const menuItems = computed<MenuItem[]>(() => {
+  const target = menuProject.value;
+  if (!target) return [];
+  const download = (format: 'json' | 'csv') => {
+    const link = document.createElement('a');
+    link.href = `/api/projects/${target.id}/export?format=${format}`;
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+  return [
+    { label: `${target.key} — ${target.name}`, disabled: true, class: 'menu-title' },
+    { separator: true },
+    { label: t('Ouvrir'), icon: 'pi pi-external-link', command: () => void router.push(`/p/${target.id}`) },
+    { label: t('Exporter en CSV (tickets)'), icon: 'pi pi-file-excel', command: () => download('csv') },
+    { label: t('Exporter en JSON (projet complet)'), icon: 'pi pi-file', command: () => download('json') },
+  ];
+});
+
+function openMenu(event: MouseEvent, project: ProjectSummaryDTO): void {
+  menuProject.value = project;
+  menu.value?.show(event);
+}
+
 const archivedCount = computed(() => store.projects.filter((project) => project.archived).length);
 </script>
 
@@ -56,7 +86,8 @@ const archivedCount = computed(() => store.projects.filter((project) => project.
     <div v-if="store.loading && !store.loaded" class="empty muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
 
     <div v-else-if="visibleProjects.length" class="grid">
-      <ProjectCard v-for="project in visibleProjects" :key="project.id" :project="project" />
+      <ProjectCard v-for="project in visibleProjects" :key="project.id" :project="project" @menu="openMenu" />
+      <ContextMenu ref="menu" :model="menuItems" />
     </div>
 
     <div v-else class="empty card">
@@ -73,11 +104,34 @@ const archivedCount = computed(() => store.projects.filter((project) => project.
       </template>
     </div>
 
+    <footer class="foot muted small">
+      <i class="pi pi-code"></i>
+      <span>{{ $t('Automatisez FastBoard avec l’API REST :') }}</span>
+      <a href="/api/docs" target="_blank" rel="noopener">{{ $t('Documentation de l’API (Swagger)') }}</a>
+      <span aria-hidden="true">·</span>
+      <a href="/api/docs/guide.md" target="_blank" rel="noopener">{{ $t('Guide pour les IA et les scripts') }}</a>
+      <span aria-hidden="true">·</span>
+      <a href="/api/openapi.json" target="_blank" rel="noopener">OpenAPI</a>
+    </footer>
+
     <ProjectCreateDialog v-model:visible="createOpen" @created="(id) => router.push(`/p/${id}`)" />
   </div>
 </template>
 
 <style scoped>
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--fb-border);
+}
+.foot a {
+  color: var(--fb-accent);
+}
 .head {
   display: flex;
   align-items: flex-start;

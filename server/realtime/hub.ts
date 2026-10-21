@@ -176,6 +176,20 @@ export class Hub {
     }
   }
 
+  /** Envoie un message à toutes les connexions (nom de l'application, maintenance…). */
+  broadcast(message: ServerMessage): void {
+    for (const client of this.#clients) {
+      this.#send(client, message);
+    }
+  }
+
+  /** Envoie un message à toutes les connexions d'un utilisateur (notifications). */
+  sendToUser(userId: number, message: ServerMessage): void {
+    for (const client of this.#clients) {
+      if (client.userId === userId) this.#send(client, message);
+    }
+  }
+
   /** Demande aux clients de ces utilisateurs de recharger leur profil / permissions. */
   refreshUsers(userIds: Iterable<number>): void {
     const targets = new Set(userIds);

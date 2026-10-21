@@ -97,7 +97,7 @@ function onBlur(event: FocusEvent): void {
   emit('blur', event);
 }
 
-defineExpose({ focus: () => element()?.focus() });
+defineExpose({ focus: () => element()?.focus(), element });
 </script>
 
 <template>

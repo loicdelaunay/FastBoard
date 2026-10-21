@@ -58,11 +58,11 @@ describe('permissions', () => {
     assert.ok(isSubsetOfPermissions(['*'], ['*']));
   });
 
-  it('le propriétaire possède toutes les permissions de projet, le lecteur aucune', () => {
+  it('le propriétaire possède toutes les permissions de projet, le lecteur peut seulement interroger l’IA', () => {
     const owner = SYSTEM_ROLES.find((role) => role.key === 'owner')!;
     const viewer = SYSTEM_ROLES.find((role) => role.key === 'viewer')!;
     assert.deepEqual(owner.permissions, ALL_PROJECT_PERMISSION_KEYS);
-    assert.deepEqual(viewer.permissions, []);
+    assert.deepEqual(viewer.permissions, ['ai.read'], 'lecture seule : aucune modification possible');
   });
 });
 

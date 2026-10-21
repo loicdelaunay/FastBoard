@@ -200,7 +200,7 @@ const statusLabel = computed<Record<BackupRunDTO['status'], string>>(() => ({ su
 </script>
 
 <template>
-  <div class="backups">
+  <div class="page backups">
     <header class="head">
       <div>
         <h1 class="page-title">{{ $t('Sauvegardes') }}</h1>
@@ -343,7 +343,6 @@ const statusLabel = computed<Record<BackupRunDTO['status'], string>>(() => ({ su
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  max-width: 64rem;
 }
 .head {
   display: flex;

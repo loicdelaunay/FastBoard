@@ -65,7 +65,7 @@ function icon(entry: HistoryEntryDTO): string {
           </template>
 
           <p v-else-if="entry.data.kind === 'attachment'" class="text">
-            {{ entry.data.action === 'added' ? $t('a joint') : $t('a retiré') }} <strong>{{ entry.data.name }}</strong> ({{ formatBytes(entry.data.size) }}).
+            {{ entry.data.action === 'added' ? $t('a joint') : $t('a retiré') }} <strong>{{ entry.data.name }}</strong> ({{ entry.data.link ? (entry.data.link === 'url' ? $t('lien web') : $t('fichier local')) : formatBytes(entry.data.size) }}).
           </p>
 
           <p v-else-if="entry.data.kind === 'subtask'" class="text">
@@ -75,6 +75,10 @@ function icon(entry: HistoryEntryDTO): string {
           <p v-else-if="entry.data.kind === 'link'" class="text">
             {{ entry.data.action === 'added' ? $t('a ajouté la dépendance') : $t('a retiré la dépendance') }} <em>{{ linkReasonLabel(entry.data.reason) }}</em>
             <strong>{{ entry.data.target.key }}</strong> « {{ entry.data.target.title }} ».
+          </p>
+
+          <p v-else-if="entry.data.kind === 'transferred'" class="text">
+            {{ $t('a déplacé le ticket du projet « {from} » ({fromKey}) vers « {to} » ({toKey}).', { from: entry.data.from.project, fromKey: entry.data.from.key, to: entry.data.to.project, toKey: entry.data.to.key }) }}
           </p>
 
           <p v-else-if="entry.data.kind === 'part'" class="text">

@@ -1,6 +1,6 @@
 import { ref } from 'vue';
 import { diffDays, formatDateShort, todayISO } from '@shared/dates';
-import { ticketProgress } from '@shared/progress';
+import { progressOf } from '@/utils/progress';
 import type { TicketDTO } from '@shared/types';
 import { t, intlLocale } from '@/i18n';
 import { useAnalysis, type AnalysisScope } from '@/composables/useAnalysis';
@@ -342,7 +342,7 @@ export async function exportAnalysisPdf(scope: AnalysisScope): Promise<void> {
       head: [[t('Livraison'), t('Période'), t('Tickets'), t('Progression'), t('Avancement théorique (temps écoulé)'), t('Écart'), t('En retard')].map(pdfText)],
       body: project.deliveries.map((item) => {
         const own = project.tickets.filter((ticket) => ticket.deliveryId === item.id);
-        const progress = own.length ? Math.round(own.reduce((sum, ticket) => sum + ticketProgress(ticket), 0) / own.length) : 0;
+        const progress = own.length ? Math.round(own.reduce((sum, ticket) => sum + progressOf(ticket), 0) / own.length) : 0;
         const total = diffDays(item.startDate, item.endDate) + 1;
         const theoretical = Math.min(100, Math.max(0, Math.round(((diffDays(item.startDate, today) + 1) / total) * 100)));
         const gap = own.length ? progress - theoretical : null;
@@ -372,7 +372,7 @@ export async function exportAnalysisPdf(scope: AnalysisScope): Promise<void> {
         ticket.title,
         statusLabel(ticket),
         ticket.assignees.map((assignee) => project.usersById.get(assignee.userId)?.name ?? '').filter(Boolean).join(', '),
-        `${ticketProgress(ticket)} %`,
+        `${progressOf(ticket)} %`,
         dueOf(ticket),
       ].map(pdfText),
     ),

@@ -99,7 +99,7 @@ async function copy(text: string): Promise<void> {
 </script>
 
 <template>
-  <div class="service">
+  <div class="page service">
     <header>
       <h1 class="page-title">{{ $t('Installation') }}</h1>
       <p class="muted">{{ $t('Installez FastBoard comme service : il démarre tout seul avec la machine (ou votre session) et se relance s\'il s\'arrête.') }}</p>
@@ -181,7 +181,6 @@ async function copy(text: string): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  max-width: 60rem;
 }
 header p {
   margin: 0.25rem 0 0;

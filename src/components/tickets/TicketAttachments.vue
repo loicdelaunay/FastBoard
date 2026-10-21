@@ -3,6 +3,12 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useConfirm } from 'primevue/useconfirm';
 import Button from 'primevue/button';
 import Image from 'primevue/image';
+import Menu from 'primevue/menu';
+import type { MenuItem } from 'primevue/menuitem';
+import { ApiError } from '@/api/http';
+import { api } from '@/api';
+import { copyText } from '@/utils/clipboard';
+import AttachmentLinkDialog from './AttachmentLinkDialog.vue';
 import { LIMITS } from '@shared/constants';
 import type { AttachmentDTO, TicketDTO } from '@shared/types';
 import UserAvatar from '@/components/common/UserAvatar.vue';
@@ -10,7 +16,7 @@ import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
 import { attachmentUrl, fileIcon, formatBytes, isImageAttachment } from '@/utils/files';
 import { formatDateTime, formatRelative } from '@/utils/format';
-import { notifyError } from '@/utils/notify';
+import { notify, notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
 const props = defineProps<{ ticket: TicketDTO; dragging?: boolean }>();
@@ -37,6 +43,31 @@ const confirm = useConfirm();
 const input = ref<HTMLInputElement | null>(null);
 const uploads = ref<PendingUpload[]>([]);
 const loadError = ref(false);
+const linkKind = ref<'url' | 'path' | null>(null);
+const addMenu = ref<InstanceType<typeof Menu> | null>(null);
+const addItems: MenuItem[] = [
+  { label: t('Lien web (URL)…'), icon: 'pi pi-globe', command: () => (linkKind.value = 'url') },
+  { label: t('Lien vers un fichier ou un dossier…'), icon: 'pi pi-folder-open', command: () => (linkKind.value = 'path') },
+];
+
+/** Ouvre un chemin sur le poste (si FastBoard y tourne), sinon copie le chemin pour l'explorateur. */
+async function openPath(attachment: AttachmentDTO): Promise<void> {
+  try {
+    const result = await api.openAttachment(attachment.id);
+    if (result.revealed) notify('info', t('Fichier exécutable : son dossier a été ouvert.'));
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'not_local' && attachment.url) {
+      const copied = await copyText(attachment.url);
+      notify(copied ? 'info' : 'warn', copied ? t('Chemin copié') : t('Copie impossible'), t('Collez-le dans l’explorateur de fichiers : {path}', { path: attachment.url }));
+    } else {
+      notifyError(error, t('Ouverture impossible'));
+    }
+  }
+}
+
+function linkIcon(attachment: AttachmentDTO): string {
+  return attachment.kind === 'url' ? 'pi pi-globe' : 'pi pi-folder-open';
+}
 let nextKey = 1;
 let running = 0;
 
@@ -160,7 +191,11 @@ defineExpose({ addFiles });
   <section v-if="visible" class="attachments" :class="{ dragging: dragging && canAdd }" aria-labelledby="attachments-title">
     <header class="head">
       <h3 id="attachments-title" class="title">{{ $t('Pièces jointes') }}<span v-if="items.length" class="count">{{ items.length }}</span></h3>
-      <Button v-if="canAdd" :label="$t('Ajouter')" icon="pi pi-paperclip" size="small" text severity="secondary" @click="input?.click()" />
+      <div v-if="canAdd" class="add-group">
+        <Button :label="$t('Ajouter')" icon="pi pi-paperclip" size="small" text severity="secondary" @click="input?.click()" />
+        <Button icon="pi pi-chevron-down" size="small" text severity="secondary" class="add-more" aria-haspopup="menu" :aria-label="$t('Ajouter un lien')" @click="addMenu?.toggle($event)" />
+        <Menu ref="addMenu" :model="addItems" popup />
+      </div>
       <input ref="input" class="file-input" type="file" multiple tabindex="-1" aria-hidden="true" @change="onPick" />
     </header>
 
@@ -185,6 +220,22 @@ defineExpose({ addFiles });
 
     <ul v-if="items.length" class="list">
       <li v-for="attachment in items" :key="attachment.id" class="item">
+        <template v-if="attachment.kind !== 'file'">
+          <div class="preview">
+            <a v-if="attachment.kind === 'url'" class="icon" :href="attachment.url ?? '#'" target="_blank" rel="noopener noreferrer" :aria-label="$t('Ouvrir {name}', { name: attachment.name })"><i :class="linkIcon(attachment)"></i></a>
+            <button v-else type="button" class="icon plain" :aria-label="$t('Ouvrir {name}', { name: attachment.name })" @click="openPath(attachment)"><i :class="linkIcon(attachment)"></i></button>
+          </div>
+          <div class="meta">
+            <a v-if="attachment.kind === 'url'" class="name truncate" :href="attachment.url ?? '#'" target="_blank" rel="noopener noreferrer" :title="attachment.url ?? ''">{{ attachment.name }}</a>
+            <button v-else type="button" class="name truncate plain link-name" :title="attachment.url ?? ''" @click="openPath(attachment)">{{ attachment.name }}</button>
+            <span class="muted small info truncate" :title="attachment.url ?? ''">
+              {{ attachment.kind === 'url' ? $t('Lien web') : $t('Fichier local') }} ·
+              <UserAvatar v-if="author(attachment)" :user="author(attachment)" size="small" class="by" />
+              <time :datetime="attachment.createdAt" :title="formatDateTime(attachment.createdAt)">{{ formatRelative(attachment.createdAt) }}</time>
+            </span>
+          </div>
+        </template>
+        <template v-else>
         <div class="preview">
           <Image v-if="isImageAttachment(attachment)" :src="attachmentUrl(attachment, true)" :alt="attachment.name" preview image-class="thumb" />
           <a v-else class="icon" :href="attachmentUrl(attachment)" :download="attachment.name" :aria-label="$t('Télécharger {name}', { name: attachment.name })"><i :class="fileIcon(attachment)"></i></a>
@@ -197,11 +248,13 @@ defineExpose({ addFiles });
             <time :datetime="attachment.createdAt" :title="formatDateTime(attachment.createdAt)">{{ formatRelative(attachment.createdAt) }}</time>
           </span>
         </div>
+        </template>
         <Button v-if="canRemove(attachment)" icon="pi pi-trash" text rounded size="small" severity="danger" class="remove" :aria-label="$t('Supprimer {name}', { name: attachment.name })" @click="askRemove(attachment)" />
       </li>
     </ul>
     <p v-else-if="loadError" class="muted small">{{ $t('Impossible de charger les pièces jointes.') }} <a href="#" @click.prevent="load">{{ $t('Réessayer') }}</a></p>
 
+    <AttachmentLinkDialog :ticket-id="ticket.id" :kind="linkKind" @close="linkKind = null" />
   </section>
 </template>
 
@@ -241,6 +294,26 @@ defineExpose({ addFiles });
 }
 .file-input {
   display: none;
+}
+.add-group {
+  display: flex;
+  align-items: center;
+}
+.add-more {
+  width: 2rem;
+  margin-left: -0.35rem;
+}
+.plain {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.link-name:hover {
+  color: var(--fb-accent);
+  text-decoration: underline;
 }
 .empty {
   display: flex;

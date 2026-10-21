@@ -2,10 +2,11 @@
  * Tous les schémas de validation des requêtes. Ils servent à la fois à valider les routes et à générer
  * la documentation OpenAPI (`server/openapi`) : une seule source de vérité.
  */
+import { AI_LIMITS, REASONING_LEVELS } from '../../shared/ai.ts';
 import { parseRetentionRules } from '../../shared/backup.ts';
 import { LIMITS, TICKET_STATUSES } from '../../shared/constants.ts';
 import { isISODate } from '../../shared/dates.ts';
-import { COLUMN_LABEL_MAX } from '../../shared/settings.ts';
+import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
 import { isThemeId } from '../../shared/themes.ts';
@@ -174,6 +175,14 @@ export const settingsPatchSchema = z.object({
   autoReopen: z.boolean().optional().describe('Une part rouverte sur un ticket terminé le repasse « En cours ».'),
   staleIndicator: z.boolean().optional().describe("Signale les tickets restés longtemps dans la même colonne."),
   staleDays: z.number().int().min(1).max(365).optional().describe("Jours sans changement de colonne avant d'être signalé."),
+  completeStatuses: z.array(z.enum(TICKET_STATUSES)).max(6).optional().describe('Colonnes où un ticket compte pour 100 % (« done » toujours inclus).'),
+  columnSort: z
+    .record(z.enum(TICKET_STATUSES), z.object({ field: z.enum(SORT_FIELDS), direction: z.enum(['asc', 'desc']) }))
+    .optional()
+    .describe('Tri automatique des cartes par colonne (absente = ordre manuel). Champs : priority, dueDate, title, number, createdAt, updatedAt, progress.'),
+  deliveryAlert: z.boolean().optional().describe('Pastille colorée sur les tickets non terminés dont la livraison approche.'),
+  deliveryWarnDays: z.number().int().min(0).max(365).optional().describe('Jours restants à partir desquels la pastille passe à l’orange.'),
+  deliveryDangerDays: z.number().int().min(0).max(365).optional().describe('Jours restants à partir desquels la pastille passe au rouge.'),
   confetti: z.boolean().optional().describe('Confettis quand un ticket arrive dans « Terminé ».'),
   columns: z.array(columnSchema).length(TICKET_STATUSES.length).optional().describe("Les six colonnes (une par statut), dans l'ordre d'affichage."),
 });
@@ -260,6 +269,11 @@ export const partSchema = z.object({
     .describe("Mission de la personne : ce qu'elle doit faire sur ce ticket (texte libre). Chaîne vide pour l'effacer."),
 });
 
+export const transferTicketSchema = z.object({
+  projectId: id.describe('Projet de destination.'),
+  status: z.enum(TICKET_STATUSES).default('backlog').describe('Colonne de destination.'),
+});
+
 export const commentSchema = z.object({
   body: z.string().trim().min(1, 'Le message est vide.').max(LIMITS.commentMax),
   parentId: id.nullable().optional().describe("Identifiant du commentaire auquel on répond."),
@@ -299,10 +313,86 @@ export const activityQuerySchema = z.object({
   ticketId: z.coerce.number().int().positive().optional().describe('Uniquement les évènements de ce ticket.'),
 });
 
+export const aiChatSchema = z.object({
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().max(AI_LIMITS.messageChars),
+        images: z
+          .array(z.string().max(AI_LIMITS.imageChars).regex(/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/, 'Image invalide (PNG, JPEG, WebP ou GIF en base64).'))
+          .max(AI_LIMITS.imagesPerMessage)
+          .optional(),
+      }),
+    )
+    .min(1)
+    .max(AI_LIMITS.messages)
+    .refine((messages) => messages.at(-1)?.role === 'user', 'Le dernier message doit venir de la personne.'),
+  context: z.object({ projectId: id.nullable().optional(), ticketId: id.nullable().optional() }).default({}),
+  allowWrite: z.boolean().default(false).describe("Autorise l'assistant à modifier (si la personne en a le droit)."),
+  model: z.string().max(200).optional().describe('Modèle parmi ceux mis à disposition (`GET /ai/models`) ; absent = modèle par défaut.'),
+  reasoning: z.enum(REASONING_LEVELS).optional().describe('Niveau de réflexion, pour les modèles qui le gèrent.'),
+});
+
+export const aiSettingsSchema = z.object({
+  enabled: z.boolean(),
+  baseUrl: z.url({ protocol: /^https?$/ }).max(500).describe('URL de base compatible OpenAI v1, ex. `https://api.openai.com/v1`.'),
+  models: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(200),
+        label: z.string().trim().max(80).default(''),
+        vision: z.boolean().default(false),
+        contextWindow: z.number().int().min(1_000).max(10_000_000).default(128_000).describe('Taille du contexte en jetons.'),
+        reasoning: z.boolean().default(false).describe('Le modèle accepte un niveau de réflexion (reasoning_effort).'),
+      }),
+    )
+    .min(1, 'Choisissez au moins un modèle.')
+    .max(AI_LIMITS.models),
+  defaultModel: z.string().trim().min(1).max(200),
+  apiKey: z.string().max(500).optional().describe('Absent : garder la clé actuelle ; chaîne vide : l’effacer.'),
+});
+
+/** Essai ou détection des modèles avec les valeurs du formulaire (pas encore enregistrées). */
+export const aiProbeSchema = z.object({
+  baseUrl: z.url({ protocol: /^https?$/ }).max(500),
+  model: z.string().trim().max(200).optional(),
+  apiKey: z.string().max(500).optional().describe('Absent ou vide : clé enregistrée.'),
+});
+
+export const notificationQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+  before: z.coerce.number().int().positive().optional().describe('Curseur : notifications plus anciennes que cet identifiant.'),
+  unread: z.enum(['true', 'false']).transform((value) => value === 'true').optional().describe('`true` : seulement les non lues.'),
+});
+export const markReadSchema = z.object({
+  ids: z.array(id).max(500).optional().describe('Notifications à marquer comme lues ; absent = toutes.'),
+});
+
+export const appNameSchema = z.object({ name: z.string().trim().min(1).max(40).describe("Nom affiché de l'application.") });
+export const maintenanceSchema = z.object({
+  enabled: z.boolean(),
+  level: z.enum(['info', 'warning', 'danger']).describe('`info` : information ; `warning` : perturbations ; `danger` : interruption.'),
+  title: z.string().trim().max(120).default(''),
+  message: z.string().trim().max(2000).default(''),
+  startsAt: z.iso.datetime({ offset: true }).nullable().default(null).describe('Début annoncé (ISO 8601) ; `null` = maintenant.'),
+  endsAt: z.iso.datetime({ offset: true }).nullable().default(null).describe('Fin : le message disparaît tout seul ; `null` = jusqu’à désactivation.'),
+});
+
+export const exportQuerySchema = z.object({
+  format: z.enum(['json', 'csv']).default('json').describe('`json` : export complet (configuration, tickets, commentaires, historique) ; `csv` : tableau des tickets.'),
+});
+
 export const searchQuerySchema = z.object({
   q: z.string().trim().min(1, 'Saisissez un texte à rechercher.').max(200).describe('Texte recherché (accents et casse ignorés), ou une clé de ticket « APP-12 ».'),
   type: csv(['projects', 'tickets', 'users'] as const).optional().describe('Types de résultats, séparés par des virgules (tous par défaut).'),
   limit: z.coerce.number().int().min(1).max(100).default(8).describe('Nombre de résultats par type.'),
+});
+
+export const attachmentLinkSchema = z.object({
+  kind: z.enum(['url', 'path']).describe('`url` : lien web ; `path` : chemin vers un fichier ou un dossier (poste ou partage réseau).'),
+  target: z.string().trim().min(1).max(LIMITS.linkTargetMax).describe('Adresse (https://…) ou chemin absolu (C:\\…, \\\\serveur\\…, /…).').meta({ example: 'https://exemple.fr/specification' }),
+  name: z.string().trim().max(LIMITS.attachmentNameMax).optional().describe('Nom affiché (par défaut : déduit de la cible).'),
 });
 
 export const uploadQuerySchema = z.object({

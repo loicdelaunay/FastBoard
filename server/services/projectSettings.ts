@@ -54,6 +54,10 @@ export function describeSettingsChange(before: ProjectSettingsDTO, after: Projec
   toggle('confettis', before.confetti, after.confetti);
   toggle("indicateur d'inactivité", before.staleIndicator, after.staleIndicator);
   if (before.staleDays !== after.staleDays) parts.push(`inactivité après ${after.staleDays} j`);
+  if (before.completeStatuses.join() !== after.completeStatuses.join()) parts.push('colonnes à 100 %');
+  if (JSON.stringify(before.columnSort) !== JSON.stringify(after.columnSort)) parts.push('tri automatique des colonnes');
+  toggle('alerte de livraison', before.deliveryAlert, after.deliveryAlert);
+  if (before.deliveryWarnDays !== after.deliveryWarnDays || before.deliveryDangerDays !== after.deliveryDangerDays) parts.push('seuils d’alerte de livraison');
   if (JSON.stringify(before.columns) !== JSON.stringify(after.columns)) {
     parts.push('colonnes du Kanban');
   }

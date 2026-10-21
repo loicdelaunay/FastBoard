@@ -7,6 +7,7 @@ import ProgressSpinner from 'primevue/progressspinner';
 import { realtime } from '@/realtime/socket';
 import PresenceStack from '@/components/project/PresenceStack.vue';
 import TicketContextMenu from '@/components/tickets/TicketContextMenu.vue';
+import TicketQuickEdit from '@/components/tickets/TicketQuickEdit.vue';
 import TicketDialog from '@/components/tickets/TicketDialog.vue';
 import { resetTicketFilters } from '@/composables/useTicketFilters';
 import { useProjectStore } from '@/stores/project';
@@ -125,6 +126,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 
       <TicketDialog />
       <TicketContextMenu />
+      <TicketQuickEdit />
     </template>
   </div>
 </template>

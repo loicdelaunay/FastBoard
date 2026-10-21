@@ -6,7 +6,7 @@ import UserAvatarGroup from '@/components/common/UserAvatarGroup.vue';
 import type { PriorityItem } from '@/composables/useAnalysis';
 import { useProjectStore } from '@/stores/project';
 import { dueDate, ticketKey } from '@/utils/tickets';
-import { ticketProgress } from '@shared/progress';
+import { progressOf } from '@/utils/progress';
 
 defineProps<{ items: PriorityItem[] }>();
 const emit = defineEmits<{ open: [ticketId: number] }>();
@@ -47,7 +47,7 @@ function due(item: PriorityItem): string {
             <span v-for="reason in item.reasons" :key="reason" class="reason">{{ reason }}</span>
             <span v-if="due(item)" class="muted small due"><i class="pi pi-calendar"></i> {{ due(item) }}</span>
             <UserAvatarGroup v-if="people(item).length" :users="people(item)" :max="3" />
-            <div class="meter"><ProgressMeter :value="ticketProgress(item.ticket)" :height="4" /></div>
+            <div class="meter"><ProgressMeter :value="progressOf(item.ticket)" :height="4" /></div>
           </div>
         </button>
       </li>

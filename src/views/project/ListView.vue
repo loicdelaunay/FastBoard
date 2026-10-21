@@ -8,7 +8,8 @@ import type { MenuItem } from 'primevue/menuitem';
 import Select from 'primevue/select';
 import type { TicketStatus } from '@shared/constants';
 import { formatDateShort, todayISO } from '@shared/dates';
-import { partsSummary, ticketProgress } from '@shared/progress';
+import { partsSummary } from '@shared/progress';
+import { progressOf } from '@/utils/progress';
 import type { TicketDTO } from '@shared/types';
 import ColorChip from '@/components/common/ColorChip.vue';
 import ColumnValueFilter from '@/components/common/ColumnValueFilter.vue';
@@ -107,7 +108,7 @@ const rows = computed<Row[]>(() => {
       statusOrder: project.statusOrder.get(ticket.status) ?? 0,
       deliveryName: delivery?.name ?? '',
       deliveryColor: delivery?.color ?? null,
-      progress: ticketProgress(ticket),
+      progress: progressOf(ticket),
       start: ticket.startDate ?? '',
       end: dueDate(ticket, delivery) ?? '',
       overdue: isOverdue(ticket, delivery, today),

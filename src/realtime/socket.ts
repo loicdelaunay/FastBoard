@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import type { ClientMessage, PresenceUser, ProjectEvent, ServerMessage } from '@shared/realtime';
+import type { AppInfoDTO, NotificationDTO } from '@shared/types';
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting';
 
@@ -18,6 +19,9 @@ interface Handlers {
   revoked: Array<(projectId: number) => void>;
   /** Reconnexion réussie : l'état local a pu manquer des évènements. */
   resync: Array<() => void>;
+  app: Array<(info: AppInfoDTO) => void>;
+  notification: Array<(notification: NotificationDTO, unread: number) => void>;
+  notificationsRead: Array<(unread: number) => void>;
 }
 
 const BACKOFF = [500, 1000, 2000, 4000, 8000, 15000];
@@ -34,7 +38,7 @@ class RealtimeClient {
   #projectId: number | null = null;
   #presence: { ticketId: number | null; view: string } = { ticketId: null, view: '' };
   #hasConnectedOnce = false;
-  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], revoked: [], resync: [] };
+  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], revoked: [], resync: [], app: [], notification: [], notificationsRead: [] };
 
   on<K extends keyof Handlers>(type: K, handler: Handlers[K][number]): () => void {
     (this.#handlers[type] as Array<typeof handler>).push(handler);
@@ -137,6 +141,15 @@ class RealtimeClient {
         break;
       case 'projects.refresh':
         this.#handlers.projectsRefresh.forEach((handler) => handler());
+        break;
+      case 'app':
+        this.#handlers.app.forEach((handler) => handler(message.app));
+        break;
+      case 'notification':
+        this.#handlers.notification.forEach((handler) => handler(message.notification, message.unread));
+        break;
+      case 'notifications.read':
+        this.#handlers.notificationsRead.forEach((handler) => handler(message.unread));
         break;
       case 'project.revoked':
         if (message.projectId === this.#projectId) {

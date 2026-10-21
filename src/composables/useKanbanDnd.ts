@@ -29,7 +29,7 @@ export function useKanbanDnd() {
   }
 
   /** Calcule la position d'insertion d'après la position verticale du pointeur dans la colonne. */
-  function over(event: DragEvent, status: TicketStatus, list: HTMLElement): void {
+  function over(event: DragEvent, status: TicketStatus, list: HTMLElement, sorted = false): void {
     if (state.draggingId === null) {
       return;
     }
@@ -49,7 +49,19 @@ export function useKanbanDnd() {
       }
     }
     state.overStatus = status;
-    state.beforeId = before;
+    state.beforeId = sorted ? null : before;
+  scrollList(event, list);
+  }
+
+  /** Fait défiler une colonne quand le pointeur approche de son haut ou de son bas (colonnes plus hautes que l'écran). */
+  function scrollList(event: DragEvent, list: HTMLElement): void {
+    const rect = list.getBoundingClientRect();
+    const edge = Math.min(80, rect.height / 4);
+    if (event.clientY > rect.bottom - edge) {
+      list.scrollTop += Math.ceil(((event.clientY - (rect.bottom - edge)) / edge) * 22) + 4;
+    } else if (event.clientY < rect.top + edge) {
+      list.scrollTop -= Math.ceil((((rect.top + edge) - event.clientY) / edge) * 22) + 4;
+    }
   }
 
   function leave(event: DragEvent, column: HTMLElement): void {

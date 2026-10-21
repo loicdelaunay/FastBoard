@@ -9,6 +9,7 @@ import { useKanbanDnd } from '@/composables/useKanbanDnd';
 import { useTicketFilters } from '@/composables/useTicketFilters';
 import { useTicketRoute } from '@/composables/useTicketRoute';
 import { useProjectStore } from '@/stores/project';
+import { ticketComparator } from '@/utils/ticketSort';
 
 const project = useProjectStore();
 const { filtered } = useTicketFilters();
@@ -26,10 +27,11 @@ const columns = computed(() => {
   for (const ticket of filtered.value) {
     byStatus.get(ticket.status)?.push(ticket);
   }
-  for (const list of byStatus.values()) {
-    list.sort((a, b) => a.position - b.position || a.id - b.id);
+  for (const [status, list] of byStatus) {
+    const sort = project.settings.columnSort[status];
+    list.sort(sort ? ticketComparator(sort) : (a, b) => a.position - b.position || a.id - b.id);
   }
-  return statuses.map((status) => ({ status, tickets: byStatus.get(status) ?? [] }));
+  return statuses.map((status) => ({ status, tickets: byStatus.get(status) ?? [], sorted: Boolean(project.settings.columnSort[status]) }));
 });
 
 </script>
@@ -44,6 +46,7 @@ const columns = computed(() => {
         :key="column.status"
         :status="column.status"
         :tickets="column.tickets"
+        :sorted="column.sorted"
         :can-create="canCreate"
         :can-move="canMove"
         @open="openTicket"

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useAppStore } from '@/stores/app';
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from 'primevue/button';
@@ -10,6 +11,7 @@ import { errorMessage } from '@/api/http';
 import { useAuthStore } from '@/stores/auth';
 
 const auth = useAuthStore();
+const app = useAppStore();
 const route = useRoute();
 const router = useRouter();
 
@@ -37,9 +39,9 @@ async function submit(): Promise<void> {
   <div class="login-page">
     <form class="login-card card" @submit.prevent="submit">
       <div class="logo">
-        <img src="/favicon.svg" alt="" width="44" height="44" />
+        <img :src="app.logoUrl" alt="" width="44" height="44" class="logo" />
         <div>
-          <h1>{{ $t('FastBoard') }}</h1>
+          <h1>{{ app.name }}</h1>
           <p class="muted small">{{ $t('Suivi de projet collaboratif en temps réel') }}</p>
         </div>
       </div>
@@ -98,5 +100,8 @@ async function submit(): Promise<void> {
 .lang-row {
   display: flex;
   justify-content: center;
+}
+.logo {
+  object-fit: contain;
 }
 </style>

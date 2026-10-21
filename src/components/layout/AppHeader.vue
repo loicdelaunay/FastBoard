@@ -8,6 +8,9 @@ import { APP_VERSION } from '@shared/changelog';
 import ChangelogDialog from './ChangelogDialog.vue';
 import ConnectionBadge from './ConnectionBadge.vue';
 import GlobalSearch from './GlobalSearch.vue';
+import NotificationBell from './NotificationBell.vue';
+import AiButton from '@/components/ai/AiButton.vue';
+import { useAppStore } from '@/stores/app';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
 
@@ -19,6 +22,7 @@ const route = useRoute();
 const onProjects = computed(() => route.path === '/' || route.path.startsWith('/p/'));
 const menu = ref<InstanceType<typeof Menu> | null>(null);
 const changelogOpen = ref(false);
+const app = useAppStore();
 
 const items = computed<MenuItem[]>(() => [
   { label: auth.user?.email ?? '', disabled: true, class: 'menu-email' },
@@ -48,11 +52,11 @@ function toggle(event: Event): void {
 <template>
   <header class="app-header">
     <div class="brand">
-      <router-link to="/" class="brand-link" :aria-label="$t('FastBoard — projets')">
-        <img src="/favicon.svg" alt="" width="28" height="28" />
+      <router-link to="/" class="brand-link" :aria-label="`${app.name} — ${$t('Projets')}`">
+        <img :src="app.logoUrl" alt="" width="28" height="28" class="logo" />
       </router-link>
       <div class="brand-text">
-        <router-link to="/" class="brand-name" tabindex="-1">{{ $t('FastBoard') }}</router-link>
+        <router-link to="/" class="brand-name" tabindex="-1">{{ app.name }}</router-link>
         <button type="button" class="version-chip" :aria-label="$t('Version {version} : voir les nouveautés', { version: APP_VERSION })" @click="changelogOpen = true">v{{ APP_VERSION }}</button>
       </div>
     </div>
@@ -69,6 +73,8 @@ function toggle(event: Event): void {
 
     <div class="spacer"></div>
     <GlobalSearch />
+    <AiButton v-if="app.info.ai && auth.can('ai.use')" />
+    <NotificationBell />
     <ConnectionBadge />
 
     <button class="user-button" type="button" aria-haspopup="true" :aria-label="$t('Menu du compte')" @click="toggle">
@@ -99,6 +105,10 @@ function toggle(event: Event): void {
 }
 .brand-link {
   display: inline-flex;
+}
+.logo {
+  object-fit: contain;
+  border-radius: 6px;
 }
 .brand-text {
   display: flex;

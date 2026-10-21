@@ -13,6 +13,7 @@ import { currentLocale, t } from './i18n';
 import { primevueEn } from './i18n/primevueEn';
 import { primevueFr } from './i18n/primevueFr';
 import router from './router';
+import { useAppStore } from './stores/app';
 import { useAuthStore } from './stores/auth';
 import { applyTheme, cachedThemeId } from './theme/themeManager';
 import { notify } from './utils/notify';
@@ -53,6 +54,6 @@ onSessionChanged(() => {
   window.setTimeout(() => window.location.reload(), 1500);
 });
 
-await auth.init();
+await Promise.all([auth.init(), useAppStore().load()]);
 app.use(router);
 app.mount('#app');

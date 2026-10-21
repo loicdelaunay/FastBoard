@@ -70,6 +70,23 @@ export interface ProjectSummaryDTO extends ProjectDTO {
   myRoleName: string | null;
   /** Aperçu des membres pour l'affichage en pile d'avatars. */
   memberPreview: UserSummaryDTO[];
+  /** Livraison en cours aujourd'hui (la plus proche de sa fin), avec son avancement et le temps écoulé. */
+  currentDelivery: CurrentDeliveryDTO | null;
+}
+
+export interface CurrentDeliveryDTO {
+  id: number;
+  name: string;
+  color: string;
+  startDate: string;
+  endDate: string;
+  /** Avancement moyen des tickets de la livraison (0–100). */
+  progress: number;
+  /** Part du temps de la livraison déjà écoulée (0–100). */
+  timeElapsed: number;
+  ticketCount: number;
+  doneCount: number;
+  daysLeft: number;
 }
 
 export interface ProjectMemberDTO {
@@ -170,6 +187,8 @@ export interface TicketDTO {
   links: TicketLinkDTO[];
   /** Dernier changement de colonne : sert à l'indicateur d'inactivité. */
   statusChangedAt: string;
+  /** Personnes qui suivent le ticket (notifications). */
+  watcherIds: number[];
   createdBy: number | null;
   createdAt: string;
   updatedAt: string;
@@ -186,7 +205,13 @@ export interface AttachmentDTO {
   mime: string;
   size: number;
   createdAt: string;
+  /** `file` : fichier envoyé ; `url` : lien web ; `path` : chemin vers un fichier ou un dossier du poste ou du réseau. */
+  kind: AttachmentKind;
+  /** Cible d'un lien (`url` ou `path`) ; `null` pour un fichier. */
+  url: string | null;
 }
+
+export type AttachmentKind = 'file' | 'url' | 'path';
 
 export interface CommentDTO {
   id: number;
@@ -228,9 +253,10 @@ export type HistoryData =
   | { kind: 'assignees'; added: NameRef[]; removed: NameRef[] }
   /** `note` : mission définie ou modifiée (chaîne vide = mission effacée). */
   | { kind: 'part'; user: NameRef; done?: boolean; progress?: number; note?: string }
-  | { kind: 'attachment'; action: 'added' | 'removed'; name: string; size: number }
+  | { kind: 'attachment'; action: 'added' | 'removed'; name: string; size: number; link?: 'url' | 'path' }
   | { kind: 'subtask'; action: 'added' | 'done' | 'reopened' | 'renamed' | 'removed'; title: string; previousTitle?: string }
-  | { kind: 'link'; action: 'added' | 'removed'; reason: string; target: { id: number; key: string; title: string } };
+  | { kind: 'link'; action: 'added' | 'removed'; reason: string; target: { id: number; key: string; title: string } }
+  | { kind: 'transferred'; from: { key: string; project: string }; to: { key: string; project: string } };
 
 export interface HistoryEntryDTO {
   id: number;
@@ -308,6 +334,8 @@ export type ActivityData =
   /** Création / modification / assignation / part d'un ticket (mêmes données que l'historique du ticket). */
   | { kind: 'ticket'; ticketId: number; ticketKey: string; ticketTitle: string; entry: HistoryData }
   | { kind: 'ticket_deleted'; ticketKey: string; ticketTitle: string }
+  /** Ticket déplacé vers un autre projet (`out`) ou reçu d'un autre projet (`in`). */
+  | { kind: 'ticket_transferred'; direction: 'in' | 'out'; ticketId: number | null; ticketKey: string; ticketTitle: string; otherProject: string; otherKey: string }
   | { kind: 'comment'; action: 'created' | 'deleted'; ticketId: number; ticketKey: string; ticketTitle: string; excerpt: string; reply: boolean }
   | { kind: 'category'; action: 'created' | 'updated' | 'deleted'; name: string; previousName?: string }
   | { kind: 'priority'; action: 'created' | 'updated' | 'deleted'; name: string; previousName?: string }
@@ -395,4 +423,59 @@ export interface UserSummaryPageDTO {
   activityByDay: Array<{ day: string; count: number }>;
   assigned: UserAssignedTicketDTO[];
   recent: UserActivityDTO[];
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Application : nom, logo, maintenance
+// ---------------------------------------------------------------------------------------------------------------------
+
+export type MaintenanceLevel = 'info' | 'warning' | 'danger';
+
+export interface MaintenanceDTO {
+  enabled: boolean;
+  level: MaintenanceLevel;
+  title: string;
+  message: string;
+  /** Début annoncé (affiché « prévue le … » tant qu'il n'est pas atteint) ; `null` = maintenant. */
+  startsAt: string | null;
+  /** Le message disparaît tout seul à cette date ; `null` = jusqu'à désactivation. */
+  endsAt: string | null;
+  updatedAt: string;
+}
+
+export interface AppInfoDTO {
+  name: string;
+  /** 0 = logo par défaut ; sinon `GET /api/app/logo?v=<version>`. */
+  logoVersion: number;
+  version: string;
+  /** Message de maintenance actif ou annoncé (absent une fois terminé ou désactivé). */
+  maintenance: MaintenanceDTO | null;
+  /** L'assistant IA est activé sur le site. */
+  ai: boolean;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** `activity` : changement sur un ticket suivi ; `mention` : on vous a mentionné ; `assigned` : on vous a assigné. */
+export type NotificationType = 'activity' | 'mention' | 'assigned';
+
+export interface NotificationDTO {
+  id: number;
+  type: NotificationType;
+  projectId: number | null;
+  projectKey: string | null;
+  projectName: string | null;
+  ticketId: number | null;
+  ticketKey: string | null;
+  ticketTitle: string | null;
+  actorId: number | null;
+  actorName: string | null;
+  via: string | null;
+  activity: ActivityData | null;
+  /** Extrait du texte où l'on vous mentionne. */
+  excerpt: string | null;
+  createdAt: string;
+  readAt: string | null;
 }

@@ -6,10 +6,10 @@ import { FILE_NAME_HEADER } from '../../shared/constants.ts';
 import type { AppContext } from '../context.ts';
 import { HttpError, notFound } from '../http/errors.ts';
 import { actorOf, csrfGuard, currentUser, requireAuth } from '../http/middleware.ts';
-import { uploadQuerySchema } from '../http/schemas.ts';
+import { attachmentLinkSchema, uploadQuerySchema } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireProject } from '../services/access.ts';
-import { attachmentFile, contentDisposition, deleteAttachment, listAttachments, requireAttachment, storeAttachment } from '../services/attachments.ts';
+import { addAttachmentLink, attachmentFile, contentDisposition, deleteAttachment, listAttachments, openLocalPath, requireAttachment, storeAttachment } from '../services/attachments.ts';
 import { requireTicket } from '../services/tickets.ts';
 
 /**
@@ -65,10 +65,34 @@ export function attachmentsRouter(ctx: AppContext): Router {
     res.json({ attachments: listAttachments(ctx.db, ticket.id) });
   });
 
+  router.post('/tickets/:id/attachment-links', (req, res) => {
+    const ticket = requireTicket(ctx.db, idParam(req.params.id));
+    requireProject(ctx, currentUser(res), ticket.project_id, 'attachment.create');
+    res.status(201).json({ attachment: addAttachmentLink(ctx, actorOf(req, res), ticket, parse(attachmentLinkSchema, req.body)) });
+  });
+
+  /** Ouvre un lien « chemin » sur la machine du serveur : seulement si la requête vient de cette machine (localhost). */
+  router.post('/attachments/:id/open', async (req, res) => {
+    const row = requireAttachment(ctx.db, idParam(req.params.id));
+    const ticket = requireTicket(ctx.db, row.ticket_id);
+    requireProject(ctx, currentUser(res), ticket.project_id);
+    if (row.kind !== 'path' || !row.url) {
+      throw new HttpError(400, "Cette pièce jointe n'est pas un chemin de fichier.", 'bad_request');
+    }
+    const remote = req.socket.remoteAddress ?? '';
+    if (currentUser(res).token || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote)) {
+      throw new HttpError(409, "FastBoard ne tourne pas sur votre poste : ouvrez le chemin vous-même.", 'not_local');
+    }
+    res.json({ ok: true, ...(await openLocalPath(row.url)) });
+  });
+
   router.get('/attachments/:id/download', async (req, res) => {
     const row = requireAttachment(ctx.db, idParam(req.params.id));
     const ticket = requireTicket(ctx.db, row.ticket_id);
     requireProject(ctx, currentUser(res), ticket.project_id);
+    if (row.kind !== 'file') {
+      throw notFound("Cette pièce jointe est un lien : il n'y a pas de fichier à télécharger.");
+    }
 
     const file = attachmentFile(ctx, row);
     if (!fs.existsSync(file)) {

@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '1.3.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,33 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '1.3.0',
+    date: '2026-10-21',
+    changes: [
+      { category: 'Nouveauté', text: 'Assistant IA dans un panneau latéral : il connaît le projet ou le ticket ouvert, cherche partout et peut modifier les tickets si vous l’autorisez.' },
+      { category: 'Nouveauté', text: 'Administration : onglet IA pour brancher un fournisseur compatible OpenAI v1 (URL, clé), détecter ses modèles, choisir ceux proposés et le modèle par défaut.' },
+      { category: 'Nouveauté', text: 'Capacités par modèle : vision (images jointes), taille du contexte et niveaux de réflexion, choisis dans les réglages du panneau.' },
+      { category: 'Sécurité', text: 'Nouvelles permissions IA, globales et par projet ; l’assistant n’a jamais plus de droits que la personne.' },
+      { category: 'Correction', text: 'Les onglets Personnalisation, Maintenance, Sauvegardes et Installation ont la même mise en page que les autres.' },
+    ],
+  },
+  {
+    version: '1.2.0',
+    date: '2026-10-21',
+    changes: [
+      { category: 'Nouveauté', text: 'Description des tickets en Markdown, avec barre d’outils, formules mathématiques, diagrammes Mermaid et plein écran.' },
+      { category: 'Nouveauté', text: 'Notifications : suivre un ticket, être prévenu quand on est assigné ou mentionné avec @.' },
+      { category: 'Nouveauté', text: 'Menu du clic droit enrichi : titre, assignés, dates, priorité, livraison, colonne ou autre projet.' },
+      { category: 'Nouveauté', text: 'Pièces jointes : liens web et liens vers un fichier ou un dossier du poste.' },
+      { category: 'Nouveauté', text: 'Administration : nom et logo de l’application, message de maintenance à plusieurs niveaux.' },
+      { category: 'Nouveauté', text: 'Export d’un projet en CSV ou en JSON depuis le clic droit sur la page des projets.' },
+      { category: 'Nouveauté', text: 'Automatisations : colonnes comptées à 100 %, tri automatique par colonne, pastille d’échéance des livraisons.' },
+      { category: 'Amélioration', text: 'Page des projets : avancement de la livraison en cours comparé au temps écoulé, lien vers la documentation de l’API.' },
+      { category: 'Amélioration', text: 'Survoler « en ligne » affiche la liste de toutes les personnes connectées au projet.' },
+      { category: 'Correction', text: 'Le Kanban défile dans une colonne pendant le glisser-déposer d’un ticket.' },
+    ],
+  },
   {
     version: '1.1.0',
     date: '2026-10-20',

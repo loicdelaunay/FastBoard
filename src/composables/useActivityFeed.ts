@@ -42,6 +42,9 @@ function searchableText(activity: ActivityDTO, authorName: string | undefined): 
     case 'ticket_deleted':
       parts.push(data.ticketKey, data.ticketTitle);
       break;
+    case 'ticket_transferred':
+      parts.push(data.ticketKey, data.ticketTitle, data.otherProject, data.otherKey);
+      break;
     case 'comment':
       parts.push(data.ticketKey, data.ticketTitle, data.excerpt);
       break;

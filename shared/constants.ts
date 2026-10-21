@@ -76,6 +76,7 @@ export const LIMITS = {
   attachmentMaxBytes: 25 * 1024 * 1024,
   attachmentsPerTicket: 30,
   attachmentNameMax: 200,
+  linkTargetMax: 2000,
   subtaskTitleMax: 300,
   subtasksPerTicket: 100,
   linkReasonMax: 60,

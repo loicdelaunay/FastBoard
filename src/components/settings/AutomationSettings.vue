@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import InputNumber from 'primevue/inputnumber';
 import ToggleSwitch from 'primevue/toggleswitch';
+import AutomationRules from './AutomationRules.vue';
 import type { ProjectSettingsDTO } from '@shared/settings';
 import { useProjectStore } from '@/stores/project';
 import { notifyError } from '@/utils/notify';
@@ -73,6 +74,7 @@ async function toggle(key: Flag, value: boolean): Promise<void> {
       </div>
       <ToggleSwitch :input-id="`auto-${option.key}`" :model-value="project.settings[option.key]" :disabled="!canEdit" @update:model-value="(value: boolean) => toggle(option.key, value)" />
     </section>
+    <AutomationRules />
   </div>
 </template>
 

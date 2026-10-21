@@ -4,7 +4,11 @@ import { listAllApiTokens, revokeApiToken, updateApiToken } from '../auth/tokens
 import type { AppContext } from '../context.ts';
 import { currentUser, sessionOnly } from '../http/middleware.ts';
 import {
+  aiProbeSchema,
+  aiSettingsSchema,
+  appNameSchema,
   backupConfigSchema,
+  maintenanceSchema,
   createRoleSchema,
   createUserSchema,
   folderTestSchema,
@@ -18,6 +22,13 @@ import {
 } from '../http/schemas.ts';
 import { backupOverview, forgetDestinationRuns, runBackup, saveBackupConfig, testFolder } from '../backup/service.ts';
 import { serviceAction, serviceStatus } from '../system/service.ts';
+import { aiSettingsDTO, detectModels, keyForTest, saveAiSettings } from '../ai/settings.ts';
+import { testAiConnection } from '../ai/agent.ts';
+import { appInfo } from '../services/appSettings.ts';
+import { getMaintenance, setAppLogo, setAppName, setMaintenance } from '../services/appSettings.ts';
+import { sniffImageMime } from '../../shared/attachments.ts';
+import { badRequest, HttpError } from '../http/errors.ts';
+import { LIMITS } from '../../shared/constants.ts';
 import { queryLogs, type LogQuery } from '../monitoring/logger.ts';
 import { buildSnapshot as buildMonitoringSnapshot } from '../monitoring/snapshot.ts';
 import { idParam, parse } from '../http/validate.ts';
@@ -180,6 +191,84 @@ export function adminRouter(ctx: AppContext): Router {
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="fastboard-journaux-${new Date().toISOString().slice(0, 10)}.ndjson"`);
     res.send(lines.join('\n') + (lines.length ? '\n' : ''));
+  });
+
+  // --- Intelligence artificielle -------------------------------------------------------------------------------------
+
+  router.get('/admin/ai', (_req, res) => {
+    requireGlobal(currentUser(res), 'ai.manage');
+    res.json({ settings: aiSettingsDTO(ctx) });
+  });
+
+  router.put('/admin/ai', (req, res) => {
+    requireGlobal(currentUser(res), 'ai.manage');
+    const input = parse(aiSettingsSchema, req.body);
+    const settings = saveAiSettings(ctx, input);
+    audit(res, `Assistant IA ${settings.enabled ? 'activé' : 'désactivé'} (${settings.models.length} modèle(s), défaut ${settings.defaultModel})`, { baseUrl: settings.baseUrl, keyChanged: input.apiKey !== undefined });
+    const app = appInfo(ctx.db);
+    ctx.hub.broadcast({ t: 'app', app });
+    res.json({ settings, app });
+  });
+
+  /** Essaie les valeurs du formulaire (clé saisie, sinon clé enregistrée) par un court échange avec le modèle. */
+  router.post('/admin/ai/test', async (req, res) => {
+    requireGlobal(currentUser(res), 'ai.manage');
+    const probe = parse(aiProbeSchema, req.body);
+    const model = probe.model || aiSettingsDTO(ctx).defaultModel;
+    res.json(await testAiConnection({ baseUrl: probe.baseUrl.replace(/\/+$/, ''), apiKey: keyForTest(ctx, probe.apiKey) }, model));
+  });
+
+  /** Modèles proposés par le fournisseur (`GET /models`), avec des capacités devinées. */
+  router.post('/admin/ai/models', async (req, res) => {
+    requireGlobal(currentUser(res), 'ai.manage');
+    const probe = parse(aiProbeSchema, req.body);
+    try {
+      res.json({ models: await detectModels(probe.baseUrl, keyForTest(ctx, probe.apiKey)) });
+    } catch (error) {
+      throw new HttpError(502, (error as Error).message, 'ai_provider');
+    }
+  });
+
+  // --- Personnalisation et maintenance -------------------------------------------------------------------------------
+
+  router.put('/admin/app', (req, res) => {
+    requireGlobal(currentUser(res), 'settings.manage');
+    const { name } = parse(appNameSchema, req.body);
+    audit(res, `Nom de l'application : ${name}`);
+    res.json(setAppName(ctx, name));
+  });
+
+  router.put('/admin/app/logo', express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: LIMITS.avatarMaxBytes }), (req, res) => {
+    requireGlobal(currentUser(res), 'settings.manage');
+    const body: unknown = req.body;
+    const sniffed = Buffer.isBuffer(body) && body.length ? sniffImageMime(body.subarray(0, 16)) : null;
+    const mime = sniffed && ['image/png', 'image/jpeg', 'image/webp'].includes(sniffed) ? sniffed : null;
+    if (!mime || !Buffer.isBuffer(body)) {
+      throw badRequest("Le fichier n'est pas une image PNG, JPEG ou WebP valide (512 Ko maximum).");
+    }
+    audit(res, "Logo de l'application modifié");
+    res.json(setAppLogo(ctx, { mime, data: body }));
+  });
+
+  router.delete('/admin/app/logo', (_req, res) => {
+    requireGlobal(currentUser(res), 'settings.manage');
+    audit(res, "Logo de l'application retiré");
+    res.json(setAppLogo(ctx, null));
+  });
+
+  router.get('/admin/maintenance', (_req, res) => {
+    requireGlobal(currentUser(res), 'settings.manage');
+    res.json({ maintenance: getMaintenance(ctx.db) });
+  });
+
+  router.put('/admin/maintenance', (req, res) => {
+    requireGlobal(currentUser(res), 'settings.manage');
+    const input = parse(maintenanceSchema, req.body);
+    if (input.startsAt && input.endsAt && input.startsAt >= input.endsAt) {
+      throw badRequest('La fin de la maintenance doit suivre son début.');
+    }
+    audit(res, `Message de maintenance ${input.enabled ? 'affiché' : 'retiré'} (${input.level})`, { title: input.title });
+    res.json({ app: setMaintenance(ctx, input), maintenance: getMaintenance(ctx.db) });
   });
 
   // --- Sauvegardes ---------------------------------------------------------------------------------------------------

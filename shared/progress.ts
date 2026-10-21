@@ -21,12 +21,12 @@ interface ProgressInput {
 
 /**
  * Avancement global d'un ticket (0–100) :
- * - un ticket « Terminé » vaut toujours 100 % ;
+ * - un ticket dans une colonne « terminée » (« Terminé », et celles choisies dans les réglages du projet) vaut 100 % ;
  * - avec des assignés : moyenne de l'avancement de chaque part ;
  * - sans assigné : avancement saisi manuellement.
  */
-export function ticketProgress(ticket: ProgressInput): number {
-  if (ticket.status === 'done') {
+export function ticketProgress(ticket: ProgressInput, completeStatuses: readonly TicketStatus[] = ['done']): number {
+  if (ticket.status === 'done' || completeStatuses.includes(ticket.status)) {
     return 100;
   }
   if (ticket.assignees.length > 0) {

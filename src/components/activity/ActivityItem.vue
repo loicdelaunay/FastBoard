@@ -39,6 +39,8 @@ const ICONS: Record<string, string> = {
   priority: 'pi pi-flag',
   component: 'pi pi-box',
   ticket_deleted: 'pi pi-trash',
+  ticket_transferred: 'pi pi-folder',
+  transferred: 'pi pi-folder',
   comment: 'pi pi-comment',
   category: 'pi pi-tag',
   delivery: 'pi pi-truck',
@@ -148,7 +150,7 @@ const CONFIG_ACTIONS = { created: t('a créé'), updated: t('a modifié'), delet
             <span v-else class="key gone">{{ ticketData.ticketKey }}</span>
           </template>
           <template v-else-if="entry.kind === 'attachment'">
-            {{ entry.action === 'added' ? $t('a joint') : $t('a retiré') }} <strong class="file">{{ entry.name }}</strong> ({{ formatBytes(entry.size) }}) {{ entry.action === 'added' ? $t('à') : $t('de') }}
+            {{ entry.action === 'added' ? $t('a joint') : $t('a retiré') }} <strong class="file">{{ entry.name }}</strong> ({{ entry.link ? (entry.link === 'url' ? $t('lien web') : $t('fichier local')) : formatBytes(entry.size) }}) {{ entry.action === 'added' ? $t('à') : $t('de') }}
             <button v-if="canOpen(ticketData.ticketId)" type="button" class="key" @click="emit('open', ticketData.ticketId)">{{ ticketData.ticketKey }}</button>
             <span v-else class="key gone">{{ ticketData.ticketKey }}</span>
           </template>
@@ -166,6 +168,11 @@ const CONFIG_ACTIONS = { created: t('a créé'), updated: t('a modifié'), delet
             <span v-else class="key gone">{{ entry.target.key }}</span>
           </template>
           <span v-if="entry.kind !== 'created'" class="title-ref">« {{ ticketData.ticketTitle }} »</span>
+        </template>
+
+        <template v-else-if="data.kind === 'ticket_transferred'">
+          <template v-if="data.direction === 'out'">{{ $t('a déplacé') }} <span class="key gone">{{ data.ticketKey }}</span> « {{ data.ticketTitle }} » {{ $t('vers le projet « {name} » ({key})', { name: data.otherProject, key: data.otherKey }) }}</template>
+          <template v-else>{{ $t('a fait venir') }} <button v-if="data.ticketId && canOpen(data.ticketId)" type="button" class="key" @click="emit('open', data.ticketId)">{{ data.ticketKey }}</button><span v-else class="key gone">{{ data.ticketKey }}</span> « {{ data.ticketTitle }} » {{ $t('du projet « {name} » ({key})', { name: data.otherProject, key: data.otherKey }) }}</template>
         </template>
 
         <template v-else-if="data.kind === 'ticket_deleted'"> {{ $t('a supprimé') }} <span class="key gone">{{ data.ticketKey }}</span> « {{ data.ticketTitle }} »

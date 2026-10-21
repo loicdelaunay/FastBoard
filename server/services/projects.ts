@@ -1,6 +1,7 @@
 import { DEFAULT_CATEGORIES, DEFAULT_PRIORITIES } from '../../shared/constants.ts';
 import { suggestProjectKey } from '../../shared/projectKey.ts';
 import { ticketProgress } from '../../shared/progress.ts';
+import { diffDays, todayISO } from '../../shared/dates.ts';
 import type {
   NameRef,
   ProjectChange,
@@ -28,6 +29,7 @@ import {
   type DeliveryRow,
   type ProjectRow,
   type UserRow,
+  parseSettings,
 } from './rows.ts';
 import { listTicketDTOs } from './tickets.ts';
 
@@ -100,8 +102,28 @@ export function listProjectSummaries(db: Db, user: AuthUser): ProjectSummaryDTO[
     .filter((row) => allowed === null || allowed.includes(row.id))
     .map((row) => {
     const tickets = listTicketDTOs(db, row.id);
+    const complete = parseSettings(row.settings).completeStatuses;
+    const today = todayISO();
+    const delivery = db.get<DeliveryRow>('SELECT * FROM deliveries WHERE project_id = ? AND start_date <= ? AND end_date >= ? ORDER BY end_date, id LIMIT 1', row.id, today, today);
+    let currentDelivery: ProjectSummaryDTO['currentDelivery'] = null;
+    if (delivery) {
+      const own = tickets.filter((ticket) => ticket.deliveryId === delivery.id);
+      const total = Math.max(1, diffDays(delivery.start_date, delivery.end_date) + 1);
+      currentDelivery = {
+        id: delivery.id,
+        name: delivery.name,
+        color: delivery.color,
+        startDate: delivery.start_date,
+        endDate: delivery.end_date,
+        progress: own.length ? Math.round(own.reduce((sum, ticket) => sum + ticketProgress(ticket, complete), 0) / own.length) : 0,
+        timeElapsed: Math.min(100, Math.round(((diffDays(delivery.start_date, today) + 1) / total) * 100)),
+        ticketCount: own.length,
+        doneCount: own.filter((ticket) => complete.includes(ticket.status) || ticket.status === 'done').length,
+        daysLeft: diffDays(today, delivery.end_date),
+      };
+    }
     const progress = tickets.length
-      ? Math.round(tickets.reduce((sum, ticket) => sum + ticketProgress(ticket), 0) / tickets.length)
+      ? Math.round(tickets.reduce((sum, ticket) => sum + ticketProgress(ticket, complete), 0) / tickets.length)
       : 0;
     const { users } = listMembers(db, row.id);
     return {
@@ -113,6 +135,7 @@ export function listProjectSummaries(db: Db, user: AuthUser): ProjectSummaryDTO[
       myRoleId: row.my_role_id,
       myRoleName: row.my_role_name,
       memberPreview: users.slice(0, 5),
+      currentDelivery,
     };
   });
 }

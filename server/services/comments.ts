@@ -4,6 +4,7 @@ import { nowIso, type Db } from '../db/database.ts';
 import { badRequest, forbidden, notFound } from '../http/errors.ts';
 import { logActivity } from './activity.ts';
 import { toCommentDTO, type CommentRow } from './rows.ts';
+import { notifyActivity, queueMentions } from './notifications.ts';
 import { requireTicket, ticketKeyOf } from './tickets.ts';
 
 function excerptOf(body: string): string {
@@ -53,6 +54,7 @@ export function createComment(
   );
   const comment = toCommentDTO(requireComment(db, lastInsertRowid));
   ctx.hub.publish(ticket.project_id, [{ type: 'comment.created', comment, commentCount: countComments(db, ticketId) }], actor);
+  queueMentions(ticketId, input.body);
   logActivity(ctx, actor, ticket.project_id, {
     kind: 'comment',
     action: 'created',
@@ -78,6 +80,9 @@ export function updateComment(ctx: AppContext, actor: Actor, commentId: number, 
   const ticket = requireTicket(db, row.ticket_id);
   const comment = toCommentDTO(requireComment(db, commentId));
   ctx.hub.publish(ticket.project_id, [{ type: 'comment.updated', comment, commentCount: countComments(db, row.ticket_id) }], actor);
+  // Les personnes ajoutées en mention lors d'une modification sont prévenues (les autres l'ont déjà été).
+  queueMentions(row.ticket_id, body, row.body);
+  notifyActivity(ctx, actor, ticket.project_id, { kind: 'comment', action: 'created', ticketId: row.ticket_id, ticketKey: ticketKeyOf(db, ticket), ticketTitle: ticket.title, excerpt: excerptOf(body), reply: row.parent_id !== null }, { mentionsOnly: true });
   return comment;
 }
 

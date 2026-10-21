@@ -75,6 +75,8 @@ Les corps de requête sont en JSON **encodé en UTF-8** (`-H "Content-Type: appl
 
 **Ticket** : `title`, `description`, `status`, `categoryId`, `priorityId`, `componentIds` (plusieurs), `deliveryId` (livraison ciblée), `startDate`/`endDate` (sinon ils suivent la livraison), plusieurs **assignés**, des **sous-tâches** (`subtasks`) et des **dépendances** vers d'autres tickets du projet (`links` : `targetId` + `reason`). `statusChangedAt` date le dernier changement de colonne (indicateur d'inactivité).
 
+**Description en Markdown** (GitHub Flavored Markdown : titres, listes, listes de tâches, tableaux, code) avec formules KaTeX (`$…$`, `$$…$$`) et diagrammes Mermaid (bloc ```` ```mermaid ````).
+
 **Mentions** dans `description` et les commentaires : `@[Alice Martin](user:12)` pour une personne, `@[APP-12](ticket:34)` pour un ticket (l'interface les affiche en pastilles cliquables).
 
 **Statuts** (colonnes du Kanban) :
@@ -159,6 +161,25 @@ curl -s -X PATCH $FASTBOARD/api/tickets/12 -H "Authorization: Bearer $TOKEN" -H 
 
 `assigneeIds` **remplace** la liste des assignés (les parts des personnes conservées sont gardées). Passer `categoryId`, `deliveryId`, `startDate` ou `endDate` à `null` les vide.
 
+### Déplacer un ticket vers un autre projet
+
+```bash
+curl -s -X POST $FASTBOARD/api/tickets/12/transfer -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "projectId": 3, "status": "todo" }'
+```
+
+Il faut `ticket.edit` dans le projet d'origine et `ticket.create` dans le projet cible. Le ticket reçoit une nouvelle clé (réponse `key`) ; catégorie, priorité, composants et livraison sont repris s'ils existent sous le même nom.
+
+### Suivre un ticket et lire ses notifications
+
+```bash
+curl -s -X POST $FASTBOARD/api/tickets/12/watch -H "Authorization: Bearer $TOKEN"        # DELETE pour ne plus suivre
+curl -s "$FASTBOARD/api/me/notifications?unread=true" -H "Authorization: Bearer $TOKEN"
+curl -s -X POST $FASTBOARD/api/me/notifications/read -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
+```
+
+Le créateur, les assignés et les commentateurs suivent automatiquement un ticket ; une mention `@[Nom](user:12)` notifie la personne.
+
 ### Sous-tâches
 
 ```bash
@@ -221,6 +242,13 @@ curl -s -o rapport.pdf $FASTBOARD/api/attachments/5/download -H "Authorization: 
 curl -s -X DELETE $FASTBOARD/api/attachments/5 -H "Authorization: Bearer $TOKEN"
 ```
 
+Lien web ou chemin vers un fichier / dossier (poste ou partage réseau) :
+
+```bash
+curl -s -X POST $FASTBOARD/api/tickets/12/attachment-links -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "kind": "url", "target": "https://exemple.fr/specification", "name": "Spécification" }'
+```
+
 25 Mo maximum par fichier (réponse `413`), 30 pièces jointes par ticket. Envoyer demande la permission `attachment.create` ; supprimer, celle d'en être l'auteur ou `attachment.moderate`. Les images sont reconnues d'après leur contenu ; tout autre fichier est toujours servi en téléchargement.
 
 ### Commenter, répondre
@@ -248,6 +276,13 @@ curl -s "$FASTBOARD/api/projects/1/activity?group=ticket&ticketId=12&limit=20" -
 ```
 
 Chaque évènement a un `group`, un `data.kind` (`ticket`, `ticket_deleted`, `comment`, `category`, `priority`, `component`, `delivery`, `member`, `project`), l'auteur (`userId`) et `via` (nom d'affichage du jeton si l'action vient de l'API). L'historique d'un ticket (`GET /tickets/{id}/history`) porte aussi `via`. Pour surveiller le tableau en continu, interrogez toutes les 10–30 secondes en mémorisant le plus grand `id` déjà vu, ou utilisez le WebSocket (§5).
+
+### Exporter un projet
+
+```bash
+curl -s -o projet.json "$FASTBOARD/api/projects/1/export?format=json" -H "Authorization: Bearer $TOKEN"   # projet complet
+curl -s -o tickets.csv "$FASTBOARD/api/projects/1/export?format=csv"  -H "Authorization: Bearer $TOKEN"   # tableau des tickets
+```
 
 ### Recherche globale
 

@@ -63,6 +63,8 @@ const router = createRouter({
             if (auth.can('monitoring.view')) return { name: 'admin-performance' };
             if (auth.can('logs.view')) return { name: 'admin-logs' };
             if (auth.can('backups.manage')) return { name: 'admin-backups' };
+            if (auth.can('settings.manage')) return { name: 'admin-branding' };
+            if (auth.can('ai.manage')) return { name: 'admin-ai' };
             return { name: 'admin-service' };
           },
         },
@@ -72,6 +74,9 @@ const router = createRouter({
         { path: 'performance', name: 'admin-performance', component: () => import('@/views/admin/PerformanceView.vue'), meta: { permission: 'monitoring.view' } },
         { path: 'logs', name: 'admin-logs', component: () => import('@/views/admin/LogsView.vue'), meta: { permission: 'logs.view' } },
         { path: 'backups', name: 'admin-backups', component: () => import('@/views/admin/BackupsView.vue'), meta: { permission: 'backups.manage' } },
+        { path: 'branding', name: 'admin-branding', component: () => import('@/views/admin/BrandingView.vue'), meta: { permission: 'settings.manage' } },
+        { path: 'maintenance', name: 'admin-maintenance', component: () => import('@/views/admin/MaintenanceView.vue'), meta: { permission: 'settings.manage' } },
+        { path: 'ai', name: 'admin-ai', component: () => import('@/views/admin/AiView.vue'), meta: { permission: 'ai.manage' } },
         { path: 'service', name: 'admin-service', component: () => import('@/views/admin/ServiceView.vue'), meta: { permission: 'system.manage' } },
       ],
     },

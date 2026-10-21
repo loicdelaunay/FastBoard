@@ -123,10 +123,12 @@ export interface AttachmentRow {
   size: number;
   storage: string;
   created_at: string;
+  kind: AttachmentDTO['kind'];
+  url: string | null;
 }
 
 export function toAttachmentDTO(row: AttachmentRow): AttachmentDTO {
-  return { id: row.id, ticketId: row.ticket_id, userId: row.user_id, name: row.name, mime: row.mime, size: row.size, createdAt: row.created_at };
+  return { id: row.id, ticketId: row.ticket_id, userId: row.user_id, name: row.name, mime: row.mime, size: row.size, createdAt: row.created_at, kind: row.kind ?? 'file', url: row.url ?? null };
 }
 
 export interface HistoryRow {

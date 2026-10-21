@@ -1,10 +1,12 @@
 import type { ActivityData, ActivityDTO, ActivityGroup } from '../../shared/types.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { nowIso, type Db, type SqlParam } from '../db/database.ts';
+import { notifyActivity } from './notifications.ts';
 
 const GROUP_OF: Record<ActivityData['kind'], ActivityGroup> = {
   ticket: 'ticket',
   ticket_deleted: 'ticket',
+  ticket_transferred: 'ticket',
   comment: 'comment',
   category: 'config',
   priority: 'config',
@@ -51,6 +53,12 @@ export function logActivity(ctx: AppContext, actor: Actor, projectId: number, da
   );
   const activity: ActivityDTO = { id: lastInsertRowid, projectId, userId: actor.userId, via: actor.via ?? null, group, data, createdAt };
   ctx.hub.publish(projectId, [{ type: 'activity.created', activity }], actor);
+  try {
+    notifyActivity(ctx, actor, projectId, data);
+  } catch (error) {
+    // Une notification manquée ne doit jamais faire échouer l'action elle-même.
+    ctx.logger.error('system', `Notification impossible : ${(error as Error).message}`, { stack: (error as Error).stack });
+  }
   return activity;
 }
 

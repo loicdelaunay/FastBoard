@@ -10,7 +10,7 @@ import { notifyError } from '@/utils/notify';
 import TicketCard from './TicketCard.vue';
 
 import { t } from '@/i18n';
-const props = defineProps<{ status: TicketStatus; tickets: TicketDTO[]; canCreate: boolean; canMove: boolean }>();
+const props = defineProps<{ status: TicketStatus; tickets: TicketDTO[]; canCreate: boolean; canMove: boolean; sorted?: boolean }>();
 const emit = defineEmits<{ open: [ticketId: number] }>();
 
 const project = useProjectStore();
@@ -20,6 +20,13 @@ const column = ref<HTMLElement | null>(null);
 const list = ref<HTMLElement | null>(null);
 const meta = computed(() => project.statusMeta(props.status));
 const isTarget = computed(() => dnd.state.draggingId !== null && dnd.state.overStatus === props.status);
+/** Colonne triée automatiquement : un dépôt place la carte selon le tri, pas à l'endroit visé. */
+const sortLabel = computed(() => {
+  const sort = project.settings.columnSort[props.status];
+  if (!sort) return '';
+  const labels: Record<string, string> = { priority: t('priorité'), dueDate: t('échéance'), title: t('titre'), number: t('numéro'), createdAt: t('date de création'), updatedAt: t('dernière modification'), progress: t('avancement') };
+  return t('Triée automatiquement par {field} ({direction})', { field: labels[sort.field] ?? sort.field, direction: sort.direction === 'asc' ? t('croissant') : t('décroissant') });
+});
 
 const adding = ref(false);
 const newTitle = ref('');
@@ -68,7 +75,7 @@ async function onDrop(event: DragEvent): Promise<void> {
     class="column"
     :class="{ target: isTarget }"
     :aria-label="`${meta.label} — ${$t('{n} ticket|{n} tickets', { n: tickets.length })}`"
-    @dragover="canMove && list && dnd.over($event, status, list)"
+    @dragover="canMove && list && dnd.over($event, status, list, sorted)"
     @dragleave="column && dnd.leave($event, column)"
     @drop="canMove && onDrop($event)"
   >
@@ -76,12 +83,13 @@ async function onDrop(event: DragEvent): Promise<void> {
       <i class="swatch"></i>
       <h3 class="label">{{ meta.label }}</h3>
       <span class="count">{{ tickets.length }}</span>
+      <i v-if="sorted" v-tooltip.bottom="sortLabel" class="pi pi-sort-amount-down sorted-icon" :aria-label="sortLabel"></i>
       <Button v-if="canCreate" v-tooltip.bottom="$t('Ajouter un ticket')" icon="pi pi-plus" text rounded size="small" severity="secondary" class="add-btn" :aria-label="$t('Ajouter un ticket dans {label}', { label: meta.label })" @click="startAdding" />
     </header>
 
     <div ref="list" class="cards">
       <template v-for="ticket in tickets" :key="ticket.id">
-        <div v-if="isTarget && dnd.state.beforeId === ticket.id" class="drop-indicator"></div>
+        <div v-if="isTarget && !sorted && dnd.state.beforeId === ticket.id" class="drop-indicator"></div>
         <TicketCard
           :ticket="ticket"
           :draggable="canMove"
@@ -159,6 +167,10 @@ async function onDrop(event: DragEvent): Promise<void> {
   min-height: 3rem;
   padding: 0.35rem 0.6rem 0.6rem;
   overflow-y: auto;
+}
+.sorted-icon {
+  color: var(--fb-muted);
+  font-size: 0.75rem;
 }
 .drop-indicator {
   flex: none;

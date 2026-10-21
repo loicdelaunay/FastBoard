@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { SecretBox } from './auth/secretBox.ts';
 import { startBackupScheduler } from './backup/service.ts';
+import { purgeNotifications } from './services/notifications.ts';
 import { purgeExpiredSessions } from './auth/sessions.ts';
 import { loadConfig, type AppConfig } from './config.ts';
 import type { AppContext } from './context.ts';
@@ -21,6 +22,7 @@ import { Logger } from './monitoring/logger.ts';
 import { Metrics } from './monitoring/metrics.ts';
 import { Hub } from './realtime/hub.ts';
 import { adminRouter } from './routes/admin.ts';
+import { aiRouter } from './routes/ai.ts';
 import { attachmentsRouter, attachmentUploadRouter } from './routes/attachments.ts';
 import { accountRouter, publicAuthRouter } from './routes/auth.ts';
 import { docsRouter } from './routes/docs.ts';
@@ -119,7 +121,9 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   api.use(requestMonitor(ctx));
   // Envoi de fichiers : corps brut, donc avant l'analyse JSON.
   api.use(attachmentUploadRouter(ctx));
-  api.use(express.json({ limit: '1mb' }));
+  const json = express.json({ limit: '1mb' });
+  const largeJson = express.json({ limit: '16mb' });
+  api.use((req, res, next) => (req.path === '/ai/chat' ? largeJson : json)(req, res, next));
   api.use(csrfGuard(ctx));
   api.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
@@ -131,6 +135,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   api.use(adminRouter(ctx));
   api.use(projectsRouter(ctx));
   api.use(ticketsRouter(ctx));
+  api.use(aiRouter(ctx));
   api.use(attachmentsRouter(ctx));
   api.use((_req, _res, next) => next(notFound('Route inconnue.')));
   app.use('/api', api);
@@ -167,7 +172,11 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   });
   const port = (server.address() as AddressInfo).port;
 
-  const purge = setInterval(() => purgeExpiredSessions(ctx), 60 * 60 * 1000);
+  purgeNotifications(db);
+  const purge = setInterval(() => {
+    purgeExpiredSessions(ctx);
+    purgeNotifications(db);
+  }, 60 * 60 * 1000);
   purge.unref();
   const stopBackups = startBackupScheduler(ctx);
 

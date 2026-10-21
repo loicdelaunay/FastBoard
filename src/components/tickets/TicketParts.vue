@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import Checkbox from 'primevue/checkbox';
-import { assigneeProgress, partsSummary, ticketProgress } from '@shared/progress';
+import { assigneeProgress, partsSummary } from '@shared/progress';
+import { progressOf } from '@/utils/progress';
 import type { TicketDTO } from '@shared/types';
 import ProgressMeter from '@/components/common/ProgressMeter.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
@@ -18,7 +19,7 @@ const props = defineProps<{ ticket: TicketDTO }>();
 const auth = useAuthStore();
 const project = useProjectStore();
 
-const global = computed(() => ticketProgress(props.ticket));
+const global = computed(() => progressOf(props.ticket));
 const summary = computed(() => partsSummary(props.ticket));
 const writable = computed(() => !project.archived);
 const canEditTicket = computed(() => writable.value && project.can('ticket.edit'));

@@ -77,7 +77,54 @@ const items = computed<MenuItem[]>(() => {
 
   const edits: MenuItem[] = [];
   if (editable) {
-    edits.push({ label: t('Déplacer vers'), icon: 'pi pi-arrow-right-arrow-left', items: moveItems(current) });
+    const save = (patch: Parameters<typeof project.updateTicket>[1], label: string) => void run(() => project.updateTicket(current.id, patch, { label }), t('Modification refusée'));
+    const assigned = new Set(current.assignees.map((assignee) => assignee.userId));
+    edits.push(
+      { label: t('Modifier le titre…'), icon: 'pi pi-pencil', command: () => (ui.quickEdit = { ticketId: current.id, mode: 'title' }) },
+      {
+        label: t('Assignés'),
+        icon: 'pi pi-users',
+        items: project.users
+          .filter((user) => user.isActive)
+          .map((user) => ({
+            label: user.name,
+            icon: assigned.has(user.id) ? 'pi pi-check-square' : 'pi pi-stop',
+            command: () => save({ assigneeIds: assigned.has(user.id) ? [...assigned].filter((id) => id !== user.id) : [...assigned, user.id] }, t('Assignation')),
+          })),
+      },
+      { label: t('Modifier les dates…'), icon: 'pi pi-calendar', command: () => (ui.quickEdit = { ticketId: current.id, mode: 'dates' }) },
+      {
+        label: t('Priorité'),
+        icon: 'pi pi-flag',
+        items: [
+          ...project.priorities.map((priority) => ({
+            label: priority.name,
+            icon: current.priorityId === priority.id ? 'pi pi-check' : priority.icon,
+            command: () => save({ priorityId: priority.id }, t('Priorité du ticket')),
+          })),
+          { separator: true },
+          { label: t('Aucune'), icon: current.priorityId === null ? 'pi pi-check' : 'pi pi-minus', command: () => save({ priorityId: null }, t('Priorité du ticket')) },
+        ],
+      },
+      {
+        label: t('Livraison'),
+        icon: 'pi pi-truck',
+        items: [
+          ...project.deliveries.map((delivery) => ({
+            label: delivery.name,
+            icon: current.deliveryId === delivery.id ? 'pi pi-check' : 'pi pi-circle',
+            command: () => save({ deliveryId: delivery.id }, t('Livraison du ticket')),
+          })),
+          ...(project.deliveries.length ? [{ separator: true }] : []),
+          { label: t('Aucune'), icon: current.deliveryId === null ? 'pi pi-check' : 'pi pi-minus', command: () => save({ deliveryId: null }, t('Livraison du ticket')) },
+        ],
+      },
+      {
+        label: t('Déplacer vers'),
+        icon: 'pi pi-arrow-right-arrow-left',
+        items: [...moveItems(current), { separator: true }, { label: t('Un autre projet…'), icon: 'pi pi-folder', command: () => (ui.quickEdit = { ticketId: current.id, mode: 'transfer' }) }],
+      },
+    );
     if (isMember) {
       const ids = current.assignees.map((assignee) => assignee.userId);
       edits.push({

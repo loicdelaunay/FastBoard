@@ -17,6 +17,8 @@ export const useUiStore = defineStore('ui', () => {
   const profileTab = ref<ProfileTab>('profile');
   /** Ticket survolé : ses dépendances sont mises en évidence (liens et clignotement). */
   const hoveredTicketId = ref<number | null>(null);
+  /** Édition rapide demandée depuis le menu contextuel. */
+  const quickEdit = ref<{ ticketId: number; mode: 'title' | 'dates' | 'transfer' } | null>(null);
 
   function openCreate(defaults: TicketDraftDefaults = {}): void {
     createDefaults.value = { status: 'backlog' as TicketStatus, ...defaults };
@@ -36,5 +38,5 @@ export const useUiStore = defineStore('ui', () => {
     profileOpen.value = true;
   }
 
-  return { createDefaults, profileOpen, profileTab, ticketMenu, hoveredTicketId, openCreate, closeCreate, openProfile, openTicketMenu };
+  return { createDefaults, profileOpen, profileTab, ticketMenu, hoveredTicketId, quickEdit, openCreate, closeCreate, openProfile, openTicketMenu };
 });

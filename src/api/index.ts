@@ -14,6 +14,9 @@ import type {
   DeliveryDTO,
   HistoryEntryDTO,
   MeDTO,
+  NotificationDTO,
+  MaintenanceDTO,
+  AppInfoDTO,
   ProjectDTO,
   ProjectListItemDTO,
   SearchKind,
@@ -27,6 +30,7 @@ import type {
   UserSummaryDTO,
 } from '@shared/types';
 import type { LogEntryDTO, LogLevel, MonitoringRange, MonitoringSnapshotDTO } from '@shared/monitoring';
+import type { AiModelDTO, AiSettingsDTO, DetectedModelDTO } from '@shared/ai';
 import type { BackupDestinationDTO, BackupOverviewDTO, BackupRunDTO } from '@shared/backup';
 import type { ServiceActionResultDTO, ServiceScope, ServiceStatusDTO } from '@shared/system';
 import { ApiError, http, httpHeaders } from './http';
@@ -169,6 +173,10 @@ export const api = {
     http<{ user: MeDTO }>('PUT', '/me/avatar', { rawBody: blob, contentType: blob.type || 'image/webp' }),
   removeAvatar: () => http<{ user: MeDTO }>('DELETE', '/me/avatar'),
   directory: () => http<{ users: UserSummaryDTO[] }>('GET', '/users'),
+  notifications: (before?: number) =>
+    http<{ notifications: NotificationDTO[]; unread: number; nextBefore: number | null }>('GET', `/me/notifications?limit=30${before ? `&before=${before}` : ''}`),
+  markNotificationsRead: (ids?: number[]) => http<{ unread: number }>('POST', '/me/notifications/read', { body: ids ? { ids } : {} }),
+  watchTicket: (ticketId: number, watch: boolean) => http<{ ticket: TicketDTO }>(watch ? 'POST' : 'DELETE', `/tickets/${ticketId}/watch`),
   userSummary: (userId: number) => http<{ summary: UserSummaryPageDTO }>('GET', `/users/${userId}/summary`),
   search: (q: string, options: { limit?: number; type?: SearchKind[] } = {}) => {
     const query = new URLSearchParams({ q, limit: String(options.limit ?? 6) });
@@ -223,6 +231,8 @@ export const api = {
   moveTicket: (ticketId: number, status: TicketStatus, beforeId: number | null) =>
     http<{ ticket: TicketDTO }>('POST', `/tickets/${ticketId}/move`, { body: { status, beforeId } }),
   deleteTicket: (ticketId: number) => http<{ ok: true }>('DELETE', `/tickets/${ticketId}`),
+  transferTicket: (ticketId: number, projectId: number, status: TicketStatus) =>
+    http<{ ticket: TicketDTO; key: string }>('POST', `/tickets/${ticketId}/transfer`, { body: { projectId, status } }),
   updatePart: (ticketId: number, userId: number, patch: { done?: boolean; progress?: number; note?: string }) =>
     http<{ ticket: TicketDTO }>('PATCH', `/tickets/${ticketId}/assignees/${userId}`, { body: patch }),
 
@@ -243,6 +253,9 @@ export const api = {
   deleteComment: (commentId: number) => http<{ comment: CommentDTO }>('DELETE', `/comments/${commentId}`),
   attachments: (ticketId: number) => http<{ attachments: AttachmentDTO[] }>('GET', `/tickets/${ticketId}/attachments`),
   deleteAttachment: (attachmentId: number) => http<{ ok: true }>('DELETE', `/attachments/${attachmentId}`),
+  addAttachmentLink: (ticketId: number, input: { kind: 'url' | 'path'; target: string; name?: string }) =>
+    http<{ attachment: AttachmentDTO }>('POST', `/tickets/${ticketId}/attachment-links`, { body: input }),
+  openAttachment: (attachmentId: number) => http<{ ok: true; revealed: boolean }>('POST', `/attachments/${attachmentId}/open`),
   history: (ticketId: number) => http<{ history: HistoryEntryDTO[] }>('GET', `/tickets/${ticketId}/history`),
 
   activity: (projectId: number, filters: ActivityFilters = {}) => {
@@ -269,6 +282,16 @@ export const api = {
   adminRevokeToken: (tokenId: number) => http<{ ok: true }>('DELETE', `/admin/tokens/${tokenId}`),
   adminUpdateToken: (tokenId: number, patch: { displayName?: string | null; expiresInDays?: number | null }) =>
     http<{ token: ApiTokenDTO }>('PATCH', `/admin/tokens/${tokenId}`, { body: patch }),
+  adminAi: () => http<{ settings: AiSettingsDTO }>('GET', '/admin/ai'),
+  adminSaveAi: (input: { enabled: boolean; baseUrl: string; models: AiModelDTO[]; defaultModel: string; apiKey?: string }) => http<{ settings: AiSettingsDTO; app: AppInfoDTO }>('PUT', '/admin/ai', { body: input }),
+  adminTestAi: (probe: { baseUrl: string; model?: string; apiKey?: string }) => http<{ ok: boolean; message: string }>('POST', '/admin/ai/test', { body: probe }),
+  adminDetectAiModels: (probe: { baseUrl: string; apiKey?: string }) => http<{ models: DetectedModelDTO[] }>('POST', '/admin/ai/models', { body: probe }),
+  aiModels: () => http<{ models: AiModelDTO[]; defaultModel: string }>('GET', '/ai/models'),
+  adminSetAppName: (name: string) => http<AppInfoDTO>('PUT', '/admin/app', { body: { name } }),
+  adminSetAppLogo: (blob: Blob) => http<AppInfoDTO>('PUT', '/admin/app/logo', { rawBody: blob, contentType: blob.type || 'image/png' }),
+  adminRemoveAppLogo: () => http<AppInfoDTO>('DELETE', '/admin/app/logo'),
+  adminMaintenance: () => http<{ maintenance: MaintenanceDTO }>('GET', '/admin/maintenance'),
+  adminSetMaintenance: (input: Omit<MaintenanceDTO, 'updatedAt'>) => http<{ app: AppInfoDTO; maintenance: MaintenanceDTO }>('PUT', '/admin/maintenance', { body: input }),
   adminBackups: () => http<BackupOverviewDTO>('GET', '/admin/backups'),
   adminSaveBackups: (config: { enabled: boolean; destinations: Array<Omit<BackupDestinationDTO, 'id'> & { id?: string }> }) =>
     http<BackupOverviewDTO>('PUT', '/admin/backups', { body: config }),

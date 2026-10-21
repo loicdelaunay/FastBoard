@@ -1,7 +1,7 @@
 import { computed, type Ref } from 'vue';
 import { TICKET_STATUSES, type TicketStatus } from '@shared/constants';
 import { addDays, diffDays, toDayNumber, todayISO } from '@shared/dates';
-import { ticketProgress } from '@shared/progress';
+import { progressOf } from '@/utils/progress';
 import type { DeliveryDTO, TicketDTO, UserSummaryDTO } from '@shared/types';
 import { useProjectStore } from '@/stores/project';
 import { dueDate, isOverdue } from '@/utils/tickets';
@@ -72,7 +72,7 @@ export function useAnalysis(scope: Ref<AnalysisScope>) {
   const slipped = computed(() => tickets.value.filter((ticket) => ticket.initialDeliveryId !== null && ticket.deliveryId !== null && ticket.initialDeliveryId !== ticket.deliveryId));
 
   const progress = computed(() =>
-    tickets.value.length ? clampPercent(tickets.value.reduce((sum, ticket) => sum + ticketProgress(ticket), 0) / tickets.value.length) : 0,
+    tickets.value.length ? clampPercent(tickets.value.reduce((sum, ticket) => sum + progressOf(ticket), 0) / tickets.value.length) : 0,
   );
 
   /** Période de référence : la livraison choisie, ou l'étendue de toutes les livraisons. */
@@ -234,7 +234,7 @@ export function useAnalysis(scope: Ref<AnalysisScope>) {
       }
       if (due && !reasons.includes('En retard')) {
         const left = diffDays(today, due);
-        if (left <= 3 && ticketProgress(ticket) < 60) {
+        if (left <= 3 && progressOf(ticket) < 60) {
           score += 3;
           reasons.push(left <= 0 ? t('Échéance aujourd\'hui') : t('Échéance dans {left} j', { left }));
         }

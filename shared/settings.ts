@@ -4,6 +4,15 @@ import { STATUS_META, TICKET_STATUSES, isTicketStatus, type TicketStatus } from 
 
 export const COLUMN_LABEL_MAX = 30;
 
+/** Champs proposés pour le tri automatique d'une colonne du Kanban. */
+export const SORT_FIELDS = ['priority', 'dueDate', 'title', 'number', 'createdAt', 'updatedAt', 'progress'] as const;
+export type SortField = (typeof SORT_FIELDS)[number];
+
+export interface ColumnSort {
+  field: SortField;
+  direction: 'asc' | 'desc';
+}
+
 export interface ColumnConfig {
   /** Statut des tickets de la colonne (fixe : il porte les règles d'avancement). */
   status: TicketStatus;
@@ -25,6 +34,16 @@ export interface ProjectSettingsDTO {
   staleIndicator: boolean;
   /** Nombre de jours sans changement de colonne à partir duquel un ticket est signalé. */
   staleDays: number;
+  /** Colonnes dans lesquelles un ticket compte pour 100 % d'avancement (« Terminé » en fait toujours partie). */
+  completeStatuses: TicketStatus[];
+  /** Tri automatique des cartes, par colonne ; une colonne absente garde l'ordre manuel (glisser-déposer). */
+  columnSort: Partial<Record<TicketStatus, ColumnSort>>;
+  /** Pastille colorée sur les tickets non terminés dont la livraison approche. */
+  deliveryAlert: boolean;
+  /** Jours avant la fin de la livraison à partir desquels la pastille devient orange… */
+  deliveryWarnDays: number;
+  /** … puis rouge. */
+  deliveryDangerDays: number;
   /** Les six colonnes, dans l'ordre d'affichage. */
   columns: ColumnConfig[];
 }
@@ -34,7 +53,19 @@ export function defaultColumns(): ColumnConfig[] {
 }
 
 export function defaultSettings(): ProjectSettingsDTO {
-  return { autoMoveDone: true, autoReopen: true, confetti: true, staleIndicator: false, staleDays: 3, columns: defaultColumns() };
+  return {
+    autoMoveDone: true,
+    autoReopen: true,
+    confetti: true,
+    staleIndicator: false,
+    staleDays: 3,
+    completeStatuses: ['done'],
+    columnSort: {},
+    deliveryAlert: true,
+    deliveryWarnDays: 7,
+    deliveryDangerDays: 2,
+    columns: defaultColumns(),
+  };
 }
 
 const isColor = (value: unknown): value is string => typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
@@ -46,7 +77,7 @@ const isColor = (value: unknown): value is string => typeof value === 'string' &
 export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
   const defaults = defaultSettings();
   const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
+  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
 
   const seen = new Set<TicketStatus>();
   const columns: ColumnConfig[] = [];
@@ -71,5 +102,32 @@ export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
     }
   }
   const staleDays = typeof source.staleDays === 'number' && Number.isInteger(source.staleDays) && source.staleDays >= 1 && source.staleDays <= 365 ? source.staleDays : defaults.staleDays;
-  return { autoMoveDone: flag('autoMoveDone'), autoReopen: flag('autoReopen'), confetti: flag('confetti'), staleIndicator: flag('staleIndicator'), staleDays, columns };
+  const days = (key: 'deliveryWarnDays' | 'deliveryDangerDays'): number =>
+    typeof source[key] === 'number' && Number.isInteger(source[key]) && (source[key] as number) >= 0 && (source[key] as number) <= 365 ? (source[key] as number) : defaults[key];
+  const completeStatuses = new Set<TicketStatus>(['done']);
+  for (const status of Array.isArray(source.completeStatuses) ? source.completeStatuses : []) {
+    if (isTicketStatus(status)) completeStatuses.add(status);
+  }
+  const columnSort: Partial<Record<TicketStatus, ColumnSort>> = {};
+  const rawSort = (source.columnSort && typeof source.columnSort === 'object' ? source.columnSort : {}) as Record<string, unknown>;
+  for (const [status, value] of Object.entries(rawSort)) {
+    const sort = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+    if (isTicketStatus(status) && (SORT_FIELDS as readonly unknown[]).includes(sort.field)) {
+      columnSort[status] = { field: sort.field as SortField, direction: sort.direction === 'desc' ? 'desc' : 'asc' };
+    }
+  }
+  const warn = days('deliveryWarnDays');
+  return {
+    autoMoveDone: flag('autoMoveDone'),
+    autoReopen: flag('autoReopen'),
+    confetti: flag('confetti'),
+    staleIndicator: flag('staleIndicator'),
+    staleDays,
+    completeStatuses: TICKET_STATUSES.filter((status) => completeStatuses.has(status)),
+    columnSort,
+    deliveryAlert: flag('deliveryAlert'),
+    deliveryWarnDays: warn,
+    deliveryDangerDays: Math.min(days('deliveryDangerDays'), warn),
+    columns,
+  };
 }

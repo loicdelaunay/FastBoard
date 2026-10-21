@@ -19,7 +19,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   const canAdmin = computed(
-    () => can('admin.access') && ['users.view', 'users.create', 'users.edit', 'roles.manage', 'tokens.manage', 'monitoring.view', 'logs.view', 'backups.manage', 'system.manage'].some((permission) => can(permission)),
+    () => can('admin.access') && ['users.view', 'users.create', 'users.edit', 'roles.manage', 'tokens.manage', 'monitoring.view', 'logs.view', 'backups.manage', 'system.manage', 'settings.manage', 'ai.manage'].some((permission) => can(permission)),
   );
 
   function setUser(next: MeDTO | null): void {

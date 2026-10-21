@@ -10,6 +10,7 @@ import {
   createProjectSchema,
   createTicketSchema,
   deliveryPatchSchema,
+  exportQuerySchema,
   deliverySchema,
   listItemPatchSchema,
   listItemSchema,
@@ -41,6 +42,7 @@ import {
 } from '../services/projectConfig.ts';
 import { parsePermissions } from '../services/rows.ts';
 import { createItem, deleteItem, updateItem } from '../services/projectLists.ts';
+import { exportFileName, exportProjectCsv, exportProjectJson } from '../services/export.ts';
 import { createTicket, queryTickets } from '../services/tickets.ts';
 
 export function projectsRouter(ctx: AppContext): Router {
@@ -63,6 +65,20 @@ export function projectsRouter(ctx: AppContext): Router {
   router.get('/projects/:id', (req, res) => {
     const access = requireProject(ctx, currentUser(res), idParam(req.params.id));
     res.json(buildSnapshot(ctx.db, access));
+  });
+
+  router.get('/projects/:id/export', (req, res) => {
+    const access = requireProject(ctx, currentUser(res), idParam(req.params.id));
+    const { format } = parse(exportQuerySchema, req.query);
+    const fileName = exportFileName(access.project.key, format);
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    if (format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.send(exportProjectCsv(ctx.db, access));
+    } else {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.send(JSON.stringify(exportProjectJson(ctx.db, access), null, 2));
+    }
   });
 
   router.patch('/projects/:id', (req, res) => {

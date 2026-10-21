@@ -2,13 +2,15 @@
 import Tag from 'primevue/tag';
 import type { ProjectSummaryDTO } from '@shared/types';
 import ProgressMeter from '@/components/common/ProgressMeter.vue';
+import { formatDateShort } from '@shared/dates';
 import UserAvatarGroup from '@/components/common/UserAvatarGroup.vue';
 
 defineProps<{ project: ProjectSummaryDTO }>();
+const emit = defineEmits<{ menu: [event: MouseEvent, project: ProjectSummaryDTO] }>();
 </script>
 
 <template>
-  <router-link :to="{ path: `/p/${project.id}` }" class="project-card card" :class="{ archived: project.archived }">
+  <router-link :to="{ path: `/p/${project.id}` }" class="project-card card" :class="{ archived: project.archived }" @contextmenu.prevent="emit('menu', $event, project)">
     <div class="top">
       <span class="key">{{ project.key }}</span>
       <Tag v-if="project.archived" :value="$t('Archivé')" severity="secondary" />
@@ -17,7 +19,30 @@ defineProps<{ project: ProjectSummaryDTO }>();
     <h3 class="name">{{ project.name }}</h3>
     <p class="description muted small">{{ project.description || $t('Aucune description.') }}</p>
 
-    <div class="progress">
+    <!-- Livraison en cours : avancement comparé au temps déjà écoulé. -->
+    <div v-if="project.currentDelivery && !project.archived" class="progress release" :style="{ '--d': project.currentDelivery.color }">
+      <div class="release-head">
+        <span class="release-name truncate"><i class="pi pi-truck"></i> {{ project.currentDelivery.name }}</span>
+        <span class="muted small">{{ formatDateShort(project.currentDelivery.endDate) }}</span>
+      </div>
+      <div class="bar-row">
+        <span class="muted small bar-label">{{ $t('Avancement') }}</span>
+        <ProgressMeter :value="project.currentDelivery.progress" />
+      </div>
+      <div class="bar-row">
+        <span class="muted small bar-label">{{ $t('Temps écoulé') }}</span>
+        <div class="time-bar" role="progressbar" :aria-valuenow="project.currentDelivery.timeElapsed" aria-valuemin="0" aria-valuemax="100" :aria-label="$t('Temps écoulé')">
+          <span :style="{ width: `${project.currentDelivery.timeElapsed}%` }"></span>
+        </div>
+        <span class="muted small pct">{{ project.currentDelivery.timeElapsed }}%</span>
+      </div>
+      <span class="small" :class="project.currentDelivery.progress + 5 < project.currentDelivery.timeElapsed ? 'late' : 'muted'">
+        {{ project.currentDelivery.progress + 5 < project.currentDelivery.timeElapsed ? $t('En retard sur le calendrier') : $t('Dans les temps') }}
+        · {{ $t('{n} jour restant|{n} jours restants', { n: project.currentDelivery.daysLeft }) }}
+        · {{ $t('{doneCount} / {ticketCount} tickets terminés', { doneCount: project.currentDelivery.doneCount, ticketCount: project.currentDelivery.ticketCount }) }}
+      </span>
+    </div>
+    <div v-else class="progress">
       <ProgressMeter :value="project.progress" />
       <span class="muted small">{{ $t('{doneCount} / {ticketCount} tickets terminés', { doneCount: project.doneCount, ticketCount: project.ticketCount }) }}</span>
     </div>
@@ -73,6 +98,46 @@ defineProps<{ project: ProjectSummaryDTO }>();
   -webkit-box-orient: vertical;
   overflow: hidden;
   min-height: 2.4em;
+}
+.release-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.release-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--d) 70%, var(--fb-text));
+}
+.bar-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+.bar-row :deep(.progress-meter),
+.bar-row > :nth-child(2) {
+  grid-column: 2;
+}
+.time-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--fb-panel-alt);
+  overflow: hidden;
+}
+.time-bar span {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--fb-muted) 70%, transparent);
+}
+.pct {
+  min-width: 2.4rem;
+  text-align: right;
+}
+.late {
+  color: var(--fb-danger);
+  font-weight: 600;
 }
 .progress {
   display: flex;

@@ -4,7 +4,7 @@ import Button from 'primevue/button';
 import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
 import { diffDays, formatDateShort, todayISO } from '@shared/dates';
-import { ticketProgress } from '@shared/progress';
+import { progressOf } from '@/utils/progress';
 import ProgressMeter from '@/components/common/ProgressMeter.vue';
 import { usePdfExport } from '@/composables/usePdfExport';
 import { useProjectStore } from '@/stores/project';
@@ -20,7 +20,7 @@ const today = todayISO();
 const rows = computed(() =>
   project.deliveries.map((delivery) => {
     const tickets = project.tickets.filter((ticket) => ticket.deliveryId === delivery.id);
-    const progress = tickets.length ? Math.round(tickets.reduce((sum, ticket) => sum + ticketProgress(ticket), 0) / tickets.length) : 0;
+    const progress = tickets.length ? Math.round(tickets.reduce((sum, ticket) => sum + progressOf(ticket), 0) / tickets.length) : 0;
     const total = diffDays(delivery.startDate, delivery.endDate) + 1;
     const theoretical = Math.min(100, Math.max(0, Math.round(((diffDays(delivery.startDate, today) + 1) / total) * 100)));
     return {

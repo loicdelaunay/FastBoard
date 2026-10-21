@@ -7,6 +7,7 @@ import { badRequest, notFound } from '../http/errors.ts';
 import { logActivity } from './activity.ts';
 import { removeStoredFiles, storagesOfTicket } from './attachments.ts';
 import { addHistory } from './history.ts';
+import { queueMentions, watchTicket } from './notifications.ts';
 import { assertStatusAvailable, getProjectSettings } from './projectSettings.ts';
 import { toLinkDTO, toSubtaskDTO, type AssigneeRow, type LinkRow, type SubtaskRow, type TicketRow } from './rows.ts';
 
@@ -52,6 +53,7 @@ interface TicketExtras {
   componentIds: number[];
   subtasks: SubtaskRow[];
   links: LinkRow[];
+  watcherIds: number[];
 }
 
 function toTicketDTO(row: TicketRow, extras: TicketExtras): TicketDTO {
@@ -76,6 +78,7 @@ function toTicketDTO(row: TicketRow, extras: TicketExtras): TicketDTO {
     attachmentCount: extras.attachmentCount,
     subtasks: extras.subtasks.map(toSubtaskDTO),
     links: extras.links.map(toLinkDTO),
+    watcherIds: extras.watcherIds,
     statusChangedAt: row.status_changed_at ?? row.updated_at,
     createdBy: row.created_by,
     createdAt: row.created_at,
@@ -139,7 +142,12 @@ function loadExtras(db: Db, scope: 'project' | 'ticket', id: number): (ticketId:
     db.all<LinkRow>(`SELECT l.* FROM ticket_links l JOIN tickets t ON t.id = l.ticket_id WHERE ${where} ORDER BY l.id`, id),
     (row) => row.ticket_id,
   );
+  const watchers = groupBy(
+    db.all<{ ticket_id: number; user_id: number }>(`SELECT w.ticket_id, w.user_id FROM ticket_watchers w JOIN tickets t ON t.id = w.ticket_id WHERE ${where} ORDER BY w.created_at`, id),
+    (row) => row.ticket_id,
+  );
   return (ticketId) => ({
+    watcherIds: (watchers.get(ticketId) ?? []).map((row) => row.user_id),
     assignees: assignees.get(ticketId) ?? [],
     commentCount: comments.get(ticketId) ?? 0,
     attachmentCount: files.get(ticketId) ?? 0,
@@ -487,6 +495,9 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
         now,
       );
     }
+    // Le créateur et les assignés suivent le ticket (notifications).
+    if (actor.userId !== null) watchTicket(db, lastInsertRowid, actor.userId);
+    for (const userId of assigneeIds) watchTicket(db, lastInsertRowid, userId);
     collector.history.push(addHistory(db, lastInsertRowid, actor, { kind: 'created', title: input.title }));
     if (assigneeIds.length > 0) {
       collector.history.push(
@@ -501,6 +512,7 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
   });
 
   const ticket = getTicketDTO(db, ticketId);
+  if (input.description) queueMentions(ticketId, input.description);
   collector.events.push({ type: 'ticket.created', ticket });
   flush(ctx, actor, projectId, ticketId, collector);
   return ticket;
@@ -523,6 +535,7 @@ export function updateTicket(ctx: AppContext, actor: Actor, ticketId: number, in
     }
     if (input.description !== undefined && input.description !== row.description) {
       sets.description = input.description;
+      queueMentions(ticketId, input.description, row.description);
       changes.push({ field: 'description', from: truncate(row.description), to: truncate(input.description) });
     }
     if (input.categoryId !== undefined && input.categoryId !== row.category_id) {
@@ -603,6 +616,7 @@ function replaceAssignees(db: Db, actor: Actor, row: TicketRow, nextIds: number[
   }
   const now = nowIso();
   for (const id of addedIds) {
+    watchTicket(db, row.id, id);
     db.run(
       'INSERT INTO ticket_assignees (ticket_id, user_id, done, progress, done_at, assigned_at) VALUES (?, ?, 0, 0, NULL, ?)',
       row.id,
@@ -739,6 +753,94 @@ export function updatePart(ctx: AppContext, actor: Actor, ticketId: number, user
   const ticket = getTicketDTO(db, ticketId);
   collector.events.unshift({ type: 'ticket.updated', ticket });
   flush(ctx, actor, projectId, ticketId, collector);
+  return ticket;
+}
+
+/** Retrouve dans un autre projet l'élément de même nom (catégorie, priorité, livraison), ou `null`. */
+function sameName(db: Db, table: 'categories' | 'priorities' | 'deliveries' | 'components', sourceId: number | null, projectId: number): number | null {
+  if (sourceId === null) return null;
+  const name = db.get<{ name: string }>(`SELECT name FROM ${table} WHERE id = ?`, sourceId)?.name;
+  if (!name) return null;
+  return db.get<{ id: number }>(`SELECT id FROM ${table} WHERE project_id = ? AND name = ? COLLATE NOCASE`, projectId, name)?.id ?? null;
+}
+
+/**
+ * Déplace un ticket dans un autre projet : nouveau numéro, catégorie / priorité / composants / livraison retrouvés par
+ * leur nom, assignés conservés s'ils sont membres du projet cible, dépendances retirées (elles restent internes à un
+ * projet). Commentaires, pièces jointes, sous-tâches et historique suivent le ticket.
+ */
+export function transferTicket(ctx: AppContext, actor: Actor, ticketId: number, target: { projectId: number; status: TicketStatus }): TicketDTO {
+  const { db } = ctx;
+  const row = requireTicket(db, ticketId);
+  if (row.project_id === target.projectId) {
+    throw badRequest('Le ticket est déjà dans ce projet.');
+  }
+  const source = db.get<{ id: number; name: string; key: string }>('SELECT id, name, key FROM projects WHERE id = ?', row.project_id)!;
+  const destination = db.get<{ id: number; name: string; key: string; archived: number }>('SELECT id, name, key, archived FROM projects WHERE id = ?', target.projectId);
+  if (!destination) {
+    throw notFound('Projet introuvable.');
+  }
+  if (destination.archived === 1) {
+    throw badRequest('Le projet cible est archivé.');
+  }
+  assertStatusAvailable(db, destination.id, target.status);
+  const oldKey = ticketKeyOf(db, row);
+  const neighbours = new Set<number>();
+  let entry: HistoryEntryDTO | null = null;
+  let newKey = '';
+
+  db.transaction(() => {
+    const sequence = db.get<{ ticket_seq: number }>('UPDATE projects SET ticket_seq = ticket_seq + 1, updated_at = ? WHERE id = ? RETURNING ticket_seq', nowIso(), destination.id)!;
+    newKey = `${destination.key}-${sequence.ticket_seq}`;
+    const components = db.all<{ component_id: number }>('SELECT component_id FROM ticket_components WHERE ticket_id = ?', ticketId);
+    const mappedComponents = components.flatMap((entry) => sameName(db, 'components', entry.component_id, destination.id) ?? []);
+    db.run('DELETE FROM ticket_components WHERE ticket_id = ?', ticketId);
+    for (const componentId of new Set(mappedComponents)) {
+      db.run('INSERT INTO ticket_components (ticket_id, component_id) VALUES (?, ?)', ticketId, componentId);
+    }
+    const members = new Set(
+      db.all<{ user_id: number }>('SELECT m.user_id FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = ? AND u.is_active = 1', destination.id).map((member) => member.user_id),
+    );
+    for (const assignee of db.all<{ user_id: number }>('SELECT user_id FROM ticket_assignees WHERE ticket_id = ?', ticketId)) {
+      if (!members.has(assignee.user_id)) db.run('DELETE FROM ticket_assignees WHERE ticket_id = ? AND user_id = ?', ticketId, assignee.user_id);
+    }
+    for (const subtask of db.all<{ id: number; assignee_id: number | null }>('SELECT id, assignee_id FROM ticket_subtasks WHERE ticket_id = ?', ticketId)) {
+      if (subtask.assignee_id !== null && !members.has(subtask.assignee_id)) db.run('UPDATE ticket_subtasks SET assignee_id = NULL WHERE id = ?', subtask.id);
+    }
+    for (const link of db.all<{ ticket_id: number; target_id: number }>('SELECT ticket_id, target_id FROM ticket_links WHERE ticket_id = ? OR target_id = ?', ticketId, ticketId)) {
+      neighbours.add(link.ticket_id === ticketId ? link.target_id : link.ticket_id);
+    }
+    db.run('DELETE FROM ticket_links WHERE ticket_id = ? OR target_id = ?', ticketId, ticketId);
+    const delivery = sameName(db, 'deliveries', row.delivery_id, destination.id);
+    db.run(
+      `UPDATE tickets SET project_id = ?, number = ?, status = ?, category_id = ?, priority_id = ?, delivery_id = ?, initial_delivery_id = ?,
+              position = ?, completed_at = ?, status_changed_at = ?, updated_at = ? WHERE id = ?`,
+      destination.id,
+      sequence.ticket_seq,
+      target.status,
+      sameName(db, 'categories', row.category_id, destination.id),
+      sameName(db, 'priorities', row.priority_id, destination.id),
+      delivery,
+      delivery,
+      endPosition(db, destination.id, target.status, ticketId),
+      target.status === 'done' ? (row.completed_at ?? nowIso()) : null,
+      target.status !== row.status ? nowIso() : (row.status_changed_at ?? nowIso()),
+      nowIso(),
+      ticketId,
+    );
+    entry = addHistory(db, ticketId, actor, { kind: 'transferred', from: { key: oldKey, project: source.name }, to: { key: newKey, project: destination.name } });
+  });
+
+  const ticket = getTicketDTO(db, ticketId);
+  const sourceEvents: ProjectEvent[] = [{ type: 'ticket.deleted', ticketId }];
+  for (const id of neighbours) {
+    const other = findTicket(db, id);
+    if (other && other.project_id === source.id) sourceEvents.push({ type: 'ticket.updated', ticket: getTicketDTO(db, id) });
+  }
+  ctx.hub.publish(source.id, sourceEvents, actor);
+  ctx.hub.publish(destination.id, [{ type: 'ticket.created', ticket }, { type: 'history.created', entry: entry! }], actor);
+  logActivity(ctx, actor, source.id, { kind: 'ticket_transferred', direction: 'out', ticketId: null, ticketKey: oldKey, ticketTitle: row.title, otherProject: destination.name, otherKey: newKey });
+  logActivity(ctx, actor, destination.id, { kind: 'ticket_transferred', direction: 'in', ticketId, ticketKey: newKey, ticketTitle: row.title, otherProject: source.name, otherKey: oldKey });
   return ticket;
 }
 

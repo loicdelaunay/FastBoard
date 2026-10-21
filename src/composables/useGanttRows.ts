@@ -1,6 +1,6 @@
 import { computed, ref, type Ref } from 'vue';
 import { toDayNumber } from '@shared/dates';
-import { ticketProgress } from '@shared/progress';
+import { progressOf } from '@/utils/progress';
 import type { TicketDTO } from '@shared/types';
 import { useProjectStore } from '@/stores/project';
 import { resolveRange, type ScheduleRange } from '@/utils/tickets';
@@ -33,7 +33,7 @@ export interface GanttTicketRow {
 export type GanttRow = GanttGroupRow | GanttTicketRow;
 
 function averageProgress(tickets: TicketDTO[]): number {
-  return tickets.length ? Math.round(tickets.reduce((sum, ticket) => sum + ticketProgress(ticket), 0) / tickets.length) : 0;
+  return tickets.length ? Math.round(tickets.reduce((sum, ticket) => sum + progressOf(ticket), 0) / tickets.length) : 0;
 }
 
 /** Plus grand nombre de tickets actifs simultanés (balayage des bornes de dates). */
@@ -84,7 +84,7 @@ export function useGanttRows(tickets: Ref<TicketDTO[]>, groupBy: Ref<GanttGroupB
       ticket,
       range: resolveRange(ticket, delivery),
       color: project.statusMeta(ticket.status).color,
-      progress: ticketProgress(ticket),
+      progress: progressOf(ticket),
     };
   }
 

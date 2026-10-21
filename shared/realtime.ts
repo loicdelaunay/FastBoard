@@ -2,6 +2,8 @@
 
 import type {
   ActivityDTO,
+  AppInfoDTO,
+  NotificationDTO,
   AttachmentDTO,
   CategoryDTO,
   CommentDTO,
@@ -57,6 +59,12 @@ export type ServerMessage =
   | { t: 'projects.refresh' }
   /** L'accès à un projet a été retiré (ou le projet supprimé). */
   | { t: 'project.revoked'; projectId: number }
+  /** Nom, logo ou message de maintenance de l'application modifiés. */
+  | { t: 'app'; app: AppInfoDTO }
+  /** Nouvelle notification pour l'utilisateur connecté. */
+  | { t: 'notification'; notification: NotificationDTO; unread: number }
+  /** Notifications lues (depuis un autre onglet). */
+  | { t: 'notifications.read'; unread: number }
   | { t: 'pong' }
   | { t: 'error'; message: string };
 

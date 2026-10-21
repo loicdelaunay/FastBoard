@@ -25,7 +25,10 @@ export const GLOBAL_PERMISSIONS: readonly PermissionDef[] = [
   { key: 'monitoring.view', group: 'Supervision', label: 'Suivre les performances', description: "Consulter les indicateurs de performance de l'application." },
   { key: 'logs.view', group: 'Supervision', label: 'Consulter les journaux', description: "Lire les journaux du serveur (erreurs, connexions, actions d'administration)." },
   { key: 'backups.manage', group: 'Système', label: 'Gérer les sauvegardes', description: 'Configurer les destinations, la fréquence et la conservation des sauvegardes, et en lancer.' },
+  { key: 'settings.manage', group: 'Système', label: "Personnaliser l'application", description: "Changer le nom et le logo de l'application et afficher des messages de maintenance." },
   { key: 'system.manage', group: 'Système', label: 'Installer en tant que service', description: "Installer ou retirer FastBoard comme service démarré automatiquement sur la machine." },
+  { key: 'ai.use', group: 'Intelligence artificielle', label: "Utiliser l'assistant IA", description: "Ouvrir le panneau de l'assistant IA (selon les droits de chaque projet)." },
+  { key: 'ai.manage', group: 'Intelligence artificielle', label: "Configurer l'IA", description: "Renseigner le fournisseur (URL compatible OpenAI, clé d'API, modèle) et activer l'IA sur le site." },
   { key: 'projects.create', group: 'Projets', label: 'Créer des projets', description: 'Créer ses propres projets.' },
   { key: 'projects.view_all', group: 'Projets', label: 'Voir tous les projets', description: 'Accéder en lecture à tous les projets, même sans en être membre.' },
   { key: 'projects.manage_all', group: 'Projets', label: 'Gérer tous les projets', description: 'Toutes les permissions de projet sur tous les projets.' },
@@ -43,6 +46,8 @@ export const PROJECT_PERMISSIONS: readonly PermissionDef[] = [
   { key: 'attachment.moderate', group: 'Pièces jointes', label: 'Modérer les pièces jointes', description: 'Supprimer les pièces jointes des autres.' },
   { key: 'comment.create', group: 'Commentaires', label: 'Commenter', description: 'Écrire et répondre aux commentaires.' },
   { key: 'comment.moderate', group: 'Commentaires', label: 'Modérer les commentaires', description: "Supprimer les commentaires des autres." },
+  { key: 'ai.read', group: 'Intelligence artificielle', label: "Interroger l'IA sur le projet", description: "L'assistant peut lire et rechercher dans le projet pour répondre." },
+  { key: 'ai.write', group: 'Intelligence artificielle', label: "Laisser l'IA modifier le projet", description: "L'assistant peut créer, modifier et commenter des tickets, dans la limite des autres droits de la personne." },
 ];
 
 export const ALL_GLOBAL_PERMISSION_KEYS = GLOBAL_PERMISSIONS.map((p) => p.key);
@@ -98,7 +103,7 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
     description: 'Gère les comptes, les rôles et tous les projets.',
     permissions: [
       'admin.access', 'users.view', 'users.create', 'users.edit', 'users.delete', 'roles.manage',
-      'tokens.create', 'tokens.manage', 'monitoring.view', 'logs.view', 'backups.manage', 'system.manage', 'projects.create', 'projects.view_all', 'projects.manage_all',
+      'tokens.create', 'tokens.manage', 'monitoring.view', 'logs.view', 'backups.manage', 'system.manage', 'settings.manage', 'ai.use', 'ai.manage', 'projects.create', 'projects.view_all', 'projects.manage_all',
     ],
   },
   {
@@ -106,7 +111,7 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
     scope: 'global',
     name: 'Membre',
     description: 'Peut créer ses projets et collaborer sur ceux auxquels il est invité.',
-    permissions: ['projects.create', 'tokens.create'],
+    permissions: ['projects.create', 'tokens.create', 'ai.use'],
   },
   {
     key: 'guest',
@@ -135,20 +140,20 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
     scope: 'project',
     name: 'Éditeur',
     description: 'Crée, modifie et commente les tickets.',
-    permissions: ['ticket.create', 'ticket.edit', 'ticket.update_own_part', 'attachment.create', 'comment.create'],
+    permissions: ['ticket.create', 'ticket.edit', 'ticket.update_own_part', 'attachment.create', 'comment.create', 'ai.read', 'ai.write'],
   },
   {
     key: 'contributor',
     scope: 'project',
     name: 'Contributeur',
     description: 'Met à jour sa part des tickets assignés et commente.',
-    permissions: ['ticket.update_own_part', 'attachment.create', 'comment.create'],
+    permissions: ['ticket.update_own_part', 'attachment.create', 'comment.create', 'ai.read'],
   },
   {
     key: 'viewer',
     scope: 'project',
     name: 'Lecteur',
     description: 'Consultation seule.',
-    permissions: [],
+    permissions: ['ai.read'],
   },
 ];

@@ -383,6 +383,51 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
     }
     grantSystemRoles(db, 'global', { admin: ['backups.manage', 'system.manage'] });
   },
+
+  // v9 : liens dans les pièces jointes, abonnements aux tickets, notifications, personnalisation de l'application.
+  (db) => {
+    db.exec(`
+      ALTER TABLE ticket_attachments ADD COLUMN kind TEXT NOT NULL DEFAULT 'file';
+      ALTER TABLE ticket_attachments ADD COLUMN url TEXT;
+      CREATE TABLE ticket_watchers (
+        ticket_id INTEGER NOT NULL REFERENCES tickets (id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (ticket_id, user_id)
+      );
+      CREATE INDEX idx_watchers_user ON ticket_watchers (user_id);
+      CREATE TABLE notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+        type TEXT NOT NULL,
+        project_id INTEGER REFERENCES projects (id) ON DELETE CASCADE,
+        ticket_id INTEGER REFERENCES tickets (id) ON DELETE SET NULL,
+        actor_id INTEGER REFERENCES users (id) ON DELETE SET NULL,
+        via TEXT,
+        data TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        read_at TEXT
+      );
+      CREATE INDEX idx_notifications_user ON notifications (user_id, id);
+    `);
+    // Les créateurs et les assignés suivent déjà leurs tickets.
+    const now = new Date().toISOString();
+    db.run('INSERT OR IGNORE INTO ticket_watchers (ticket_id, user_id, created_at) SELECT id, created_by, ? FROM tickets WHERE created_by IS NOT NULL', now);
+    db.run('INSERT OR IGNORE INTO ticket_watchers (ticket_id, user_id, created_at) SELECT ticket_id, user_id, ? FROM ticket_assignees', now);
+    grantSystemRoles(db, 'global', { admin: ['settings.manage'] });
+  },
+
+  // v10 : assistant IA (droits globaux et par projet).
+  (db) => {
+    grantSystemRoles(db, 'global', { admin: ['ai.use', 'ai.manage'], member: ['ai.use'] });
+    grantSystemRoles(db, 'project', {
+      owner: ['ai.read', 'ai.write'],
+      manager: ['ai.read', 'ai.write'],
+      editor: ['ai.read', 'ai.write'],
+      contributor: ['ai.read'],
+      viewer: ['ai.read'],
+    });
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

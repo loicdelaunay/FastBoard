@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -36,9 +37,12 @@ export function attachmentFile(ctx: AppContext, row: Pick<AttachmentRow, 'storag
   return path.join(ctx.uploadsDir, row.storage);
 }
 
+/** Les liens (URL, chemins) n'ont pas de fichier sur le disque : leur `storage` commence par ce préfixe. */
+const LINK_STORAGE = 'link-';
+
 /** Supprime des fichiers du disque (sans échouer si l'un a déjà disparu). */
 export function removeStoredFiles(ctx: AppContext, storages: string[]): void {
-  for (const storage of storages) {
+  for (const storage of storages.filter((entry) => !entry.startsWith(LINK_STORAGE))) {
     try {
       fs.rmSync(path.join(ctx.uploadsDir, storage), { force: true });
     } catch (error) {
@@ -193,6 +197,87 @@ export function deleteAttachment(ctx: AppContext, actor: Actor, ticket: TicketRo
   removeStoredFiles(ctx, [row.storage]);
   publish(ctx, actor, ticket, [{ type: 'attachment.deleted', attachment: toAttachmentDTO(row), attachmentCount: countAttachments(db, ticket.id) }], historyEntry);
   ctx.logger.info('storage', `Pièce jointe supprimée : ${row.name}`, { ticketId: ticket.id }, actor.userId);
+}
+
+export interface LinkInput {
+  kind: 'url' | 'path';
+  target: string;
+  name?: string;
+}
+
+/** Normalise et vérifie la cible d'un lien : adresse web (http, https, ftp, mailto) ou chemin absolu (C:\…, \\serveur\…, /…). */
+export function normalizeLinkTarget(kind: 'url' | 'path', raw: string): string {
+  const target = raw.trim().replace(/^"(.*)"$/, '$1');
+  if (kind === 'url') {
+    let url: URL;
+    try {
+      url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(target) ? target : `https://${target}`);
+    } catch {
+      throw badRequest('Adresse web invalide.');
+    }
+    if (!['http:', 'https:', 'ftp:', 'mailto:'].includes(url.protocol)) {
+      throw badRequest('Seules les adresses http, https, ftp et mailto sont acceptées.');
+    }
+    return url.toString();
+  }
+  const path = target.replace(/^file:\/\/\/?/i, '');
+  if (!/^([a-zA-Z]:[\\/]|\\\\[^\\]+\\|\/)/.test(path) || /[\u0000-\u001f]/.test(path)) {
+    throw badRequest('Indiquez un chemin absolu, par exemple C:\\Dossier\\fichier.pdf, \\\\serveur\\partage ou /home/moi/fichier.pdf.');
+  }
+  return path;
+}
+
+/** Ajoute un lien web ou un chemin de fichier aux pièces jointes d'un ticket. */
+export function addAttachmentLink(ctx: AppContext, actor: Actor, ticket: TicketRow, input: LinkInput): AttachmentDTO {
+  const { db } = ctx;
+  if (countAttachments(db, ticket.id) >= LIMITS.attachmentsPerTicket) {
+    throw badRequest(`Un ticket ne peut pas avoir plus de ${LIMITS.attachmentsPerTicket} pièces jointes.`);
+  }
+  const target = normalizeLinkTarget(input.kind, input.target);
+  const fallbackName = input.kind === 'url' ? target.replace(/^[a-z]+:\/\/(www\.)?/i, '').replace(/\/$/, '') : (target.split(/[\\/]/).filter(Boolean).pop() ?? target);
+  const name = sanitizeFileName(input.name?.trim() || fallbackName, LIMITS.attachmentNameMax);
+  let row: AttachmentRow;
+  const historyEntry = db.transaction(() => {
+    const { lastInsertRowid } = db.run(
+      "INSERT INTO ticket_attachments (ticket_id, user_id, name, mime, size, storage, created_at, kind, url) VALUES (?, ?, ?, 'text/uri-list', 0, ?, ?, ?, ?)",
+      ticket.id,
+      actor.userId,
+      name,
+      `${LINK_STORAGE}${randomUUID()}`,
+      nowIso(),
+      input.kind,
+      target,
+    );
+    row = requireAttachment(db, lastInsertRowid);
+    return addHistory(db, ticket.id, actor, { kind: 'attachment', action: 'added', name, size: 0, link: input.kind });
+  });
+  publish(ctx, actor, ticket, [{ type: 'attachment.created', attachment: toAttachmentDTO(row!), attachmentCount: countAttachments(db, ticket.id) }], historyEntry);
+  return toAttachmentDTO(row!);
+}
+
+/** Extensions jamais lancées directement : le dossier qui les contient est ouvert à la place. */
+const RISKY = /\.(exe|com|bat|cmd|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|msi|msp|scr|pif|lnk|hta|cpl|jar|reg|sh|app|command)$/i;
+
+/**
+ * Ouvre un chemin sur la machine du serveur, ce qui n'a de sens que si la personne travaille sur cette même machine
+ * (FastBoard lancé en local) : l'appel doit venir de localhost. Les exécutables ne sont pas lancés, leur dossier s'ouvre.
+ */
+export async function openLocalPath(target: string): Promise<{ revealed: boolean }> {
+  if (!fs.existsSync(target)) {
+    throw notFound("Ce fichier ou ce dossier n'existe pas sur cette machine.");
+  }
+  const reveal = RISKY.test(target) && !fs.statSync(target).isDirectory();
+  const [file, args] =
+    process.platform === 'win32'
+      ? ['explorer.exe', reveal ? [`/select,${target}`] : [target]]
+      : process.platform === 'darwin'
+        ? ['open', reveal ? ['-R', target] : [target]]
+        : ['xdg-open', [reveal ? path.dirname(target) : target]];
+  await new Promise<void>((resolve) => {
+    // explorer.exe rend souvent un code non nul même quand il a ouvert la fenêtre : on n'en tient pas compte.
+    execFile(file, args, { windowsHide: false }, () => resolve());
+  });
+  return { revealed: reveal };
 }
 
 /** En-tête `Content-Disposition` avec repli ASCII et nom UTF-8 (RFC 6266 / 5987). */

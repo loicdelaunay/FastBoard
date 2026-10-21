@@ -8,8 +8,10 @@ import { nowIso } from '../db/database.ts';
 import { serializeSessionCookie } from '../http/cookies.ts';
 import { badRequest, HttpError, notFound, unauthorized } from '../http/errors.ts';
 import { currentUser, sessionOnly, sessionToken } from '../http/middleware.ts';
-import { createTokenSchema, loginSchema, passwordSchema, profileSchema, revealTokenSchema, searchQuerySchema, updateTokenSchema } from '../http/schemas.ts';
+import { createTokenSchema, loginSchema, markReadSchema, notificationQuerySchema, passwordSchema, profileSchema, revealTokenSchema, searchQuerySchema, updateTokenSchema } from '../http/schemas.ts';
 import { globalSearch, userSummary } from '../services/search.ts';
+import { appInfo, getBranding } from '../services/appSettings.ts';
+import { listNotifications, markRead } from '../services/notifications.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { getAuthUser, requireGlobal, toMeDTO } from '../services/access.ts';
 import { clearAvatar, getAvatar, listDirectory, setAvatar, updateOwnProfile } from '../services/users.ts';
@@ -36,6 +38,23 @@ function isSecure(req: Request): boolean {
 /** Routes accessibles sans session. */
 export function publicAuthRouter(ctx: AppContext): Router {
   const router = express.Router();
+
+  /** Nom, logo, version et message de maintenance : publics (page de connexion comprise). */
+  router.get('/app', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.json(appInfo(ctx.db));
+  });
+
+  router.get('/app/logo', (_req, res) => {
+    const { logo } = getBranding(ctx.db);
+    if (!logo) {
+      throw notFound('Aucun logo.');
+    }
+    res.setHeader('Content-Type', logo.mime);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(Buffer.from(logo.data, 'base64'));
+  });
   const attempts = new Map<string, { count: number; resetAt: number }>();
 
   function throttle(key: string): void {
@@ -205,6 +224,16 @@ export function accountRouter(ctx: AppContext): Router {
 
   router.get('/users', (_req, res) => {
     res.json({ users: listDirectory(ctx.db) });
+  });
+
+  router.get('/me/notifications', (req, res) => {
+    const query = parse(notificationQuerySchema, req.query);
+    res.json(listNotifications(ctx.db, currentUser(res).id, { limit: query.limit, before: query.before, unreadOnly: query.unread }));
+  });
+
+  router.post('/me/notifications/read', (req, res) => {
+    const { ids } = parse(markReadSchema, req.body);
+    res.json({ unread: markRead(ctx, currentUser(res).id, ids ?? null) });
   });
 
   router.get('/users/:id/summary', (req, res) => {
