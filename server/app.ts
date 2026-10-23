@@ -18,6 +18,7 @@ import { csrfGuard, requireAuth } from './http/middleware.ts';
 import { embeddedFrontend } from './http/embedded.ts';
 import { requestMonitor } from './http/monitor.ts';
 import { runningAsExecutable } from './runtime.ts';
+import { HttpsManager } from './system/https.ts';
 import { Logger } from './monitoring/logger.ts';
 import { Metrics } from './monitoring/metrics.ts';
 import { Hub } from './realtime/hub.ts';
@@ -115,7 +116,11 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 'loopback');
+  // HTTPS intégré : second serveur sur la même application, WebSocket compris.
+  const httpsManager = new HttpsManager(ctx, app, (secure) => hub.attach(secure, ctx), (settings) => app.set('trust proxy', settings.trustProxy ? true : 'loopback'));
+  ctx.https = httpsManager;
   app.use(securityHeaders(config));
+  app.use(httpsManager.middleware());
 
   const api = express.Router();
   api.use(requestMonitor(ctx));
@@ -123,7 +128,8 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   api.use(attachmentUploadRouter(ctx));
   const json = express.json({ limit: '1mb' });
   const largeJson = express.json({ limit: '16mb' });
-  api.use((req, res, next) => (req.path === '/ai/chat' ? largeJson : json)(req, res, next));
+  // Assistant IA : images jointes et conversations enregistrées.
+  api.use((req, res, next) => (req.path === '/ai/chat' || req.path.startsWith('/ai/conversations/') ? largeJson : json)(req, res, next));
   api.use(csrfGuard(ctx));
   api.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
@@ -171,6 +177,8 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
     server.listen(config.port, config.host, () => resolve());
   });
   const port = (server.address() as AddressInfo).port;
+  httpsManager.httpPort = port;
+  await httpsManager.apply();
 
   purgeNotifications(db);
   const purge = setInterval(() => {
@@ -189,6 +197,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
       clearInterval(purge);
       stopBackups();
       hub.close();
+      await httpsManager.close();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       logger.info('system', 'Serveur arrêté');

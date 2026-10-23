@@ -33,6 +33,7 @@ export class Hub {
     return this.#clients.size;
   }
 
+  /** Accepte les connexions WebSocket d'un serveur HTTP ou HTTPS (plusieurs serveurs possibles). */
   attach(server: Server, ctx: AppContext): void {
     this.#ctx = ctx;
     server.on('upgrade', (request, socket, head) => {
@@ -60,6 +61,7 @@ export class Hub {
       this.#wss.handleUpgrade(request, socket, head, (ws) => this.#onConnection(ws, user.id, user.token));
     });
 
+    if (this.#heartbeat) return;
     this.#heartbeat = setInterval(() => {
       for (const client of this.#clients) {
         if (!client.alive) {

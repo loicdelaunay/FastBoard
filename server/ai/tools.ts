@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import type { AiChangeDTO, AiTicketFields } from '../../shared/ai.ts';
 import { STATUS_META, TICKET_STATUSES, isTicketStatus, type TicketStatus } from '../../shared/constants.ts';
 import { ticketProgress } from '../../shared/progress.ts';
 import type { TicketDTO } from '../../shared/types.ts';
@@ -10,7 +12,7 @@ import { createLink } from '../services/links.ts';
 import { buildSnapshot } from '../services/projects.ts';
 import { visibleProjects } from '../services/search.ts';
 import { createSubtask, requireSubtask, updateSubtask } from '../services/subtasks.ts';
-import { createTicket, foldText, getTicketDTO, listTicketDTOs, moveTicket, requireTicket, ticketKeyOf, updateTicket, type UpdateTicketInput } from '../services/tickets.ts';
+import { createTicket, foldText, getTicketDTO, listTicketDTOs, moveTicket, requireTicket, ticketKeyOf, updateTicket } from '../services/tickets.ts';
 
 /** Ce que l'agent sait de la personne et de la page ouverte ; les droits sont revérifiés à chaque appel d'outil. */
 export interface ToolContext {
@@ -18,7 +20,11 @@ export interface ToolContext {
   user: AuthUser;
   actor: Actor;
   allowWrite: boolean;
+  /** Mode « proposer » : les outils d'écriture vérifient les droits et préparent la modification sans l'appliquer. */
+  propose: boolean;
   changes: number;
+  proposals: number;
+  onChange?: (change: AiChangeDTO) => void;
 }
 
 export interface ToolDefinition {
@@ -137,6 +143,8 @@ function ticketDetail(tool: ToolContext, ticket: TicketDTO, names: Names) {
     parts: ticket.assignees.map((assignee) => ({ userId: assignee.userId, name: names.users.get(assignee.userId), done: assignee.done, progress: assignee.progress, mission: assignee.note || undefined })),
     subtasks: ticket.subtasks.map((subtask) => ({ id: subtask.id, title: subtask.title, done: subtask.done, assignee: subtask.assigneeId ? names.users.get(subtask.assigneeId) : undefined })),
     dependencies: ticket.links.map((link) => ({ reason: link.reason, target: keyOf(link.targetId) })),
+    parent: ticket.parentId ? keyOf(ticket.parentId) : undefined,
+    subTickets: tool.ctx.db.all<{ id: number }>('SELECT id FROM tickets WHERE parent_id = ? ORDER BY number', ticket.id).map((child) => keyOf(child.id)),
     comments: listComments(tool.ctx.db, ticket.id)
       .filter((comment) => !comment.deleted)
       .slice(-20)
@@ -177,8 +185,8 @@ function isoDate(value: unknown, field: string): string | null {
   throw badRequest(`${field} doit être une date AAAA-MM-JJ (ou null).`);
 }
 
-function ticketFields(names: Names, args: Record<string, unknown>): UpdateTicketInput {
-  const input: UpdateTicketInput = {};
+function ticketFields(tool: ToolContext, names: Names, args: Record<string, unknown>): AiTicketFields {
+  const input: AiTicketFields = {};
   if (typeof args.title === 'string') input.title = args.title.trim().slice(0, 200);
   if (typeof args.description === 'string') input.description = args.description.slice(0, 20_000);
   if ('status' in args && args.status !== undefined) input.status = pickStatus(args.status);
@@ -190,6 +198,7 @@ function ticketFields(names: Names, args: Record<string, unknown>): UpdateTicket
   if ('startDate' in args) input.startDate = isoDate(args.startDate, 'startDate');
   if ('endDate' in args) input.endDate = isoDate(args.endDate, 'endDate');
   if (typeof args.progress === 'number') input.progress = Math.max(0, Math.min(100, Math.round(args.progress)));
+  if ('parent' in args) input.parentId = args.parent === null || args.parent === '' ? null : resolveTicket(tool, args.parent).id;
   return input;
 }
 
@@ -205,7 +214,90 @@ const FIELD_PROPERTIES = {
   startDate: { type: ['string', 'null'], description: 'AAAA-MM-JJ' },
   endDate: { type: ['string', 'null'], description: 'AAAA-MM-JJ' },
   progress: { type: 'integer', minimum: 0, maximum: 100, description: 'Avancement manuel (tickets sans assigné).' },
+  parent: { oneOf: [{ type: 'integer' }, { type: 'string' }, { type: 'null' }], description: 'Ticket parent (clé ou identifiant, même projet) : fait de ce ticket un sous-ticket ; null pour le détacher.' },
 };
+
+// --- Modifications (faites ou proposées) ---------------------------------------------------------------------------------
+
+const PROPOSED = 'Proposition enregistrée : elle ne sera appliquée que si la personne la valide dans le panneau.';
+
+function record(tool: ToolContext, change: Omit<AiChangeDTO, 'id' | 'state'>): AiChangeDTO {
+  const full: AiChangeDTO = { ...change, id: randomUUID(), state: tool.propose ? 'pending' : 'applied' };
+  if (tool.propose) tool.proposals += 1;
+  else tool.changes += 1;
+  tool.onChange?.(full);
+  return full;
+}
+
+/** Valeurs actuelles des champs qui vont changer (pour pouvoir annuler). */
+function currentFields(ticket: TicketDTO, keys: Array<keyof AiTicketFields>): AiTicketFields {
+  const all: Required<AiTicketFields> = {
+    title: ticket.title,
+    description: ticket.description,
+    status: ticket.status,
+    priorityId: ticket.priorityId,
+    categoryId: ticket.categoryId,
+    deliveryId: ticket.deliveryId,
+    componentIds: ticket.componentIds,
+    assigneeIds: ticket.assignees.map((assignee) => assignee.userId),
+    startDate: ticket.startDate,
+    endDate: ticket.endDate,
+    progress: ticket.progress,
+    parentId: ticket.parentId,
+  };
+  return Object.fromEntries(keys.map((key) => [key, all[key]])) as AiTicketFields;
+}
+
+/** Différences lisibles entre deux états d'un ticket (noms plutôt qu'identifiants). */
+function describeFields(tool: ToolContext, names: Names, before: AiTicketFields, after: AiTicketFields): AiChangeDTO['diff'] {
+  const show = (key: keyof AiTicketFields, value: unknown): string | null => {
+    if (value === undefined || value === null || value === '' || (Array.isArray(value) && !value.length)) return null;
+    switch (key) {
+      case 'status':
+        return names.columns.get(value as TicketStatus) ?? String(value);
+      case 'priorityId':
+        return names.priorities.get(value as number) ?? `#${String(value)}`;
+      case 'categoryId':
+        return names.categories.get(value as number) ?? `#${String(value)}`;
+      case 'deliveryId':
+        return names.deliveries.get(value as number) ?? `#${String(value)}`;
+      case 'componentIds':
+        return (value as number[]).map((id) => names.components.get(id) ?? `#${id}`).join(', ');
+      case 'assigneeIds':
+        return (value as number[]).map((id) => names.users.get(id) ?? `#${id}`).join(', ');
+      case 'progress':
+        return `${String(value)} %`;
+      case 'description':
+        return clip(String(value), 400);
+      case 'parentId': {
+        const parent = tool.ctx.db.get<{ project_id: number; number: number; title: string }>('SELECT project_id, number, title FROM tickets WHERE id = ?', value as number);
+        return parent ? `${ticketKeyOf(tool.ctx.db, parent)} — ${clip(parent.title, 60)}` : `#${String(value)}`;
+      }
+      default:
+        return String(value);
+    }
+  };
+  return (Object.keys(after) as Array<keyof AiTicketFields>)
+    .map((key) => ({ field: key, from: show(key, before[key]), to: show(key, after[key]) }))
+    .filter((entry) => entry.from !== entry.to);
+}
+
+/** Modifie (ou propose de modifier) un ticket, en gardant l'état d'avant pour pouvoir annuler. */
+function changeTicket(tool: ToolContext, names: Names, ticketId: number, fields: AiTicketFields, apply: (fields: AiTicketFields) => TicketDTO) {
+  const current = getTicketDTO(tool.ctx.db, ticketId);
+  const before = currentFields(current, Object.keys(fields) as Array<keyof AiTicketFields>);
+  const diff = describeFields(tool, names, before, fields);
+  if (!diff.length) return { unchanged: true, ticket: ticketLine(current, names) };
+  const key = `${names.key}-${current.number}`;
+  const change = { label: fields.status && Object.keys(fields).length === 1 ? `Déplacement de ${key}` : `Modification de ${key}`, projectId: current.projectId, ticketKey: key, diff, action: { kind: 'ticket.update' as const, ticketId, before, after: fields } };
+  if (tool.propose) {
+    record(tool, change);
+    return { proposed: true, message: PROPOSED, fields: Object.keys(fields) };
+  }
+  const ticket = apply(fields);
+  record(tool, change);
+  return { updated: ticketLine(ticket, names), fields: Object.keys(fields) };
+}
 
 // --- Recherche ---------------------------------------------------------------------------------------------------------
 
@@ -333,7 +425,7 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: 'get_ticket',
-    description: 'Détail complet d’un ticket : description, parts, sous-tâches, dépendances, commentaires récents et historique.',
+    description: 'Détail complet d’un ticket : description, parts, sous-tâches, sous-tickets et parent, dépendances, commentaires récents et historique.',
     parameters: { type: 'object', properties: { ticket: TICKET_REF }, required: ['ticket'] },
     write: false,
     label: (args) => `Lecture de ${String(args.ticket)}`,
@@ -354,17 +446,24 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     name: 'create_ticket',
-    description: 'Crée un ticket dans un projet.',
+    description: 'Crée un ticket dans un projet (avec `parent`, un sous-ticket).',
     parameters: { type: 'object', properties: { projectId: { type: 'integer' }, ...FIELD_PROPERTIES }, required: ['projectId', 'title'] },
     write: true,
     label: (args) => `Création de « ${clip(String(args.title ?? ''), 40)} »`,
     run: (tool, args) => {
       const access = canWrite(tool, Number(args.projectId), 'ticket.create');
       const names = namesOf(tool, access);
-      const fields = ticketFields(names, args);
+      const fields = ticketFields(tool, names, args);
       if (!fields.title) throw badRequest('title est obligatoire.');
-      const ticket = createTicket(tool.ctx, tool.actor, access.project.id, { ...fields, title: fields.title });
-      tool.changes += 1;
+      const input = { ...fields, title: fields.title };
+      const diff = describeFields(tool, names, {}, input);
+      if (tool.propose) {
+        record(tool, { label: `Création de « ${clip(input.title, 60)} »`, projectId: access.project.id, ticketKey: null, diff, action: { kind: 'ticket.create', projectId: access.project.id, fields: input, ticketId: null } });
+        return { proposed: true, message: PROPOSED };
+      }
+      const ticket = createTicket(tool.ctx, tool.actor, access.project.id, input);
+      const key = `${names.key}-${ticket.number}`;
+      record(tool, { label: `Création de ${key}`, projectId: access.project.id, ticketKey: key, diff, action: { kind: 'ticket.create', projectId: access.project.id, fields: input, ticketId: ticket.id } });
       return { created: ticketLine(ticket, names) };
     },
   },
@@ -378,11 +477,9 @@ export const TOOLS: ToolDefinition[] = [
       const row = resolveTicket(tool, args.ticket);
       const access = canWrite(tool, row.project_id, 'ticket.edit');
       const names = namesOf(tool, access);
-      const fields = ticketFields(names, args);
+      const fields = ticketFields(tool, names, args);
       if (!Object.keys(fields).length) throw badRequest('Aucun champ à modifier.');
-      const ticket = updateTicket(tool.ctx, tool.actor, row.id, fields);
-      tool.changes += 1;
-      return { updated: ticketLine(ticket, names), fields: Object.keys(fields) };
+      return changeTicket(tool, names, row.id, fields, (after) => updateTicket(tool.ctx, tool.actor, row.id, after));
     },
   },
   {
@@ -394,9 +491,8 @@ export const TOOLS: ToolDefinition[] = [
     run: (tool, args) => {
       const row = resolveTicket(tool, args.ticket);
       const access = canWrite(tool, row.project_id, 'ticket.edit');
-      const ticket = moveTicket(tool.ctx, tool.actor, row.id, { status: pickStatus(args.status), beforeId: null });
-      tool.changes += 1;
-      return { moved: ticketLine(ticket, namesOf(tool, access)) };
+      const status = pickStatus(args.status);
+      return changeTicket(tool, namesOf(tool, access), row.id, { status }, () => moveTicket(tool.ctx, tool.actor, row.id, { status, beforeId: null }));
     },
   },
   {
@@ -408,16 +504,22 @@ export const TOOLS: ToolDefinition[] = [
     run: (tool, args) => {
       const row = resolveTicket(tool, args.ticket);
       canWrite(tool, row.project_id, 'comment.create');
-      const body = String(args.body ?? '').trim();
+      const body = String(args.body ?? '').trim().slice(0, 5_000);
       if (!body) throw badRequest('body est vide.');
-      const comment = createComment(tool.ctx, tool.actor, row.id, { body: body.slice(0, 5_000) });
-      tool.changes += 1;
+      const key = ticketKeyOf(tool.ctx.db, row);
+      const base = { label: `Commentaire sur ${key}`, projectId: row.project_id, ticketKey: key, diff: [{ field: 'comment', from: null, to: clip(body, 400) }] };
+      if (tool.propose) {
+        record(tool, { ...base, action: { kind: 'comment.create', ticketId: row.id, body, commentId: null } });
+        return { proposed: true, message: PROPOSED };
+      }
+      const comment = createComment(tool.ctx, tool.actor, row.id, { body });
+      record(tool, { ...base, action: { kind: 'comment.create', ticketId: row.id, body, commentId: comment.id } });
       return { commentId: comment.id };
     },
   },
   {
     name: 'add_subtask',
-    description: 'Ajoute une sous-tâche à un ticket.',
+    description: 'Ajoute une sous-tâche (case à cocher) à un ticket. Pour un vrai ticket enfant, utilisez create_ticket avec `parent`.',
     parameters: { type: 'object', properties: { ticket: TICKET_REF, title: { type: 'string' }, assignee: { type: 'string', description: 'Nom d’un membre (facultatif).' } }, required: ['ticket', 'title'] },
     write: true,
     label: (args) => `Sous-tâche sur ${String(args.ticket)}`,
@@ -425,11 +527,19 @@ export const TOOLS: ToolDefinition[] = [
       const row = resolveTicket(tool, args.ticket);
       const access = canWrite(tool, row.project_id, 'ticket.edit');
       const names = namesOf(tool, access);
-      const ticket = createSubtask(tool.ctx, tool.actor, row.id, {
-        title: String(args.title ?? '').trim().slice(0, 300),
-        assigneeId: typeof args.assignee === 'string' ? pickByName(names.users, args.assignee, 'Personne') : null,
-      });
-      tool.changes += 1;
+      const title = String(args.title ?? '').trim().slice(0, 300);
+      if (!title) throw badRequest('title est vide.');
+      const assigneeId = typeof args.assignee === 'string' ? pickByName(names.users, args.assignee, 'Personne') : null;
+      const key = ticketKeyOf(tool.ctx.db, row);
+      const base = { label: `Sous-tâche sur ${key}`, projectId: row.project_id, ticketKey: key, diff: [{ field: 'subtask', from: null, to: assigneeId ? `${title} (${names.users.get(assigneeId)})` : title }] };
+      if (tool.propose) {
+        record(tool, { ...base, action: { kind: 'subtask.create', ticketId: row.id, title, assigneeId, subtaskId: null } });
+        return { proposed: true, message: PROPOSED };
+      }
+      const known = new Set(getTicketDTO(tool.ctx.db, row.id).subtasks.map((subtask) => subtask.id));
+      const ticket = createSubtask(tool.ctx, tool.actor, row.id, { title, assigneeId });
+      const created = ticket.subtasks.find((subtask) => !known.has(subtask.id));
+      record(tool, { ...base, action: { kind: 'subtask.create', ticketId: row.id, title, assigneeId, subtaskId: created?.id ?? null } });
       return { subtasks: ticket.subtasks.map((subtask) => ({ id: subtask.id, title: subtask.title, done: subtask.done })) };
     },
   },
@@ -441,12 +551,27 @@ export const TOOLS: ToolDefinition[] = [
     label: () => 'Mise à jour d’une sous-tâche',
     run: (tool, args) => {
       const subtask = requireSubtask(tool.ctx.db, Number(args.subtaskId));
-      canWrite(tool, requireTicket(tool.ctx.db, subtask.ticket_id).project_id, 'ticket.edit');
-      const ticket = updateSubtask(tool.ctx, tool.actor, subtask.id, {
-        ...(typeof args.done === 'boolean' ? { done: args.done } : {}),
-        ...(typeof args.title === 'string' && args.title.trim() ? { title: args.title.trim().slice(0, 300) } : {}),
-      });
-      tool.changes += 1;
+      const row = requireTicket(tool.ctx.db, subtask.ticket_id);
+      canWrite(tool, row.project_id, 'ticket.edit');
+      const after = {
+        ...(typeof args.done === 'boolean' && args.done !== (subtask.done === 1) ? { done: args.done } : {}),
+        ...(typeof args.title === 'string' && args.title.trim() && args.title.trim() !== subtask.title ? { title: args.title.trim().slice(0, 300) } : {}),
+      };
+      if (!Object.keys(after).length) return { unchanged: true };
+      const before = { ...('done' in after ? { done: subtask.done === 1 } : {}), ...('title' in after ? { title: subtask.title } : {}) };
+      const key = ticketKeyOf(tool.ctx.db, row);
+      const yesNo = (value: boolean | undefined) => (value === undefined ? null : value ? 'cochée' : 'à faire');
+      const diff = [
+        ...('title' in after ? [{ field: 'subtask', from: before.title ?? null, to: after.title ?? null }] : []),
+        ...('done' in after ? [{ field: 'subtaskDone', from: yesNo(before.done), to: yesNo(after.done) }] : []),
+      ];
+      const change = { label: `Sous-tâche « ${clip(subtask.title, 40)} » (${key})`, projectId: row.project_id, ticketKey: key, diff, action: { kind: 'subtask.update' as const, ticketId: row.id, subtaskId: subtask.id, before, after } };
+      if (tool.propose) {
+        record(tool, change);
+        return { proposed: true, message: PROPOSED };
+      }
+      const ticket = updateSubtask(tool.ctx, tool.actor, subtask.id, after);
+      record(tool, change);
       return { subtasks: ticket.subtasks.map((entry) => ({ id: entry.id, title: entry.title, done: entry.done })) };
     },
   },
@@ -460,8 +585,17 @@ export const TOOLS: ToolDefinition[] = [
       const row = resolveTicket(tool, args.ticket);
       const target = resolveTicket(tool, args.target);
       canWrite(tool, row.project_id, 'ticket.edit');
-      const ticket = createLink(tool.ctx, tool.actor, row.id, { targetId: target.id, reason: String(args.reason ?? 'Lié à').trim().slice(0, 60) });
-      tool.changes += 1;
+      const reason = String(args.reason ?? 'Lié à').trim().slice(0, 60) || 'Lié à';
+      const key = ticketKeyOf(tool.ctx.db, row);
+      const base = { label: `Dépendance ${key} → ${ticketKeyOf(tool.ctx.db, target)}`, projectId: row.project_id, ticketKey: key, diff: [{ field: 'link', from: null, to: `${reason} ${ticketKeyOf(tool.ctx.db, target)}` }] };
+      if (tool.propose) {
+        record(tool, { ...base, action: { kind: 'link.create', ticketId: row.id, targetId: target.id, reason, linkId: null } });
+        return { proposed: true, message: PROPOSED };
+      }
+      const known = new Set(getTicketDTO(tool.ctx.db, row.id).links.map((link) => link.id));
+      const ticket = createLink(tool.ctx, tool.actor, row.id, { targetId: target.id, reason });
+      const created = ticket.links.find((link) => !known.has(link.id));
+      record(tool, { ...base, action: { kind: 'link.create', ticketId: row.id, targetId: target.id, reason, linkId: created?.id ?? null } });
       return { dependencies: ticket.links.length };
     },
   },

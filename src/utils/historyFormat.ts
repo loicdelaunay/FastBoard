@@ -17,6 +17,7 @@ export const FIELD_LABELS: Record<HistoryChange['field'], string> = {
   startDate: t('la date de début'),
   endDate: t('la date de fin'),
   progress: t("l'avancement"),
+  parent: t('le ticket parent'),
 };
 
 /** Valeur lisible (avant / après) d'une modification. */

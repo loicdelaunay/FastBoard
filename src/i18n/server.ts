@@ -5,6 +5,24 @@ import { currentLocale } from './index';
  * puis modèles à variables (noms, nombres), puis messages de validation (« champ : message »).
  */
 const EXACT: Record<string, string> = {
+  // 1.4
+  "Un ticket ne peut pas être son propre parent.": "A ticket cannot be its own parent.",
+  "Le ticket parent doit appartenir au même projet.": "The parent ticket must belong to the same project.",
+  "Le ticket parent est déjà un sous-ticket : un seul niveau est possible.": "The parent ticket is already a sub-ticket: only one level is possible.",
+  "Ce ticket a déjà des sous-tickets : il ne peut pas devenir un sous-ticket.": "This ticket already has sub-tickets: it cannot become a sub-ticket.",
+  "Conversation introuvable.": "Conversation not found.",
+  "Identifiant de conversation invalide.": "Invalid conversation identifier.",
+  "Conversation trop longue pour être enregistrée : commencez-en une nouvelle.": "Conversation too long to be saved: start a new one.",
+  "Aucun modèle d'IA n'est proposé.": "No AI model is offered.",
+  "Ajoutez au moins un fournisseur.": "Add at least one provider.",
+  "Indiquez les fichiers du certificat pour activer HTTPS.": "Enter the certificate files to enable HTTPS.",
+  "Certificat valide.": "Valid certificate.",
+  "Le fichier du certificat n’est pas un certificat PEM valide.": "The certificate file is not a valid PEM certificate.",
+  "Clé privée chiffrée : mot de passe absent ou incorrect.": "Encrypted private key: missing or wrong password.",
+  "La clé privée n’est pas une clé PEM valide.": "The private key is not a valid PEM key.",
+  "La clé privée ne correspond pas au certificat.": "The private key does not match the certificate.",
+  "PFX illisible : mot de passe absent ou incorrect.": "Unreadable PFX: missing or wrong password.",
+  "Nom d’hôte ou adresse IP invalide.": "Invalid host name or IP address.",
   "Choisissez au moins un modèle.": "Choose at least one model.",
   "Image invalide (PNG, JPEG, WebP ou GIF en base64).": "Invalid image (base64 PNG, JPEG, WebP or GIF).",
   // 1.3
@@ -164,7 +182,23 @@ const TYPES: Record<string, string> = {
 };
 const type = (word: string): string => TYPES[word] ?? word;
 
+const FILE_KINDS: Record<string, string> = {
+  'du certificat': 'certificate',
+  'de la clé privée': 'private key',
+  'des certificats intermédiaires': 'intermediate certificates',
+  PFX: 'PFX',
+};
+
 const PATTERNS: Array<[RegExp, (match: RegExpExecArray) => string]> = [
+  // 1.4
+  [/^Le fournisseur d'IA n'a pas répondu dans le délai \((\d+) s\)\.$/, (m) => `The AI provider did not answer in time (${m[1]} s).`],
+  [/^Indiquez le chemin du fichier (.+)\.$/, (m) => `Enter the path of the ${FILE_KINDS[m[1]!] ?? m[1]} file.`],
+  [/^Fichier (.+?) illisible \((.+)\) : introuvable$/, (m) => `Unreadable ${FILE_KINDS[m[1]!] ?? m[1]} file (${m[2]}): not found`],
+  [/^Fichier (.+?) illisible \((.+)\) : (.+)$/, (m) => `Unreadable ${FILE_KINDS[m[1]!] ?? m[1]} file (${m[2]}): ${m[3]}`],
+  [/^Certificat refusé : (.+)$/, (m) => `Certificate rejected: ${m[1]}`],
+  [/^Le port (\d+) est déjà utilisé\.$/, (m) => `Port ${m[1]} is already in use.`],
+  [/^Droits insuffisants pour écouter sur le port (\d+)\.$/, (m) => `Insufficient rights to listen on port ${m[1]}.`],
+  [/^Le port HTTPS doit être différent du port HTTP \((\d+)\)\.$/, (m) => `The HTTPS port must differ from the HTTP port (${m[1]}).`],
   [/^Fournisseur d'IA injoignable \((.+?)\) : (.+)$/, (m) => `AI provider unreachable (${m[1]}): ${m[2]}`],
   [/^Le fournisseur d'IA a répondu (\d+) : (.*)$/, (m) => `The AI provider answered ${m[1]}: ${m[2]}`],
   [/^Connexion réussie \((.+?)\) : (.*)$/, (m) => `Connection succeeded (${m[1]}): ${m[2]}`],

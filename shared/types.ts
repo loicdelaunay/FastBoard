@@ -175,6 +175,8 @@ export interface TicketDTO {
   priorityId: number | null;
   /** Composants (liste réglable par projet). */
   componentIds: number[];
+  /** Ticket parent quand c'est un sous-ticket (même projet, un seul niveau). */
+  parentId: number | null;
   startDate: string | null;
   endDate: string | null;
   /** Avancement saisi à la main (utilisé quand le ticket n'a aucun assigné). */
@@ -239,7 +241,8 @@ export type HistoryField =
   | 'endDate'
   | 'progress'
   | 'priority'
-  | 'components';
+  | 'components'
+  | 'parent';
 
 export interface HistoryChange {
   field: HistoryField;

@@ -184,6 +184,7 @@ export const settingsPatchSchema = z.object({
   deliveryWarnDays: z.number().int().min(0).max(365).optional().describe('Jours restants à partir desquels la pastille passe à l’orange.'),
   deliveryDangerDays: z.number().int().min(0).max(365).optional().describe('Jours restants à partir desquels la pastille passe au rouge.'),
   confetti: z.boolean().optional().describe('Confettis quand un ticket arrive dans « Terminé ».'),
+  hideZeroProgress: z.boolean().optional().describe('Masque la barre d’avancement des tickets à 0 %.'),
   columns: z.array(columnSchema).length(TICKET_STATUSES.length).optional().describe("Les six colonnes (une par statut), dans l'ordre d'affichage."),
 });
 
@@ -230,6 +231,7 @@ export const createTicketSchema = z.object({
   endDate: isoDate.nullable().optional(),
   progress: percent.optional().describe("Avancement manuel (%), utilisé quand le ticket n'a aucun assigné."),
   assigneeIds: z.array(id).max(50).optional().describe('Utilisateurs assignés (doivent être membres du projet).'),
+  parentId: nullableId.optional().describe('Ticket parent : fait de ce ticket un sous-ticket (même projet, un seul niveau). `null` pour le détacher.'),
 });
 
 export const updateTicketSchema = createTicketSchema.partial();
@@ -330,34 +332,84 @@ export const aiChatSchema = z.object({
     .refine((messages) => messages.at(-1)?.role === 'user', 'Le dernier message doit venir de la personne.'),
   context: z.object({ projectId: id.nullable().optional(), ticketId: id.nullable().optional() }).default({}),
   allowWrite: z.boolean().default(false).describe("Autorise l'assistant à modifier (si la personne en a le droit)."),
-  model: z.string().max(200).optional().describe('Modèle parmi ceux mis à disposition (`GET /ai/models`) ; absent = modèle par défaut.'),
+  writeMode: z.enum(['apply', 'propose']).default('apply').describe('`apply` : modifications faites directement ; `propose` : proposées, à valider par la personne.'),
+  model: z.string().max(300).optional().describe('Référence d’un modèle mis à disposition (`GET /ai/models` → `ref`) ; absent = modèle par défaut.'),
   reasoning: z.enum(REASONING_LEVELS).optional().describe('Niveau de réflexion, pour les modèles qui le gèrent.'),
 });
 
+const aiModelsSchema = z
+  .array(
+    z.object({
+      id: z.string().trim().min(1).max(200),
+      label: z.string().trim().max(80).default(''),
+      vision: z.boolean().default(false),
+      contextWindow: z.number().int().min(1_000).max(10_000_000).default(128_000).describe('Taille du contexte en jetons.'),
+      reasoning: z.boolean().default(false).describe('Le modèle accepte un niveau de réflexion (reasoning_effort).'),
+    }),
+  )
+  .max(AI_LIMITS.models);
+
 export const aiSettingsSchema = z.object({
   enabled: z.boolean(),
-  baseUrl: z.url({ protocol: /^https?$/ }).max(500).describe('URL de base compatible OpenAI v1, ex. `https://api.openai.com/v1`.'),
-  models: z
+  providers: z
     .array(
       z.object({
-        id: z.string().trim().min(1).max(200),
-        label: z.string().trim().max(80).default(''),
-        vision: z.boolean().default(false),
-        contextWindow: z.number().int().min(1_000).max(10_000_000).default(128_000).describe('Taille du contexte en jetons.'),
-        reasoning: z.boolean().default(false).describe('Le modèle accepte un niveau de réflexion (reasoning_effort).'),
+        id: z.string().regex(/^[a-z0-9]+$/i).max(40).optional().describe('Absent : nouveau fournisseur.'),
+        name: z.string().trim().max(60).default(''),
+        baseUrl: z.url({ protocol: /^https?$/ }).max(500).describe('URL de base compatible OpenAI v1, ex. `https://api.openai.com/v1`.'),
+        timeoutSeconds: z.number().int().min(5).max(AI_LIMITS.timeoutMax).default(AI_LIMITS.timeoutSeconds).describe('Délai maximal d’une réponse, en secondes.'),
+        models: aiModelsSchema,
+        apiKey: z.string().max(500).optional().describe('Absent : garder la clé actuelle ; chaîne vide : l’effacer.'),
       }),
     )
-    .min(1, 'Choisissez au moins un modèle.')
-    .max(AI_LIMITS.models),
-  defaultModel: z.string().trim().min(1).max(200),
-  apiKey: z.string().max(500).optional().describe('Absent : garder la clé actuelle ; chaîne vide : l’effacer.'),
+    .min(1, 'Ajoutez au moins un fournisseur.')
+    .max(AI_LIMITS.providers)
+    .refine((providers) => providers.some((provider) => provider.models.length > 0), 'Choisissez au moins un modèle.'),
+  defaultModel: z.string().trim().min(1).max(300).describe('Référence `fournisseur:modèle` (`new0:…` pour le premier fournisseur ajouté).'),
+  maxSteps: z.number().int().min(1).max(AI_LIMITS.stepsMax).default(AI_LIMITS.steps).describe('Tours de réflexion : appels d’outils maximum par question.'),
+  maxTurns: z.number().int().min(1).max(AI_LIMITS.turnsMax).default(AI_LIMITS.turns).describe('Tours de discussion : échanges précédents transmis au modèle.'),
 });
 
 /** Essai ou détection des modèles avec les valeurs du formulaire (pas encore enregistrées). */
 export const aiProbeSchema = z.object({
+  providerId: z.string().max(40).optional().describe('Fournisseur enregistré dont la clé sert si aucune n’est saisie.'),
   baseUrl: z.url({ protocol: /^https?$/ }).max(500),
+  timeoutSeconds: z.number().int().min(5).max(AI_LIMITS.timeoutMax).optional(),
   model: z.string().trim().max(200).optional(),
   apiKey: z.string().max(500).optional().describe('Absent ou vide : clé enregistrée.'),
+});
+
+export const aiConversationSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  context: z.object({ projectId: id.nullable().optional(), ticketId: id.nullable().optional() }).default({}),
+  turns: z.array(z.unknown()).max(AI_LIMITS.messages * 2).describe('Tours affichés dans le panneau (format de l’interface).'),
+});
+
+const certificateFiles = {
+  format: z.enum(['pem', 'pfx']).default('pem').describe('`pem` : certificat + clé privée ; `pfx` : fichier PKCS#12.'),
+  certPath: z.string().trim().max(1000).default('').describe('Certificat PEM (chaîne complète conseillée). Chemin absolu, ou relatif au dossier de FastBoard.'),
+  keyPath: z.string().trim().max(1000).default('').describe('Clé privée PEM.'),
+  caPath: z.string().trim().max(1000).default('').describe('Certificats intermédiaires PEM (facultatif).'),
+  pfxPath: z.string().trim().max(1000).default('').describe('Fichier .pfx / .p12.'),
+  passphrase: z.string().max(500).optional().describe('Mot de passe de la clé ou du PFX. Absent : garder celui enregistré ; chaîne vide : l’effacer.'),
+};
+
+export const httpsSettingsSchema = z
+  .object({
+    enabled: z.boolean().describe('Servir aussi le site en HTTPS.'),
+    port: z.number().int().min(1).max(65_535).describe('Port HTTPS (443 en production).'),
+    ...certificateFiles,
+    redirectHttp: z.boolean().default(false).describe('Rediriger les visites HTTP vers HTTPS (sauf depuis la machine elle-même).'),
+    hsts: z.boolean().default(false).describe('En-tête Strict-Transport-Security.'),
+    hstsMaxAgeDays: z.number().int().min(1).max(730).default(180),
+    trustProxy: z.boolean().default(false).describe('Derrière un proxy inverse qui termine le TLS : faire confiance à X-Forwarded-*.'),
+  })
+  .refine((value) => !value.enabled || (value.format === 'pfx' ? value.pfxPath : value.certPath && value.keyPath), 'Indiquez les fichiers du certificat pour activer HTTPS.');
+
+export const httpsTestSchema = z.object(certificateFiles);
+
+export const selfSignedSchema = z.object({
+  hostnames: z.array(z.string().trim().min(1).max(253).regex(/^[A-Za-z0-9.:*-]+$/, 'Nom d’hôte ou adresse IP invalide.')).min(1).max(20).describe('Noms et adresses couverts (ex. `fastboard.local`, `192.168.1.20`).'),
 });
 
 export const notificationQuerySchema = z.object({

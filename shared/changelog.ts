@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.4.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,22 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '1.4.0',
+    date: '2026-10-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Sous-tickets rattachés à un ticket parent, comme les sous-tâches de Jira : de vrais tickets, visibles sur le Kanban.' },
+      { category: 'Nouveauté', text: 'Assistant IA : voir chaque modification, l’annuler ou la réappliquer, ou se faire proposer les modifications pour les valider une à une.' },
+      { category: 'Nouveauté', text: 'Assistant IA : historique des 50 dernières conversations, panneau élargissable et page dédiée à ouvrir dans un autre onglet.' },
+      { category: 'Nouveauté', text: 'Administration IA : plusieurs fournisseurs, délai de réponse par fournisseur, tours de réflexion et de discussion maximum.' },
+      { category: 'Nouveauté', text: 'Administration : onglet HTTP / HTTPS (certificats PEM ou PFX, redirection, HSTS, proxy inverse, certificat auto-signé), appliqué sans redémarrer.' },
+      { category: 'Nouveauté', text: 'Réglages du projet : onglet Ticket, pour masquer l’avancement des tickets à 0 %.' },
+      { category: 'Amélioration', text: 'Assistant IA : la réflexion est repliée et affiche sa dernière étape ; le raisonnement des modèles qui l’exposent y figure.' },
+      { category: 'Amélioration', text: 'Bouton « M’assigner » au-dessus des assignés d’un ticket.' },
+      { category: 'Amélioration', text: 'Les flèches de dépendances indiquent aussi les tickets hors de vue ou masqués par les filtres.' },
+      { category: 'Amélioration', text: 'Cliquer sur l’avatar d’une personne connectée ouvre la vue ou le ticket qu’elle regarde.' },
+    ],
+  },
   {
     version: '1.3.0',
     date: '2026-10-21',

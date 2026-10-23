@@ -45,6 +45,9 @@ async function main(): Promise<void> {
   const url = `http://localhost:${running.port}`;
 
   console.log(`FastBoard prêt sur ${url}  (base : ${config.dbPath})`);
+  const secure = running.ctx.https;
+  if (secure?.listening) console.log(`HTTPS actif sur le port ${secure.port}.`);
+  else if (secure?.settings.enabled) console.warn('HTTPS configuré mais inactif : voir Administration → HTTP / HTTPS.');
   if (running.createdSuperAdmin) {
     console.log(`Compte super administrateur créé : ${config.superAdmin.email} / ${config.superAdmin.password} — pensez à changer ce mot de passe.`);
   }

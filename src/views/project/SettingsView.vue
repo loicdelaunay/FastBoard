@@ -13,6 +13,7 @@ import DeliveriesSettings from '@/components/settings/DeliveriesSettings.vue';
 import GeneralSettings from '@/components/settings/GeneralSettings.vue';
 import ListItemsSettings from '@/components/settings/ListItemsSettings.vue';
 import MembersSettings from '@/components/settings/MembersSettings.vue';
+import TicketSettings from '@/components/settings/TicketSettings.vue';
 import { useProjectStore } from '@/stores/project';
 
 import { t } from '@/i18n';
@@ -24,6 +25,7 @@ const tabs = computed(() => [
   { value: 'general', label: t('Général'), icon: 'pi pi-sliders-h', visible: true },
   { value: 'columns', label: t('Colonnes'), icon: 'pi pi-table', visible: true },
   { value: 'automation', label: t('Automatisation'), icon: 'pi pi-bolt', visible: true },
+  { value: 'ticket', label: t('Ticket'), icon: 'pi pi-ticket', visible: true },
   { value: 'categories', label: t('Catégories'), icon: 'pi pi-tags', visible: true },
   { value: 'priorities', label: t('Priorités'), icon: 'pi pi-flag', visible: true },
   { value: 'components', label: t('Composants'), icon: 'pi pi-box', visible: true },
@@ -47,7 +49,7 @@ function select(value: string | number): void {
     <div class="inner">
       <header class="head">
         <h2 class="page-title">{{ $t('Réglages du projet') }}</h2>
-        <p class="muted">{{ $t('Configurez {name} : informations, colonnes, automatisations, catégories, priorités, composants, livraisons et équipe.', { name: project.project?.name }) }}</p>
+        <p class="muted">{{ $t('Configurez {name} : informations, colonnes, automatisations, affichage des tickets, catégories, priorités, composants, livraisons et équipe.', { name: project.project?.name }) }}</p>
       </header>
 
       <Tabs :value="active" @update:value="select">
@@ -58,6 +60,7 @@ function select(value: string | number): void {
           <TabPanel value="general"><GeneralSettings /></TabPanel>
           <TabPanel value="columns"><ColumnsSettings /></TabPanel>
           <TabPanel value="automation"><AutomationSettings /></TabPanel>
+          <TabPanel value="ticket"><TicketSettings /></TabPanel>
           <TabPanel value="categories"><CategoriesSettings /></TabPanel>
           <TabPanel value="priorities"><ListItemsSettings kind="priority" /></TabPanel>
           <TabPanel value="components"><ListItemsSettings kind="component" /></TabPanel>

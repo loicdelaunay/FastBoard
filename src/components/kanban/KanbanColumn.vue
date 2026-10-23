@@ -74,6 +74,7 @@ async function onDrop(event: DragEvent): Promise<void> {
     ref="column"
     class="column"
     :class="{ target: isTarget }"
+    :data-status="status"
     :aria-label="`${meta.label} — ${$t('{n} ticket|{n} tickets', { n: tickets.length })}`"
     @dragover="canMove && list && dnd.over($event, status, list, sorted)"
     @dragleave="column && dnd.leave($event, column)"

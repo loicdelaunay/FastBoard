@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Toast from 'primevue/toast';
 import ConfirmDialog from 'primevue/confirmdialog';
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import AppHeader from '@/components/layout/AppHeader.vue';
 import ProfileDialog from '@/components/profile/ProfileDialog.vue';
@@ -10,6 +11,7 @@ import { useAppStore } from '@/stores/app';
 
 const auth = useAuthStore();
 const app = useAppStore();
+const route = useRoute();
 </script>
 
 <template>
@@ -20,7 +22,8 @@ const app = useAppStore();
       <router-view />
     </main>
     <ProfileDialog v-if="auth.isAuthenticated" />
-    <AiPanel v-if="auth.isAuthenticated && app.info.ai && auth.can('ai.use')" />
+    <!-- La page dédiée de l'assistant affiche sa propre conversation : pas de panneau latéral en plus. -->
+    <AiPanel v-if="auth.isAuthenticated && app.info.ai && auth.can('ai.use') && route.name !== 'assistant'" />
     <Toast position="bottom-right" />
     <ConfirmDialog />
   </div>

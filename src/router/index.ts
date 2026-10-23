@@ -33,6 +33,7 @@ const router = createRouter({
     { path: '/', name: 'projects', component: () => import('@/views/ProjectsView.vue') },
     { path: '/search', name: 'search', component: () => import('@/views/SearchView.vue') },
     { path: '/users/:id(\\d+)', name: 'user', component: () => import('@/views/UserView.vue') },
+    { path: '/assistant', name: 'assistant', component: () => import('@/views/AssistantView.vue'), meta: { permission: 'ai.use' } },
     {
       path: '/p/:projectId(\\d+)',
       component: () => import('@/views/project/ProjectLayout.vue'),
@@ -65,6 +66,7 @@ const router = createRouter({
             if (auth.can('backups.manage')) return { name: 'admin-backups' };
             if (auth.can('settings.manage')) return { name: 'admin-branding' };
             if (auth.can('ai.manage')) return { name: 'admin-ai' };
+            if (auth.can('system.manage')) return { name: 'admin-https' };
             return { name: 'admin-service' };
           },
         },
@@ -77,6 +79,7 @@ const router = createRouter({
         { path: 'branding', name: 'admin-branding', component: () => import('@/views/admin/BrandingView.vue'), meta: { permission: 'settings.manage' } },
         { path: 'maintenance', name: 'admin-maintenance', component: () => import('@/views/admin/MaintenanceView.vue'), meta: { permission: 'settings.manage' } },
         { path: 'ai', name: 'admin-ai', component: () => import('@/views/admin/AiView.vue'), meta: { permission: 'ai.manage' } },
+        { path: 'https', name: 'admin-https', component: () => import('@/views/admin/HttpsView.vue'), meta: { permission: 'system.manage' } },
         { path: 'service', name: 'admin-service', component: () => import('@/views/admin/ServiceView.vue'), meta: { permission: 'system.manage' } },
       ],
     },

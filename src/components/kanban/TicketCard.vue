@@ -25,6 +25,12 @@ const progress = computed(() => progressOf(props.ticket));
 const priority = computed(() => (props.ticket.priorityId ? project.prioritiesById.get(props.ticket.priorityId) : undefined));
 const components = computed(() => props.ticket.componentIds.flatMap((id) => project.componentsById.get(id) ?? []));
 const subtasksDone = computed(() => props.ticket.subtasks.filter((subtask) => subtask.done).length);
+/** Sous-tickets (et leur nombre terminé), ou ticket parent quand c'est un sous-ticket. */
+const children = computed(() => project.childrenOf(props.ticket.id));
+const childrenDone = computed(() => children.value.filter((child) => project.settings.completeStatuses.includes(child.status)).length);
+const parent = computed(() => (props.ticket.parentId ? project.ticketsById.get(props.ticket.parentId) : undefined));
+/** Réglage « Ticket » du projet : pas de barre à 0 %. */
+const showProgress = computed(() => (props.ticket.assignees.length > 0 || progress.value > 0) && !(project.settings.hideZeroProgress && progress.value === 0));
 /** Ce ticket est bloqué par un autre ticket non terminé. */
 const blocked = computed(() =>
   project.linksOf(props.ticket.id).some((link) => (link.incoming ? link.reason === 'Bloque' : link.reason === 'Bloqué par') && link.other.status !== 'done'),
@@ -86,13 +92,14 @@ function onLeave(): void {
       <button type="button" class="menu-btn" :aria-label="$t('Actions du ticket')" aria-haspopup="menu" @click.stop="ui.openTicketMenu($event, ticket.id)"><i class="pi pi-ellipsis-h"></i></button>
     </header>
 
+    <p v-if="parent" v-tooltip.top="$t('Sous-ticket de {key} — {title}', { key: ticketKey(project.project, parent), title: parent.title })" class="parent truncate"><i class="pi pi-sitemap"></i>{{ ticketKey(project.project, parent) }} · {{ parent.title }}</p>
     <h4 class="title">{{ ticket.title }}</h4>
 
     <div v-if="components.length" class="components">
       <ColorChip v-for="component in components" :key="component.id" :label="component.name" :color="component.color" :icon="component.icon" />
     </div>
 
-    <ProgressMeter v-if="ticket.assignees.length || progress > 0" :value="progress" :height="5" />
+    <ProgressMeter v-if="showProgress" :value="progress" :height="5" />
 
     <footer class="bottom">
       <div class="info">
@@ -107,6 +114,7 @@ function onLeave(): void {
         </span>
         <StaleBar :ticket="ticket" compact />
         <span v-if="ticket.subtasks.length" class="comments" :class="{ complete: subtasksDone === ticket.subtasks.length }" :title="$t('Sous-tâches')"><i class="pi pi-list-check"></i>{{ subtasksDone }}/{{ ticket.subtasks.length }}</span>
+        <span v-if="children.length" class="comments" :class="{ complete: childrenDone === children.length }" :title="$t('Sous-tickets')"><i class="pi pi-sitemap"></i>{{ childrenDone }}/{{ children.length }}</span>
         <span v-if="linkCount" class="comments" :title="$t('Dépendances')"><i class="pi pi-link"></i>{{ linkCount }}</span>
         <span v-if="ticket.attachmentCount" class="comments" :title="$t('Pièces jointes')"><i class="pi pi-paperclip"></i>{{ ticket.attachmentCount }}</span>
         <span v-if="ticket.commentCount" class="comments" :title="$t('Commentaires')"><i class="pi pi-comment"></i>{{ ticket.commentCount }}</span>
@@ -221,6 +229,18 @@ function onLeave(): void {
   .menu-btn {
     opacity: 1;
   }
+}
+.parent {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: -0.2rem 0 -0.25rem;
+  color: var(--fb-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+.parent i {
+  font-size: 0.65rem;
 }
 .title {
   display: -webkit-box;

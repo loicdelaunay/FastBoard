@@ -1,11 +1,12 @@
 import express, { type Router } from 'express';
 import type { AiStreamEvent } from '../../shared/ai.ts';
 import { AiError, runAgent } from '../ai/agent.ts';
+import { deleteConversation, getConversation, listConversations, saveConversation } from '../ai/conversations.ts';
 import { aiAvailable, availableModels } from '../ai/settings.ts';
 import type { AppContext } from '../context.ts';
-import { HttpError } from '../http/errors.ts';
+import { HttpError, badRequest } from '../http/errors.ts';
 import { currentUser, sessionOnly } from '../http/middleware.ts';
-import { aiChatSchema } from '../http/schemas.ts';
+import { aiChatSchema, aiConversationSchema } from '../http/schemas.ts';
 import { parse } from '../http/validate.ts';
 import { requireGlobal, requireProject } from '../services/access.ts';
 import { requireTicket } from '../services/tickets.ts';
@@ -61,6 +62,40 @@ export function aiRouter(ctx: AppContext): Router {
     } finally {
       res.end();
     }
+  });
+
+  // --- Conversations enregistrées (les 50 dernières de chaque personne) ---
+
+  const conversationId = (raw: unknown): string => {
+    const value = String(raw ?? '');
+    if (!/^[A-Za-z0-9-]{8,64}$/.test(value)) throw badRequest('Identifiant de conversation invalide.');
+    return value;
+  };
+
+  router.get('/ai/conversations', sessionOnly(), (_req, res) => {
+    const user = currentUser(res);
+    requireGlobal(user, 'ai.use');
+    res.json({ conversations: listConversations(ctx.db, user.id) });
+  });
+
+  router.get('/ai/conversations/:id', sessionOnly(), (req, res) => {
+    const user = currentUser(res);
+    requireGlobal(user, 'ai.use');
+    res.json({ conversation: getConversation(ctx.db, user.id, conversationId(req.params.id)) });
+  });
+
+  router.put('/ai/conversations/:id', sessionOnly(), (req, res) => {
+    const user = currentUser(res);
+    requireGlobal(user, 'ai.use');
+    const input = parse(aiConversationSchema, req.body);
+    res.json({ conversation: saveConversation(ctx.db, user.id, conversationId(req.params.id), input) });
+  });
+
+  router.delete('/ai/conversations/:id', sessionOnly(), (req, res) => {
+    const user = currentUser(res);
+    requireGlobal(user, 'ai.use');
+    deleteConversation(ctx.db, user.id, conversationId(req.params.id));
+    res.json({ ok: true });
   });
 
   return router;

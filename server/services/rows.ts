@@ -83,6 +83,8 @@ export interface TicketRow {
   delivery_id: number | null;
   initial_delivery_id: number | null;
   priority_id: number | null;
+  /** Ticket parent (sous-ticket), un seul niveau. */
+  parent_id: number | null;
   status_changed_at: string | null;
   start_date: string | null;
   end_date: string | null;

@@ -148,8 +148,11 @@ Variables d'environnement (toutes facultatives) :
 | `FASTBOARD_LOG_LEVEL` | `info` | Niveau minimal des journaux conservés (`debug` journalise chaque requête) |
 | `FASTBOARD_LOG_CONSOLE` | `1` | `0` : ne pas recopier les journaux sur la console |
 | `ALLOWED_ORIGINS` | — | Origines supplémentaires acceptées derrière un proxy (séparées par des virgules) |
+| `FASTBOARD_HTTPS` | — | `0` : ignorer les réglages HTTPS au démarrage (secours si un certificat bloque l'accès) |
 
-Derrière un reverse proxy HTTPS, transmettez les en-têtes `Upgrade`/`Connection` pour `/ws` et `X-Forwarded-Proto` ; le cookie de session devient alors `Secure`.
+**HTTPS** : *Administration → HTTP / HTTPS* sert le site en HTTPS sur un second port avec vos certificats (PEM ou PFX, ou un certificat auto-signé pour essayer), avec redirection HTTP → HTTPS et HSTS en option ; c'est appliqué sans redémarrer et les certificats renouvelés sont relus automatiquement. Depuis la machine elle-même, HTTP n'est jamais redirigé (accès de secours).
+
+Derrière un reverse proxy HTTPS, transmettez les en-têtes `Upgrade`/`Connection` pour `/ws` et `X-Forwarded-Proto` ; le cookie de session devient alors `Secure`. Cochez « Derrière un proxy inverse » dans *HTTP / HTTPS* pour que FastBoard fasse confiance aux en-têtes `X-Forwarded-*`.
 
 ## Qualité
 

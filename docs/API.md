@@ -73,7 +73,7 @@ Les corps de requête sont en JSON **encodé en UTF-8** (`-H "Content-Type: appl
 
 **Projet** : porte une *clé* (`APP`) ; ses tickets s'appellent `APP-1`, `APP-2`… (`ticket.number` + clé du projet). Chaque projet a ses **catégories**, ses **priorités** (ordonnées de la plus haute à la plus basse), ses **composants** (nom, icône, couleur) et ses **livraisons** (nom, `startDate`, `endDate`).
 
-**Ticket** : `title`, `description`, `status`, `categoryId`, `priorityId`, `componentIds` (plusieurs), `deliveryId` (livraison ciblée), `startDate`/`endDate` (sinon ils suivent la livraison), plusieurs **assignés**, des **sous-tâches** (`subtasks`) et des **dépendances** vers d'autres tickets du projet (`links` : `targetId` + `reason`). `statusChangedAt` date le dernier changement de colonne (indicateur d'inactivité).
+**Ticket** : `title`, `description`, `status`, `categoryId`, `priorityId`, `componentIds` (plusieurs), `deliveryId` (livraison ciblée), `startDate`/`endDate` (sinon ils suivent la livraison), plusieurs **assignés**, un **ticket parent** (`parentId` : c'est alors un sous-ticket), des **sous-tâches** (`subtasks`, cases à cocher) et des **dépendances** vers d'autres tickets du projet (`links` : `targetId` + `reason`). `statusChangedAt` date le dernier changement de colonne (indicateur d'inactivité).
 
 **Description en Markdown** (GitHub Flavored Markdown : titres, listes, listes de tâches, tableaux, code) avec formules KaTeX (`$…$`, `$$…$$`) et diagrammes Mermaid (bloc ```` ```mermaid ````).
 
@@ -191,6 +191,21 @@ curl -s -X DELETE $FASTBOARD/api/subtasks/7 -H "Authorization: Bearer $TOKEN"
 ```
 
 Chaque appel retourne le ticket à jour. Cocher une sous-tâche dont on est responsable demande `ticket.update_own_part` ; le reste demande `ticket.edit`.
+
+### Sous-tickets (comme les sous-tâches de Jira)
+
+Un sous-ticket est un ticket complet (colonne, assignés, dates, priorité…) rattaché à un ticket parent par `parentId`.
+
+```bash
+# Créer un sous-ticket de APP-12 (id 12)
+curl -s -X POST $FASTBOARD/api/projects/1/tickets -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "title": "Maquettes", "parentId": 12 }'
+# Rattacher un ticket existant, ou le détacher (null)
+curl -s -X PATCH $FASTBOARD/api/tickets/15 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "parentId": 12 }'
+curl -s -X PATCH $FASTBOARD/api/tickets/15 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "parentId": null }'
+```
+
+Les sous-tickets d'un ticket sont ceux dont `parentId` vaut son identifiant (`GET /projects/{id}` → `tickets`). Règles : même projet, un seul niveau (un sous-ticket n'a pas de sous-tickets, un ticket qui en a ne peut pas en devenir un). Supprimer le parent ou le déplacer dans un autre projet détache ses sous-tickets, qui restent.
 
 ### Dépendances entre tickets
 

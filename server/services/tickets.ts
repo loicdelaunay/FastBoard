@@ -26,6 +26,8 @@ export interface CreateTicketInput {
   endDate?: string | null;
   progress?: number;
   assigneeIds?: number[];
+  /** Ticket parent (sous-ticket) ; `null` pour détacher. */
+  parentId?: number | null;
 }
 
 export type UpdateTicketInput = Partial<CreateTicketInput>;
@@ -67,6 +69,7 @@ function toTicketDTO(row: TicketRow, extras: TicketExtras): TicketDTO {
     categoryId: row.category_id,
     priorityId: row.priority_id,
     componentIds: extras.componentIds,
+    parentId: row.parent_id,
     deliveryId: row.delivery_id,
     initialDeliveryId: row.initial_delivery_id,
     startDate: row.start_date,
@@ -311,6 +314,27 @@ function assertDates(start: string | null | undefined, end: string | null | unde
   }
 }
 
+/**
+ * Un sous-ticket appartient au même projet que son parent, et il n'y a qu'un niveau (comme les sous-tâches de Jira) :
+ * le parent n'est pas lui-même un sous-ticket, et un ticket qui a des sous-tickets ne peut pas en devenir un.
+ */
+function assertParent(db: Db, projectId: number, ticketId: number | null, parentId: number | null | undefined): void {
+  if (parentId === undefined || parentId === null) return;
+  if (parentId === ticketId) throw badRequest('Un ticket ne peut pas être son propre parent.');
+  const parent = db.get<{ project_id: number; parent_id: number | null }>('SELECT project_id, parent_id FROM tickets WHERE id = ?', parentId);
+  if (!parent || parent.project_id !== projectId) throw badRequest('Le ticket parent doit appartenir au même projet.');
+  if (parent.parent_id !== null) throw badRequest('Le ticket parent est déjà un sous-ticket : un seul niveau est possible.');
+  if (ticketId !== null && db.get('SELECT 1 FROM tickets WHERE parent_id = ? LIMIT 1', ticketId)) {
+    throw badRequest('Ce ticket a déjà des sous-tickets : il ne peut pas devenir un sous-ticket.');
+  }
+}
+
+function parentLabel(db: Db, id: number | null): string | null {
+  if (id === null) return null;
+  const row = db.get<{ project_id: number; number: number; title: string }>('SELECT project_id, number, title FROM tickets WHERE id = ?', id);
+  return row ? `${ticketKeyOf(db, row)} — ${row.title}` : null;
+}
+
 function categoryName(db: Db, id: number | null): string | null {
   return id === null ? null : (db.get<{ name: string }>('SELECT name FROM categories WHERE id = ?', id)?.name ?? null);
 }
@@ -449,6 +473,7 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
     const assigneeIds = [...new Set(input.assigneeIds ?? [])];
     assertMembers(db, projectId, assigneeIds);
     assertDates(input.startDate, input.endDate);
+    assertParent(db, projectId, null, input.parentId);
 
     const status = input.status ?? 'backlog';
     assertStatusAvailable(db, projectId, status);
@@ -463,8 +488,8 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
     const now = nowIso();
     const { lastInsertRowid } = db.run(
       `INSERT INTO tickets (project_id, number, title, description, status, category_id, priority_id, delivery_id, initial_delivery_id,
-                            start_date, end_date, progress, position, created_by, created_at, updated_at, completed_at, status_changed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            start_date, end_date, progress, position, created_by, created_at, updated_at, completed_at, status_changed_at, parent_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       projectId,
       sequence.ticket_seq,
       input.title,
@@ -483,6 +508,7 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
       now,
       status === 'done' ? now : null,
       now,
+      input.parentId ?? null,
     );
     if (input.componentIds?.length) {
       replaceComponents(db, lastInsertRowid, projectId, input.componentIds);
@@ -573,6 +599,11 @@ export function updateTicket(ctx: AppContext, actor: Actor, ticketId: number, in
     if (input.endDate !== undefined && input.endDate !== row.end_date) {
       sets.end_date = input.endDate;
       changes.push({ field: 'endDate', from: row.end_date, to: input.endDate });
+    }
+    if (input.parentId !== undefined && input.parentId !== row.parent_id) {
+      assertParent(db, projectId, ticketId, input.parentId);
+      sets.parent_id = input.parentId;
+      changes.push({ field: 'parent', from: parentLabel(db, row.parent_id), to: parentLabel(db, input.parentId) });
     }
     if (input.progress !== undefined && input.progress !== row.progress) {
       sets.progress = input.progress;
@@ -811,10 +842,14 @@ export function transferTicket(ctx: AppContext, actor: Actor, ticketId: number, 
       neighbours.add(link.ticket_id === ticketId ? link.target_id : link.ticket_id);
     }
     db.run('DELETE FROM ticket_links WHERE ticket_id = ? OR target_id = ?', ticketId, ticketId);
+    // Les liens parent / sous-tickets restent internes au projet.
+    for (const child of db.all<{ id: number }>('SELECT id FROM tickets WHERE parent_id = ?', ticketId)) neighbours.add(child.id);
+    if (row.parent_id !== null) neighbours.add(row.parent_id);
+    db.run('UPDATE tickets SET parent_id = NULL WHERE parent_id = ?', ticketId);
     const delivery = sameName(db, 'deliveries', row.delivery_id, destination.id);
     db.run(
       `UPDATE tickets SET project_id = ?, number = ?, status = ?, category_id = ?, priority_id = ?, delivery_id = ?, initial_delivery_id = ?,
-              position = ?, completed_at = ?, status_changed_at = ?, updated_at = ? WHERE id = ?`,
+              position = ?, completed_at = ?, status_changed_at = ?, updated_at = ?, parent_id = NULL WHERE id = ?`,
       destination.id,
       sequence.ticket_seq,
       target.status,
@@ -848,8 +883,10 @@ export function deleteTicket(ctx: AppContext, actor: Actor, ticketId: number): v
   const row = requireTicket(ctx.db, ticketId);
   const ticketKey = ticketKeyOf(ctx.db, row);
   const files = storagesOfTicket(ctx.db, ticketId);
+  const children = ctx.db.all<{ id: number }>('SELECT id FROM tickets WHERE parent_id = ?', ticketId);
+  // Les sous-tickets restent, détachés (clé étrangère ON DELETE SET NULL).
   ctx.db.run('DELETE FROM tickets WHERE id = ?', ticketId);
   removeStoredFiles(ctx, files);
-  ctx.hub.publish(row.project_id, [{ type: 'ticket.deleted', ticketId }], actor);
+  ctx.hub.publish(row.project_id, [{ type: 'ticket.deleted', ticketId }, ...children.map((child): ProjectEvent => ({ type: 'ticket.updated', ticket: getTicketDTO(ctx.db, child.id) }))], actor);
   logActivity(ctx, actor, row.project_id, { kind: 'ticket_deleted', ticketKey, ticketTitle: row.title });
 }

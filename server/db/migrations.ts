@@ -428,6 +428,25 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       viewer: ['ai.read'],
     });
   },
+
+  // v11 : sous-tickets (parent dans le même projet) et conversations de l'assistant IA.
+  (db) => {
+    db.exec(`
+      ALTER TABLE tickets ADD COLUMN parent_id INTEGER REFERENCES tickets (id) ON DELETE SET NULL;
+      CREATE INDEX idx_tickets_parent ON tickets (parent_id);
+      CREATE TABLE ai_conversations (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        context TEXT NOT NULL DEFAULT '{}',
+        turns TEXT NOT NULL DEFAULT '[]',
+        message_count INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_ai_conversations_user ON ai_conversations (user_id, updated_at);
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

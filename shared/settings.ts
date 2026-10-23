@@ -44,6 +44,8 @@ export interface ProjectSettingsDTO {
   deliveryWarnDays: number;
   /** … puis rouge. */
   deliveryDangerDays: number;
+  /** Onglet « Ticket » : la barre d'avancement n'apparaît pas sur les cartes des tickets à 0 %. */
+  hideZeroProgress: boolean;
   /** Les six colonnes, dans l'ordre d'affichage. */
   columns: ColumnConfig[];
 }
@@ -64,6 +66,7 @@ export function defaultSettings(): ProjectSettingsDTO {
     deliveryAlert: true,
     deliveryWarnDays: 7,
     deliveryDangerDays: 2,
+    hideZeroProgress: false,
     columns: defaultColumns(),
   };
 }
@@ -77,7 +80,7 @@ const isColor = (value: unknown): value is string => typeof value === 'string' &
 export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
   const defaults = defaultSettings();
   const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
+  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert' | 'hideZeroProgress'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
 
   const seen = new Set<TicketStatus>();
   const columns: ColumnConfig[] = [];
@@ -128,6 +131,7 @@ export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
     deliveryAlert: flag('deliveryAlert'),
     deliveryWarnDays: warn,
     deliveryDangerDays: Math.min(days('deliveryDangerDays'), warn),
+    hideZeroProgress: flag('hideZeroProgress'),
     columns,
   };
 }

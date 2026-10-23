@@ -73,7 +73,7 @@ function toggle(event: Event): void {
 
     <div class="spacer"></div>
     <GlobalSearch />
-    <AiButton v-if="app.info.ai && auth.can('ai.use')" />
+    <AiButton v-if="app.info.ai && auth.can('ai.use') && route.name !== 'assistant'" />
     <NotificationBell />
     <ConnectionBadge />
 

@@ -30,7 +30,8 @@ import type {
   UserSummaryDTO,
 } from '@shared/types';
 import type { LogEntryDTO, LogLevel, MonitoringRange, MonitoringSnapshotDTO } from '@shared/monitoring';
-import type { AiModelDTO, AiSettingsDTO, DetectedModelDTO } from '@shared/ai';
+import type { AiContext, AiConversationDTO, AiConversationSummaryDTO, AiModelChoiceDTO, AiModelDTO, AiSettingsDTO, DetectedModelDTO } from '@shared/ai';
+import type { CertificateFormat, CertificateInfoDTO, HttpsSettingsDTO, HttpsStatusDTO } from '@shared/https';
 import type { BackupDestinationDTO, BackupOverviewDTO, BackupRunDTO } from '@shared/backup';
 import type { ServiceActionResultDTO, ServiceScope, ServiceStatusDTO } from '@shared/system';
 import { ApiError, http, httpHeaders } from './http';
@@ -49,6 +50,27 @@ export interface TicketInput {
   endDate?: string | null;
   progress?: number;
   assigneeIds?: number[];
+  /** Ticket parent (sous-ticket) ; `null` pour détacher. */
+  parentId?: number | null;
+}
+
+/** Fournisseur d'IA tel qu'envoyé par l'administration (sans `id` : nouveau). */
+export interface AiProviderInput {
+  id?: string;
+  name: string;
+  baseUrl: string;
+  timeoutSeconds: number;
+  models: AiModelDTO[];
+  apiKey?: string;
+}
+
+export interface CertificateFiles {
+  format: CertificateFormat;
+  certPath: string;
+  keyPath: string;
+  caPath: string;
+  pfxPath: string;
+  passphrase?: string;
 }
 
 export interface DeliveryInput {
@@ -283,10 +305,18 @@ export const api = {
   adminUpdateToken: (tokenId: number, patch: { displayName?: string | null; expiresInDays?: number | null }) =>
     http<{ token: ApiTokenDTO }>('PATCH', `/admin/tokens/${tokenId}`, { body: patch }),
   adminAi: () => http<{ settings: AiSettingsDTO }>('GET', '/admin/ai'),
-  adminSaveAi: (input: { enabled: boolean; baseUrl: string; models: AiModelDTO[]; defaultModel: string; apiKey?: string }) => http<{ settings: AiSettingsDTO; app: AppInfoDTO }>('PUT', '/admin/ai', { body: input }),
-  adminTestAi: (probe: { baseUrl: string; model?: string; apiKey?: string }) => http<{ ok: boolean; message: string }>('POST', '/admin/ai/test', { body: probe }),
-  adminDetectAiModels: (probe: { baseUrl: string; apiKey?: string }) => http<{ models: DetectedModelDTO[] }>('POST', '/admin/ai/models', { body: probe }),
-  aiModels: () => http<{ models: AiModelDTO[]; defaultModel: string }>('GET', '/ai/models'),
+  adminSaveAi: (input: { enabled: boolean; providers: AiProviderInput[]; defaultModel: string; maxSteps: number; maxTurns: number }) => http<{ settings: AiSettingsDTO; app: AppInfoDTO }>('PUT', '/admin/ai', { body: input }),
+  adminTestAi: (probe: { providerId?: string; baseUrl: string; timeoutSeconds?: number; model?: string; apiKey?: string }) => http<{ ok: boolean; message: string }>('POST', '/admin/ai/test', { body: probe }),
+  adminDetectAiModels: (probe: { providerId?: string; baseUrl: string; apiKey?: string }) => http<{ models: DetectedModelDTO[] }>('POST', '/admin/ai/models', { body: probe }),
+  aiModels: () => http<{ models: AiModelChoiceDTO[]; defaultModel: string }>('GET', '/ai/models'),
+  aiConversations: () => http<{ conversations: AiConversationSummaryDTO[] }>('GET', '/ai/conversations'),
+  aiConversation: (id: string) => http<{ conversation: AiConversationDTO }>('GET', `/ai/conversations/${id}`),
+  aiSaveConversation: (id: string, input: { title: string; context: AiContext; turns: unknown[] }) => http<{ conversation: AiConversationSummaryDTO }>('PUT', `/ai/conversations/${id}`, { body: input }),
+  aiDeleteConversation: (id: string) => http<{ ok: true }>('DELETE', `/ai/conversations/${id}`),
+  adminHttps: () => http<{ settings: HttpsSettingsDTO; status: HttpsStatusDTO }>('GET', '/admin/https'),
+  adminSaveHttps: (input: Omit<HttpsSettingsDTO, 'hasPassphrase' | 'updatedAt'> & { passphrase?: string }) => http<{ settings: HttpsSettingsDTO; status: HttpsStatusDTO }>('PUT', '/admin/https', { body: input }),
+  adminSelfSigned: (hostnames: string[]) => http<{ certPath: string; keyPath: string; certificate: CertificateInfoDTO }>('POST', '/admin/https/self-signed', { body: { hostnames } }),
+  adminTestHttps: (files: CertificateFiles) => http<{ ok: boolean; message: string; certificate: CertificateInfoDTO | null }>('POST', '/admin/https/test', { body: files }),
   adminSetAppName: (name: string) => http<AppInfoDTO>('PUT', '/admin/app', { body: { name } }),
   adminSetAppLogo: (blob: Blob) => http<AppInfoDTO>('PUT', '/admin/app/logo', { rawBody: blob, contentType: blob.type || 'image/png' }),
   adminRemoveAppLogo: () => http<AppInfoDTO>('DELETE', '/admin/app/logo'),

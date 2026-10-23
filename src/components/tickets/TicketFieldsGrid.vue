@@ -7,6 +7,7 @@ import type { TicketStatus } from '@shared/constants';
 import ColorChip from '@/components/common/ColorChip.vue';
 import StatusTag from '@/components/common/StatusTag.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
 import { dateToIso, isoToDate } from '@/utils/dates';
 
@@ -30,6 +31,17 @@ const props = defineProps<{
 const emit = defineEmits<{ change: [patch: Partial<TicketFieldValues>] }>();
 
 const project = useProjectStore();
+const auth = useAuthStore();
+
+/** « M'assigner » : visible pour un membre du projet qui n'est pas encore assigné. */
+const canAssignMe = computed(() => {
+  const me = auth.user?.id;
+  return !props.disabled && me !== undefined && project.users.some((user) => user.id === me) && !props.values.assigneeIds.includes(me);
+});
+
+function assignMe(): void {
+  if (auth.user) emit('change', { assigneeIds: [...props.values.assigneeIds, auth.user.id] });
+}
 
 const statusOptions = computed(() => project.visibleColumns.map((column) => ({ value: column.status, label: column.label })));
 const delivery = computed(() => (props.values.deliveryId ? project.deliveriesById.get(props.values.deliveryId) : undefined));
@@ -160,7 +172,10 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
     <small v-if="delivery && !values.startDate && !values.endDate" class="hint muted"> {{ $t('Sans dates propres, le ticket suit la livraison « {name} ».', { name: delivery.name }) }} </small>
 
     <div class="field">
-      <label>{{ $t('Assignés') }}</label>
+      <div class="label-row">
+        <label>{{ $t('Assignés') }}</label>
+        <button v-if="canAssignMe" type="button" class="assign-me" @click="assignMe"><i class="pi pi-user-plus"></i> {{ $t('M’assigner') }}</button>
+      </div>
       <MultiSelect
         :model-value="values.assigneeIds"
         :options="project.users"
@@ -202,5 +217,30 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
 }
 .hint {
   margin-top: -0.4rem;
+}
+.label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.assign-me {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fb-accent);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.assign-me:hover {
+  text-decoration: underline;
+}
+.assign-me i {
+  font-size: 0.75rem;
 }
 </style>

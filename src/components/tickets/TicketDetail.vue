@@ -25,6 +25,9 @@ import TicketDescription from './TicketDescription.vue';
 import TicketLinks from './TicketLinks.vue';
 import TicketParts from './TicketParts.vue';
 import TicketSubtasks from './TicketSubtasks.vue';
+import TicketChildren from './TicketChildren.vue';
+import { useTicketRoute } from '@/composables/useTicketRoute';
+import { ticketKey } from '@/utils/tickets';
 
 import { t } from '@/i18n';
 const props = defineProps<{ ticket: TicketDTO }>();
@@ -88,6 +91,14 @@ async function toggleWatch(): Promise<void> {
 
 const creator = computed(() => (props.ticket.createdBy ? project.usersById.get(props.ticket.createdBy) : undefined));
 
+// Sous-ticket : lien vers le ticket parent.
+const { openTicket } = useTicketRoute();
+const parent = computed(() => (props.ticket.parentId ? project.ticketsById.get(props.ticket.parentId) : undefined));
+
+async function detachFromParent(): Promise<void> {
+  await save({ parentId: null }, t('Détachement d’un sous-ticket'));
+}
+
 const values = computed<TicketFieldValues>(() => ({
   status: props.ticket.status,
   categoryId: props.ticket.categoryId,
@@ -131,6 +142,12 @@ function askDelete(): void {
 <template>
   <div ref="root" class="detail" @paste="onPaste">
     <div v-if="dragging" class="drop-overlay" aria-hidden="true"><i class="pi pi-cloud-upload"></i>{{ $t('Déposez vos fichiers pour les joindre à ce ticket') }}</div>
+    <p v-if="parent" class="parent-link">
+      <i class="pi pi-sitemap"></i>
+      <span>{{ $t('Sous-ticket de') }}</span>
+      <button type="button" class="parent-open" @click="openTicket(parent.id)"><strong>{{ ticketKey(project.project, parent) }}</strong> — {{ parent.title }}</button>
+      <button v-if="editable" type="button" class="parent-detach" @click="detachFromParent">{{ $t('Détacher') }}</button>
+    </p>
     <InputText
       v-model="title"
       class="title-input"
@@ -152,6 +169,8 @@ function askDelete(): void {
       <TicketParts :ticket="ticket" />
 
       <TicketSubtasks :ticket="ticket" />
+
+      <TicketChildren v-if="ticket.parentId === null" :ticket="ticket" />
 
       <TicketLinks :ticket="ticket" />
 
@@ -246,6 +265,35 @@ function askDelete(): void {
   flex-direction: column;
   gap: 1.1rem;
   min-width: 0;
+}
+.parent-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 -0.2rem 0.7rem;
+  color: var(--fb-muted);
+  font-size: 0.85rem;
+}
+.parent-open,
+.parent-detach {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.parent-open {
+  color: var(--fb-accent);
+  text-align: left;
+}
+.parent-open:hover,
+.parent-detach:hover {
+  text-decoration: underline;
+}
+.parent-detach {
+  color: var(--fb-muted);
+  font-size: 0.78rem;
 }
 .title-input {
   width: 100%;

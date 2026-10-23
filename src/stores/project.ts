@@ -27,7 +27,7 @@ const POSITION_STEP = 1024;
 const FLASH_MS = 2200;
 
 /** Champs appliqués tout de suite en local (le serveur confirme ensuite). */
-const OPTIMISTIC_KEYS = ['title', 'description', 'status', 'categoryId', 'priorityId', 'componentIds', 'deliveryId', 'startDate', 'endDate', 'progress'] as const;
+const OPTIMISTIC_KEYS = ['title', 'description', 'status', 'categoryId', 'priorityId', 'componentIds', 'deliveryId', 'startDate', 'endDate', 'progress', 'parentId'] as const;
 
 export type ListKind = 'priority' | 'component';
 
@@ -67,6 +67,19 @@ export const useProjectStore = defineStore('project', () => {
   const undoStack = useUndoStack();
 
   const ticketsById = computed(() => new Map(tickets.value.map((ticket) => [ticket.id, ticket])));
+  /** Sous-tickets de chaque ticket parent, par numéro. */
+  const childrenByParent = computed(() => {
+    const map = new Map<number, TicketDTO[]>();
+    for (const ticket of tickets.value) {
+      if (ticket.parentId === null) continue;
+      const list = map.get(ticket.parentId) ?? [];
+      list.push(ticket);
+      map.set(ticket.parentId, list);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.number - b.number);
+    return map;
+  });
+  const childrenOf = (ticketId: number): TicketDTO[] => childrenByParent.value.get(ticketId) ?? [];
   const usersById = computed(() => new Map(users.value.map((user) => [user.id, user])));
   const categoriesById = computed(() => new Map(categories.value.map((category) => [category.id, category])));
   const deliveriesById = computed(() => new Map(deliveries.value.map((delivery) => [delivery.id, delivery])));
@@ -720,7 +733,7 @@ export const useProjectStore = defineStore('project', () => {
     load, reload, leave,
     // tickets
     createTicket, updateTicket, moveTicket, updatePart, deleteTicket, forgetTicket, wasDeletedLocally,
-    setWatching, addSubtask, updateSubtask, deleteSubtask, addLink, deleteLink, linksOf,
+    setWatching, addSubtask, updateSubtask, deleteSubtask, addLink, deleteLink, linksOf, childrenOf,
     loadComments, loadHistory, loadAttachments, addAttachment, addAttachmentLink, removeAttachment, addComment, editComment, removeComment,
     // configuration
     updateProjectInfo, saveCategory, deleteCategory, saveListItem, deleteListItem, saveDelivery, deleteDelivery,

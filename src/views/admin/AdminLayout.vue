@@ -16,6 +16,7 @@ const links = computed(() =>
     { name: 'admin-maintenance', label: t('Maintenance'), icon: 'pi pi-megaphone', allowed: auth.can('settings.manage') },
     { name: 'admin-ai', label: t('IA'), icon: 'pi pi-sparkles', allowed: auth.can('ai.manage') },
     { name: 'admin-backups', label: t('Sauvegardes'), icon: 'pi pi-database', allowed: auth.can('backups.manage') },
+    { name: 'admin-https', label: t('HTTP / HTTPS'), icon: 'pi pi-lock', allowed: auth.can('system.manage') },
     { name: 'admin-service', label: t('Installation'), icon: 'pi pi-server', allowed: auth.can('system.manage') },
   ].filter((link) => link.allowed),
 );

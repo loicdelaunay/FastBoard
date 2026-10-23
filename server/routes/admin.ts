@@ -12,6 +12,9 @@ import {
   createRoleSchema,
   createUserSchema,
   folderTestSchema,
+  httpsSettingsSchema,
+  httpsTestSchema,
+  selfSignedSchema,
   logQuerySchema,
   monitoringQuerySchema,
   serviceActionSchema,
@@ -22,6 +25,8 @@ import {
 } from '../http/schemas.ts';
 import { backupOverview, forgetDestinationRuns, runBackup, saveBackupConfig, testFolder } from '../backup/service.ts';
 import { serviceAction, serviceStatus } from '../system/service.ts';
+import { httpsSettingsDTO, loadTls, passphraseFor, saveHttpsSettings, writeSelfSigned } from '../system/https.ts';
+import { AI_LIMITS, parseModelRef } from '../../shared/ai.ts';
 import { aiSettingsDTO, detectModels, keyForTest, saveAiSettings } from '../ai/settings.ts';
 import { testAiConnection } from '../ai/agent.ts';
 import { appInfo } from '../services/appSettings.ts';
@@ -204,7 +209,13 @@ export function adminRouter(ctx: AppContext): Router {
     requireGlobal(currentUser(res), 'ai.manage');
     const input = parse(aiSettingsSchema, req.body);
     const settings = saveAiSettings(ctx, input);
-    audit(res, `Assistant IA ${settings.enabled ? 'activé' : 'désactivé'} (${settings.models.length} modèle(s), défaut ${settings.defaultModel})`, { baseUrl: settings.baseUrl, keyChanged: input.apiKey !== undefined });
+    const models = settings.providers.reduce((sum, provider) => sum + provider.models.length, 0);
+    audit(res, `Assistant IA ${settings.enabled ? 'activé' : 'désactivé'} (${settings.providers.length} fournisseur(s), ${models} modèle(s), défaut ${settings.defaultModel})`, {
+      providers: settings.providers.map((provider) => provider.baseUrl),
+      keysChanged: input.providers.filter((provider) => provider.apiKey !== undefined).length,
+      maxSteps: settings.maxSteps,
+      maxTurns: settings.maxTurns,
+    });
     const app = appInfo(ctx.db);
     ctx.hub.broadcast({ t: 'app', app });
     res.json({ settings, app });
@@ -214,8 +225,9 @@ export function adminRouter(ctx: AppContext): Router {
   router.post('/admin/ai/test', async (req, res) => {
     requireGlobal(currentUser(res), 'ai.manage');
     const probe = parse(aiProbeSchema, req.body);
-    const model = probe.model || aiSettingsDTO(ctx).defaultModel;
-    res.json(await testAiConnection({ baseUrl: probe.baseUrl.replace(/\/+$/, ''), apiKey: keyForTest(ctx, probe.apiKey) }, model));
+    const model = probe.model || parseModelRef(aiSettingsDTO(ctx).defaultModel)?.modelId || '';
+    const timeoutMs = (probe.timeoutSeconds ?? AI_LIMITS.timeoutSeconds) * 1000;
+    res.json(await testAiConnection({ baseUrl: probe.baseUrl.replace(/\/+$/, ''), apiKey: keyForTest(ctx, probe.apiKey, probe.providerId), timeoutMs }, model));
   });
 
   /** Modèles proposés par le fournisseur (`GET /models`), avec des capacités devinées. */
@@ -223,7 +235,7 @@ export function adminRouter(ctx: AppContext): Router {
     requireGlobal(currentUser(res), 'ai.manage');
     const probe = parse(aiProbeSchema, req.body);
     try {
-      res.json({ models: await detectModels(probe.baseUrl, keyForTest(ctx, probe.apiKey)) });
+      res.json({ models: await detectModels(probe.baseUrl, keyForTest(ctx, probe.apiKey, probe.providerId), Math.min(60, probe.timeoutSeconds ?? 20) * 1000) });
     } catch (error) {
       throw new HttpError(502, (error as Error).message, 'ai_provider');
     }
@@ -312,6 +324,57 @@ export function adminRouter(ctx: AppContext): Router {
     const { action, scope, dryRun } = parse(serviceActionSchema, req.body);
     if (!dryRun) audit(res, `Service : ${action} (${scope})`);
     res.json(await serviceAction(ctx, action, scope, dryRun));
+  });
+
+  // --- HTTP / HTTPS --------------------------------------------------------------------------------------------------
+
+  const httpsStatus = (req: express.Request) => ctx.https!.status(req.secure);
+
+  router.get('/admin/https', (req, res) => {
+    requireGlobal(currentUser(res), 'system.manage');
+    res.json({ settings: httpsSettingsDTO(ctx), status: httpsStatus(req) });
+  });
+
+  /** Enregistre et applique tout de suite (démarrage, rechargement des certificats ou arrêt de HTTPS, sans redémarrer). */
+  router.put('/admin/https', async (req, res) => {
+    requireGlobal(currentUser(res), 'system.manage');
+    const input = parse(httpsSettingsSchema, req.body);
+    if (input.enabled && input.port === ctx.https!.httpPort) {
+      throw badRequest(`Le port HTTPS doit être différent du port HTTP (${ctx.https!.httpPort}).`);
+    }
+    if (input.enabled) {
+      // Certificats vérifiés avant d'enregistrer : une erreur ne coupe pas un HTTPS qui fonctionne.
+      try {
+        loadTls(input, passphraseFor(ctx, input.passphrase));
+      } catch (error) {
+        throw badRequest((error as Error).message);
+      }
+    }
+    const settings = saveHttpsSettings(ctx, input);
+    await ctx.https!.apply();
+    audit(res, `HTTPS ${settings.enabled ? `activé (port ${settings.port})` : 'désactivé'}`, { redirectHttp: settings.redirectHttp, hsts: settings.hsts, trustProxy: settings.trustProxy, format: settings.format });
+    res.json({ settings, status: httpsStatus(req) });
+  });
+
+  /** Vérifie des certificats (même non enregistrés) : lisibles, clé correspondante, dates de validité. */
+  router.post('/admin/https/test', (req, res) => {
+    requireGlobal(currentUser(res), 'system.manage');
+    const input = parse(httpsTestSchema, req.body);
+    try {
+      const material = loadTls(input, passphraseFor(ctx, input.passphrase));
+      res.json({ ok: true, message: 'Certificat valide.', certificate: material.certificate });
+    } catch (error) {
+      res.json({ ok: false, message: (error as Error).message, certificate: null });
+    }
+  });
+
+  /** Crée un certificat auto-signé (essais sur le réseau local) dans le dossier des données ; à enregistrer ensuite. */
+  router.post('/admin/https/self-signed', (req, res) => {
+    requireGlobal(currentUser(res), 'system.manage');
+    const { hostnames } = parse(selfSignedSchema, req.body);
+    const result = writeSelfSigned(ctx, hostnames);
+    audit(res, `Certificat auto-signé créé (${hostnames.join(', ')})`, { certPath: result.certPath });
+    res.json(result);
   });
 
   return router;
