@@ -14,8 +14,9 @@
   --fb-shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 1px 3px rgb(15 23 42 / 8%);
   --fb-shadow-lg: 0 8px 24px rgb(15 23 42 / 14%);
   --fb-header-h: 56px;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  font-size: 15px;
+  /* Polices réglables dans Mon compte → Apparence (variables posées par themeManager). */
+  font-family: var(--fb-font, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
+  font-size: var(--fb-font-size, 15px);
   line-height: 1.45;
 }
 
@@ -24,6 +25,21 @@
   --fb-panel-alt: var(--p-surface-800);
   --fb-shadow: 0 1px 2px rgb(0 0 0 / 30%);
   --fb-shadow-lg: 0 8px 24px rgb(0 0 0 / 45%);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+.page-title {
+  font-family: var(--fb-font-heading, inherit);
+}
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
 }
 
 *,

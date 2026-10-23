@@ -49,3 +49,97 @@ export function findTheme(id: string | null | undefined): ThemeDef | undefined {
 export function isThemeId(id: unknown): id is string {
   return typeof id === 'string' && THEMES.some((theme) => theme.id === id);
 }
+
+// --- Thèmes et polices personnalisés (enregistrés sur le compte) ------------------------------------------------------
+
+export const THEME_PRESETS: readonly ThemePresetName[] = ['aura', 'lara', 'material', 'nora'];
+/** Palettes PrimeVue proposées pour les surfaces (ou une couleur #RRGGBB). */
+export const SURFACE_PALETTES = ['slate', 'gray', 'zinc', 'neutral', 'stone'] as const;
+/** Teintes claire (50) et sombre (950) des palettes de surface, pour les aperçus. */
+export const SURFACE_SWATCHES: Record<(typeof SURFACE_PALETTES)[number], { light: string; dark: string }> = {
+  slate: { light: '#f8fafc', dark: '#020617' },
+  gray: { light: '#f9fafb', dark: '#030712' },
+  zinc: { light: '#fafafa', dark: '#09090b' },
+  neutral: { light: '#fafafa', dark: '#0a0a0a' },
+  stone: { light: '#fafaf9', dark: '#0c0a09' },
+};
+
+export interface CustomThemeDef {
+  /** `custom-…` */
+  id: string;
+  label: string;
+  mode: ThemeMode;
+  preset: ThemePresetName;
+  /** Couleur principale #RRGGBB (les nuances sont calculées). */
+  primary: string;
+  /** Palette de surface (`slate`…) ou couleur #RRGGBB. */
+  surface: string;
+}
+
+/** Polices de l'interface : pile CSS (`''` = police par défaut) et taille de base en pixels. */
+export interface FontSettings {
+  body: string;
+  heading: string;
+  mono: string;
+  size: number;
+}
+
+export interface AppearanceDTO {
+  customThemes: CustomThemeDef[];
+  fonts: FontSettings;
+}
+
+export const APPEARANCE_LIMITS = { themes: 20, labelMax: 40, fontMax: 200, sizeMin: 12, sizeMax: 20 };
+export const DEFAULT_FONTS: FontSettings = { body: '', heading: '', mono: '', size: 15 };
+
+/** Polices proposées (celles du système ; « Autre » permet de saisir une police installée sur le poste). */
+export const FONT_CHOICES: ReadonlyArray<{ value: string; label: string; kind: 'sans' | 'serif' | 'mono' }> = [
+  { value: "'Segoe UI', system-ui, sans-serif", label: 'Segoe UI', kind: 'sans' },
+  { value: "Inter, 'Segoe UI', system-ui, sans-serif", label: 'Inter', kind: 'sans' },
+  { value: "Roboto, 'Segoe UI', system-ui, sans-serif", label: 'Roboto', kind: 'sans' },
+  { value: "Arial, 'Helvetica Neue', Helvetica, sans-serif", label: 'Arial', kind: 'sans' },
+  { value: 'Verdana, Geneva, sans-serif', label: 'Verdana', kind: 'sans' },
+  { value: "Tahoma, 'Segoe UI', sans-serif", label: 'Tahoma', kind: 'sans' },
+  { value: "'Trebuchet MS', 'Segoe UI', sans-serif", label: 'Trebuchet MS', kind: 'sans' },
+  { value: "Calibri, Carlito, 'Segoe UI', sans-serif", label: 'Calibri', kind: 'sans' },
+  { value: "Georgia, 'Times New Roman', serif", label: 'Georgia', kind: 'serif' },
+  { value: "'Palatino Linotype', Palatino, 'Book Antiqua', serif", label: 'Palatino', kind: 'serif' },
+  { value: "'Times New Roman', Times, serif", label: 'Times New Roman', kind: 'serif' },
+  { value: "'Cascadia Code', 'Cascadia Mono', Consolas, monospace", label: 'Cascadia Code', kind: 'mono' },
+  { value: "Consolas, 'Courier New', monospace", label: 'Consolas', kind: 'mono' },
+  { value: "'JetBrains Mono', 'Fira Code', Consolas, monospace", label: 'JetBrains Mono', kind: 'mono' },
+  { value: "'Courier New', Courier, monospace", label: 'Courier New', kind: 'mono' },
+];
+
+export const isHexColor = (value: unknown): value is string => typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value);
+/** Pile de polices sûre : noms, espaces, virgules, guillemets et tirets seulement. */
+export const isFontFamily = (value: unknown): value is string => typeof value === 'string' && value.length <= APPEARANCE_LIMITS.fontMax && /^[\p{L}\p{N} ,'"._-]*$/u.test(value);
+
+export function isCustomThemeId(id: unknown): id is string {
+  return typeof id === 'string' && /^custom-[a-z0-9]{4,24}$/.test(id);
+}
+
+export function normalizeAppearance(raw: unknown): AppearanceDTO {
+  const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const seen = new Set<string>();
+  const customThemes: CustomThemeDef[] = [];
+  for (const entry of Array.isArray(source.customThemes) ? source.customThemes : []) {
+    const theme = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>;
+    if (!isCustomThemeId(theme.id) || seen.has(theme.id) || !isHexColor(theme.primary)) continue;
+    const surface = typeof theme.surface === 'string' && ((SURFACE_PALETTES as readonly string[]).includes(theme.surface) || isHexColor(theme.surface)) ? theme.surface : 'slate';
+    seen.add(theme.id);
+    customThemes.push({
+      id: theme.id,
+      label: (typeof theme.label === 'string' ? theme.label.trim().slice(0, APPEARANCE_LIMITS.labelMax) : '') || 'Mon thème',
+      mode: theme.mode === 'dark' ? 'dark' : 'light',
+      preset: (THEME_PRESETS as readonly unknown[]).includes(theme.preset) ? (theme.preset as ThemePresetName) : 'aura',
+      primary: theme.primary,
+      surface,
+    });
+    if (customThemes.length >= APPEARANCE_LIMITS.themes) break;
+  }
+  const fontsSource = (source.fonts && typeof source.fonts === 'object' ? source.fonts : {}) as Record<string, unknown>;
+  const font = (key: 'body' | 'heading' | 'mono') => (isFontFamily(fontsSource[key]) ? (fontsSource[key] as string).trim() : '');
+  const size = typeof fontsSource.size === 'number' && Number.isInteger(fontsSource.size) ? Math.min(APPEARANCE_LIMITS.sizeMax, Math.max(APPEARANCE_LIMITS.sizeMin, fontsSource.size)) : DEFAULT_FONTS.size;
+  return { customThemes, fonts: { body: font('body'), heading: font('heading'), mono: font('mono'), size } };
+}

@@ -85,6 +85,8 @@ export interface TicketRow {
   priority_id: number | null;
   /** Ticket parent (sous-ticket), un seul niveau. */
   parent_id: number | null;
+  /** Valeurs des champs personnalisés (JSON `{ <id>: valeur }`). */
+  custom_fields: string;
   status_changed_at: string | null;
   start_date: string | null;
   end_date: string | null;

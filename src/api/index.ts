@@ -31,6 +31,8 @@ import type {
 } from '@shared/types';
 import type { LogEntryDTO, LogLevel, MonitoringRange, MonitoringSnapshotDTO } from '@shared/monitoring';
 import type { AiContext, AiConversationDTO, AiConversationSummaryDTO, AiModelChoiceDTO, AiModelDTO, AiSettingsDTO, DetectedModelDTO } from '@shared/ai';
+import type { AppearanceDTO } from '@shared/themes';
+import type { CustomFieldValue } from '@shared/ticketFields';
 import type { CertificateFormat, CertificateInfoDTO, HttpsSettingsDTO, HttpsStatusDTO } from '@shared/https';
 import type { BackupDestinationDTO, BackupOverviewDTO, BackupRunDTO } from '@shared/backup';
 import type { ServiceActionResultDTO, ServiceScope, ServiceStatusDTO } from '@shared/system';
@@ -52,6 +54,8 @@ export interface TicketInput {
   assigneeIds?: number[];
   /** Ticket parent (sous-ticket) ; `null` pour détacher. */
   parentId?: number | null;
+  /** Champs personnalisés : `{ <id>: valeur }`, fusionnés ; `null` efface. */
+  customFields?: Record<string, CustomFieldValue | null>;
 }
 
 /** Fournisseur d'IA tel qu'envoyé par l'administration (sans `id` : nouveau). */
@@ -188,7 +192,7 @@ export const api = {
   updateToken: (tokenId: number, patch: { displayName?: string | null; expiresInDays?: number | null }) =>
     http<{ token: ApiTokenDTO }>('PATCH', `/me/tokens/${tokenId}`, { body: patch }),
   revealToken: (tokenId: number, password: string) => http<{ secret: string }>('POST', `/me/tokens/${tokenId}/reveal`, { body: { password } }),
-  updateMe: (patch: { name?: string; theme?: string; locale?: Locale }) => http<{ user: MeDTO }>('PATCH', '/me', { body: patch }),
+  updateMe: (patch: { name?: string; theme?: string; locale?: Locale; appearance?: AppearanceDTO }) => http<{ user: MeDTO }>('PATCH', '/me', { body: patch }),
   changePassword: (currentPassword: string, newPassword: string) =>
     http<{ ok: true }>('POST', '/me/password', { body: { currentPassword, newPassword } }),
   uploadAvatar: (blob: Blob) =>

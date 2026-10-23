@@ -15,7 +15,7 @@ import { primevueFr } from './i18n/primevueFr';
 import router from './router';
 import { useAppStore } from './stores/app';
 import { useAuthStore } from './stores/auth';
-import { applyTheme, cachedThemeId } from './theme/themeManager';
+import { applyFonts, applyTheme, cachedFonts, cachedThemeId } from './theme/themeManager';
 import { notify } from './utils/notify';
 import './styles/global.css';
 
@@ -34,6 +34,7 @@ app.directive('tooltip', Tooltip);
 
 // Thème mémorisé appliqué avant le premier rendu ; celui du compte le remplace après la connexion.
 applyTheme(cachedThemeId());
+applyFonts(cachedFonts(), false);
 
 const auth = useAuthStore();
 onUnauthorized(() => {

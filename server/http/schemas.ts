@@ -9,7 +9,8 @@ import { isISODate } from '../../shared/dates.ts';
 import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
-import { isThemeId } from '../../shared/themes.ts';
+import { CUSTOM_FIELD_LIMITS, CUSTOM_FIELD_TYPES, TICKET_FIELDS } from '../../shared/ticketFields.ts';
+import { APPEARANCE_LIMITS, SURFACE_PALETTES, THEME_PRESETS, isFontFamily, isThemeId } from '../../shared/themes.ts';
 import { z } from './validate.ts';
 
 // --- Briques communes -----------------------------------------------------------------------------------------------
@@ -35,7 +36,35 @@ export const loginSchema = z.object({
 
 export const profileSchema = z.object({
   name: z.string().trim().min(1).max(LIMITS.nameMax).optional(),
-  theme: z.string().refine(isThemeId, 'Thème inconnu.').optional(),
+  theme: z
+    .string()
+    .max(60)
+    .refine((value) => isThemeId(value) || /^custom-[a-z0-9]{4,24}$/.test(value), 'Thème inconnu.')
+    .optional()
+    .describe('Thème prédéfini, ou identifiant `custom-…` d’un de vos thèmes personnalisés.'),
+  appearance: z
+    .object({
+      customThemes: z
+        .array(
+          z.object({
+            id: z.string().regex(/^custom-[a-z0-9]{4,24}$/),
+            label: z.string().trim().min(1).max(APPEARANCE_LIMITS.labelMax),
+            mode: z.enum(['light', 'dark']),
+            preset: z.enum(THEME_PRESETS as [string, ...string[]]),
+            primary: z.string().regex(/^#[0-9a-fA-F]{6}$/),
+            surface: z.union([z.enum(SURFACE_PALETTES), z.string().regex(/^#[0-9a-fA-F]{6}$/)]),
+          }),
+        )
+        .max(APPEARANCE_LIMITS.themes),
+      fonts: z.object({
+        body: z.string().max(APPEARANCE_LIMITS.fontMax).refine(isFontFamily, 'Police invalide.'),
+        heading: z.string().max(APPEARANCE_LIMITS.fontMax).refine(isFontFamily, 'Police invalide.'),
+        mono: z.string().max(APPEARANCE_LIMITS.fontMax).refine(isFontFamily, 'Police invalide.'),
+        size: z.number().int().min(APPEARANCE_LIMITS.sizeMin).max(APPEARANCE_LIMITS.sizeMax),
+      }),
+    })
+    .optional()
+    .describe('Thèmes personnalisés (couleurs, style) et polices de l’interface (remplace l’ensemble).'),
   locale: z.enum(LOCALES).optional().describe("Langue de l'interface (`fr` ou `en`)."),
 });
 
@@ -185,6 +214,20 @@ export const settingsPatchSchema = z.object({
   deliveryDangerDays: z.number().int().min(0).max(365).optional().describe('Jours restants à partir desquels la pastille passe au rouge.'),
   confetti: z.boolean().optional().describe('Confettis quand un ticket arrive dans « Terminé ».'),
   hideZeroProgress: z.boolean().optional().describe('Masque la barre d’avancement des tickets à 0 %.'),
+  ticketFields: z.partialRecord(z.enum(TICKET_FIELDS), z.boolean()).optional().describe('Champs standard affichés dans les tickets (`false` = masqué, les valeurs sont conservées).'),
+  customFields: z
+    .array(
+      z.object({
+        id: z.string().regex(/^cf_[a-z0-9]{1,24}$/).describe('Identifiant stable `cf_…` (choisi par le client).'),
+        label: z.string().trim().min(1).max(CUSTOM_FIELD_LIMITS.labelMax),
+        type: z.enum(CUSTOM_FIELD_TYPES),
+        options: z.array(z.string().trim().min(1).max(CUSTOM_FIELD_LIMITS.optionMax)).max(CUSTOM_FIELD_LIMITS.options).default([]),
+        showOnCard: z.boolean().default(false),
+      }),
+    )
+    .max(CUSTOM_FIELD_LIMITS.fields)
+    .optional()
+    .describe('Champs personnalisés des tickets (remplace la liste). Types : text, longtext, number, date, select, multiselect, checkbox, url, user.'),
   columns: z.array(columnSchema).length(TICKET_STATUSES.length).optional().describe("Les six colonnes (une par statut), dans l'ordre d'affichage."),
 });
 
@@ -232,6 +275,10 @@ export const createTicketSchema = z.object({
   progress: percent.optional().describe("Avancement manuel (%), utilisé quand le ticket n'a aucun assigné."),
   assigneeIds: z.array(id).max(50).optional().describe('Utilisateurs assignés (doivent être membres du projet).'),
   parentId: nullableId.optional().describe('Ticket parent : fait de ce ticket un sous-ticket (même projet, un seul niveau). `null` pour le détacher.'),
+  customFields: z
+    .record(z.string().regex(/^cf_[a-z0-9]{1,24}$/), z.union([z.string().max(5_000), z.number(), z.boolean(), z.array(z.string().max(60)).max(50), z.null()]))
+    .optional()
+    .describe('Champs personnalisés du projet (`settings.customFields`) : `{ <id>: valeur }`, fusionnés avec les valeurs actuelles ; `null` efface. Texte, nombre, date AAAA-MM-JJ, booléen, choix, liste de choix ou identifiant de personne selon le type.'),
 });
 
 export const updateTicketSchema = createTicketSchema.partial();

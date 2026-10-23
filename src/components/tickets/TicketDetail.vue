@@ -26,6 +26,7 @@ import TicketLinks from './TicketLinks.vue';
 import TicketParts from './TicketParts.vue';
 import TicketSubtasks from './TicketSubtasks.vue';
 import TicketChildren from './TicketChildren.vue';
+import TicketCustomFields from './TicketCustomFields.vue';
 import { useTicketRoute } from '@/composables/useTicketRoute';
 import { ticketKey } from '@/utils/tickets';
 
@@ -38,11 +39,11 @@ const { confirmDelete } = useTicketActions();
 
 const title = ref(props.ticket.title);
 const titleFocused = ref(false);
-const tab = ref<'comments' | 'history'>('comments');
+const tab = ref<'comments' | 'history'>(project.fieldOn('comments') ? 'comments' : 'history');
 
 const root = ref<HTMLElement | null>(null);
 const attachments = ref<InstanceType<typeof TicketAttachments> | null>(null);
-const canAttach = computed(() => project.can('attachment.create') && !project.archived);
+const canAttach = computed(() => project.can('attachment.create') && !project.archived && project.fieldOn('attachments'));
 // Déposer des fichiers n'importe où dans le ticket les joint ; coller une capture d'écran aussi.
 const { dragging } = useFileDrop(root, (files) => attachments.value?.addFiles(files), () => canAttach.value);
 
@@ -162,25 +163,25 @@ function askDelete(): void {
 
     <div class="columns">
     <div class="main">
-      <TicketDescription :ticket-id="ticket.id" :value="ticket.description" :editable="editable" @save="(value) => save({ description: value }, $t('Description du ticket'))" />
+      <TicketDescription v-if="project.fieldOn('description')" :ticket-id="ticket.id" :value="ticket.description" :editable="editable" @save="(value) => save({ description: value }, $t('Description du ticket'))" />
 
-      <TicketAttachments ref="attachments" :ticket="ticket" :dragging="dragging" />
+      <TicketAttachments v-if="project.fieldOn('attachments')" ref="attachments" :ticket="ticket" :dragging="dragging" />
 
-      <TicketParts :ticket="ticket" />
+      <TicketParts v-if="project.fieldOn('assignees') || project.fieldOn('progress')" :ticket="ticket" />
 
-      <TicketSubtasks :ticket="ticket" />
+      <TicketSubtasks v-if="project.fieldOn('subtasks')" :ticket="ticket" />
 
-      <TicketChildren v-if="ticket.parentId === null" :ticket="ticket" />
+      <TicketChildren v-if="ticket.parentId === null && project.fieldOn('children')" :ticket="ticket" />
 
-      <TicketLinks :ticket="ticket" />
+      <TicketLinks v-if="project.fieldOn('links')" :ticket="ticket" />
 
       <Tabs v-model:value="tab" class="tabs">
         <TabList>
-          <Tab value="comments"><i class="pi pi-comments"></i> {{ $t('Commentaires') }}<span v-if="ticket.commentCount" class="count">{{ ticket.commentCount }}</span></Tab>
+          <Tab v-if="project.fieldOn('comments')" value="comments"><i class="pi pi-comments"></i> {{ $t('Commentaires') }}<span v-if="ticket.commentCount" class="count">{{ ticket.commentCount }}</span></Tab>
           <Tab value="history"><i class="pi pi-history"></i> {{ $t('Historique') }}</Tab>
         </TabList>
         <TabPanels>
-          <TabPanel value="comments"><TicketComments :ticket-id="ticket.id" /></TabPanel>
+          <TabPanel v-if="project.fieldOn('comments')" value="comments"><TicketComments :ticket-id="ticket.id" /></TabPanel>
           <TabPanel value="history"><TicketHistory :ticket-id="ticket.id" /></TabPanel>
         </TabPanels>
       </Tabs>
@@ -202,6 +203,7 @@ function askDelete(): void {
       </div>
       <StaleBar :ticket="ticket" />
       <TicketFieldsGrid :values="values" :disabled="!editable" :initial-delivery-id="ticket.initialDeliveryId" @change="onFieldChange" />
+      <TicketCustomFields :ticket="ticket" :disabled="!editable" />
 
       <dl class="meta">
         <div v-if="creator || ticket.createdBy === null">

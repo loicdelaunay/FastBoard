@@ -124,7 +124,7 @@ const SEVERITY = { active: 'success', expired: 'warn', revoked: 'secondary' } as
   gap: 0.15rem;
 }
 .prefix {
-  font: 0.8rem ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font: 0.8rem var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
   color: var(--fb-muted);
 }
 .meta {

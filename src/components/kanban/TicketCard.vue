@@ -30,7 +30,20 @@ const children = computed(() => project.childrenOf(props.ticket.id));
 const childrenDone = computed(() => children.value.filter((child) => project.settings.completeStatuses.includes(child.status)).length);
 const parent = computed(() => (props.ticket.parentId ? project.ticketsById.get(props.ticket.parentId) : undefined));
 /** Réglage « Ticket » du projet : pas de barre à 0 %. */
-const showProgress = computed(() => (props.ticket.assignees.length > 0 || progress.value > 0) && !(project.settings.hideZeroProgress && progress.value === 0));
+const showProgress = computed(() => project.fieldOn('progress') && (props.ticket.assignees.length > 0 || progress.value > 0) && !(project.settings.hideZeroProgress && progress.value === 0));
+/** Champs personnalisés affichés sur la carte (réglage du champ), avec leur valeur lisible. */
+const cardFields = computed(() =>
+  project.settings.customFields.flatMap((field) => {
+    const value = props.ticket.customFields[field.id];
+    if (!field.showOnCard || value === undefined) return [];
+    let text: string;
+    if (field.type === 'user') text = project.usersById.get(Number(value))?.name ?? '?';
+    else if (field.type === 'checkbox') text = '✓';
+    else if (field.type === 'date') text = formatDateShort(String(value));
+    else text = Array.isArray(value) ? value.join(', ') : String(value);
+    return [{ id: field.id, label: field.label, text }];
+  }),
+);
 /** Ce ticket est bloqué par un autre ticket non terminé. */
 const blocked = computed(() =>
   project.linksOf(props.ticket.id).some((link) => (link.incoming ? link.reason === 'Bloque' : link.reason === 'Bloqué par') && link.other.status !== 'done'),
@@ -85,41 +98,45 @@ function onLeave(): void {
     @dragstart="onLeave"
   >
     <header class="top">
-      <i v-if="priority" v-tooltip.top="$t('Priorité : {name}', { name: priority.name })" :class="priority.icon" class="priority" :style="{ color: priority.color }" :aria-label="$t('Priorité : {name}', { name: priority.name })"></i>
+      <i v-if="priority && project.fieldOn('priority')" v-tooltip.top="$t('Priorité : {name}', { name: priority.name })" :class="priority.icon" class="priority" :style="{ color: priority.color }" :aria-label="$t('Priorité : {name}', { name: priority.name })"></i>
       <span class="key">{{ ticketKey(project.project, ticket) }}</span>
       <i v-if="blocked" v-tooltip.top="$t('Bloqué par un ticket non terminé')" class="pi pi-lock blocked" :aria-label="$t('Bloqué')"></i>
-      <ColorChip v-if="category" :label="category.name" :color="category.color" />
+      <ColorChip v-if="category && project.fieldOn('category')" :label="category.name" :color="category.color" />
       <button type="button" class="menu-btn" :aria-label="$t('Actions du ticket')" aria-haspopup="menu" @click.stop="ui.openTicketMenu($event, ticket.id)"><i class="pi pi-ellipsis-h"></i></button>
     </header>
 
     <p v-if="parent" v-tooltip.top="$t('Sous-ticket de {key} — {title}', { key: ticketKey(project.project, parent), title: parent.title })" class="parent truncate"><i class="pi pi-sitemap"></i>{{ ticketKey(project.project, parent) }} · {{ parent.title }}</p>
     <h4 class="title">{{ ticket.title }}</h4>
 
-    <div v-if="components.length" class="components">
+    <div v-if="components.length && project.fieldOn('components')" class="components">
       <ColorChip v-for="component in components" :key="component.id" :label="component.name" :color="component.color" :icon="component.icon" />
+    </div>
+
+    <div v-if="cardFields.length" class="custom">
+      <span v-for="field in cardFields" :key="field.id" class="custom-chip" :title="`${field.label} : ${field.text}`"><span class="custom-label">{{ field.label }}</span> {{ field.text }}</span>
     </div>
 
     <ProgressMeter v-if="showProgress" :value="progress" :height="5" />
 
     <footer class="bottom">
       <div class="info">
-        <span v-if="due" class="due" :class="{ late: overdue }" :title="overdue ? $t('En retard') : $t('Échéance')">
+        <span v-if="due && project.fieldOn('dates')" class="due" :class="{ late: overdue }" :title="overdue ? $t('En retard') : $t('Échéance')">
           <i class="pi pi-calendar"></i>{{ formatDateShort(due) }}
         </span>
-        <span v-if="delivery && urgency.level !== 'none'" v-tooltip.top="`${delivery.name} — ${urgencyLabel}`" class="delivery-chip" :class="urgency.level">
+        <span v-if="delivery && urgency.level !== 'none' && project.fieldOn('delivery')" v-tooltip.top="`${delivery.name} — ${urgencyLabel}`" class="delivery-chip" :class="urgency.level">
           <i class="pi pi-truck"></i><span class="truncate">{{ delivery.name }}</span><strong>{{ urgency.level === 'late' ? `+${-urgency.daysLeft} j` : `J-${urgency.daysLeft}` }}</strong>
         </span>
-        <span v-else-if="delivery" class="delivery" :style="{ '--d': delivery.color }" :title="$t('Livraison : {name}', { name: delivery.name })">
+        <span v-else-if="delivery && project.fieldOn('delivery')" class="delivery" :style="{ '--d': delivery.color }" :title="$t('Livraison : {name}', { name: delivery.name })">
           <i class="pi pi-truck"></i><span class="truncate">{{ delivery.name }}</span>
         </span>
         <StaleBar :ticket="ticket" compact />
-        <span v-if="ticket.subtasks.length" class="comments" :class="{ complete: subtasksDone === ticket.subtasks.length }" :title="$t('Sous-tâches')"><i class="pi pi-list-check"></i>{{ subtasksDone }}/{{ ticket.subtasks.length }}</span>
-        <span v-if="children.length" class="comments" :class="{ complete: childrenDone === children.length }" :title="$t('Sous-tickets')"><i class="pi pi-sitemap"></i>{{ childrenDone }}/{{ children.length }}</span>
-        <span v-if="linkCount" class="comments" :title="$t('Dépendances')"><i class="pi pi-link"></i>{{ linkCount }}</span>
-        <span v-if="ticket.attachmentCount" class="comments" :title="$t('Pièces jointes')"><i class="pi pi-paperclip"></i>{{ ticket.attachmentCount }}</span>
-        <span v-if="ticket.commentCount" class="comments" :title="$t('Commentaires')"><i class="pi pi-comment"></i>{{ ticket.commentCount }}</span>
+        <span v-if="ticket.subtasks.length && project.fieldOn('subtasks')" class="comments" :class="{ complete: subtasksDone === ticket.subtasks.length }" :title="$t('Sous-tâches')"><i class="pi pi-list-check"></i>{{ subtasksDone }}/{{ ticket.subtasks.length }}</span>
+        <span v-if="children.length && project.fieldOn('children')" class="comments" :class="{ complete: childrenDone === children.length }" :title="$t('Sous-tickets')"><i class="pi pi-sitemap"></i>{{ childrenDone }}/{{ children.length }}</span>
+        <span v-if="linkCount && project.fieldOn('links')" class="comments" :title="$t('Dépendances')"><i class="pi pi-link"></i>{{ linkCount }}</span>
+        <span v-if="ticket.attachmentCount && project.fieldOn('attachments')" class="comments" :title="$t('Pièces jointes')"><i class="pi pi-paperclip"></i>{{ ticket.attachmentCount }}</span>
+        <span v-if="ticket.commentCount && project.fieldOn('comments')" class="comments" :title="$t('Commentaires')"><i class="pi pi-comment"></i>{{ ticket.commentCount }}</span>
       </div>
-      <UserAvatarGroup v-if="assignees.length" :users="assignees" :highlight-ids="doneIds" :max="3" />
+      <UserAvatarGroup v-if="assignees.length && project.fieldOn('assignees')" :users="assignees" :highlight-ids="doneIds" :max="3" />
     </footer>
   </article>
 </template>
@@ -229,6 +246,25 @@ function onLeave(): void {
   .menu-btn {
     opacity: 1;
   }
+}
+.custom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.custom-chip {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0.05rem 0.45rem;
+  border-radius: 6px;
+  background: var(--fb-panel-alt);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.custom-label {
+  color: var(--fb-muted);
+  font-weight: 700;
 }
 .parent {
   display: flex;

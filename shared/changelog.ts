@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '1.4.0';
+export const APP_VERSION = '1.5.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,17 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '1.5.0',
+    date: '2026-10-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Réglages du projet, onglet Ticket : afficher ou masquer chaque champ des tickets (les valeurs sont conservées).' },
+      { category: 'Nouveauté', text: 'Champs personnalisés des tickets : texte, nombre, date, liste, choix multiples, case à cocher, lien ou personne, avec leur libellé, affichables sur les cartes.' },
+      { category: 'Nouveauté', text: 'Apparence : créez vos propres thèmes (couleur principale, surfaces, clair ou sombre, style) avec aperçu en direct.' },
+      { category: 'Nouveauté', text: 'Apparence : choix des polices du texte, des titres et du code, et de la taille du texte.' },
+      { category: 'Correction', text: 'Gantt : les mois, les semaines et les jours de l’en-tête ne se superposent plus.' },
+    ],
+  },
   {
     version: '1.4.0',
     date: '2026-10-23',

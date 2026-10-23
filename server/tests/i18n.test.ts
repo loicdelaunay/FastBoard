@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { CUSTOM_FIELD_TYPE_META, TICKET_FIELD_META } from '../../shared/ticketFields.ts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -53,6 +54,8 @@ describe('traductions', () => {
       ...THEMES.map((theme) => theme.label),
       ...Object.values(LOG_LEVEL_META).map((meta) => meta.label),
       ...Object.values(MONITORING_RANGES).map((range) => range.label),
+      ...Object.values(TICKET_FIELD_META).map((meta) => meta.label),
+      ...Object.values(CUSTOM_FIELD_TYPE_META).map((meta) => meta.label),
     ];
     assert.deepEqual(shared.filter((text) => !(text in en)), []);
   });

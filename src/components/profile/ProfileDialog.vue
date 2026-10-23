@@ -18,6 +18,7 @@ import { notify, notifyError } from '@/utils/notify';
 import ApiTokensPanel from '@/components/tokens/ApiTokensPanel.vue';
 import LanguageSwitch from '@/components/common/LanguageSwitch.vue';
 import ThemePicker from './ThemePicker.vue';
+import FontSettings from './FontSettings.vue';
 
 import { t } from '@/i18n';
 const auth = useAuthStore();
@@ -175,12 +176,13 @@ async function changePassword(): Promise<void> {
         </TabPanel>
 
         <TabPanel value="appearance">
-          <p class="muted small intro">{{ $t('Le thème est enregistré sur votre compte et vous suit sur tous vos appareils.') }}</p>
+          <p class="muted small intro">{{ $t('Thème, thèmes personnalisés et polices sont enregistrés sur votre compte et vous suivent sur tous vos appareils.') }}</p>
           <section class="language">
             <h4 class="language-title"><i class="pi pi-language"></i> {{ $t('Langue') }}</h4>
             <p class="muted small">{{ $t("La langue de l'interface est enregistrée sur votre compte.") }}</p>
             <LanguageSwitch />
           </section>
+          <FontSettings />
           <ThemePicker @select="chooseTheme" />
         </TabPanel>
 

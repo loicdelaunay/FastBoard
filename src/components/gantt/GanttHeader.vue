@@ -11,7 +11,7 @@ defineProps<{
 </script>
 
 <template>
-  <div class="head" :style="{ width: `${width}px` }">
+  <div class="gantt-head" :style="{ width: `${width}px` }">
     <div class="line months">
       <span v-for="segment in months" :key="segment.key" class="cell month" :style="{ left: `${segment.left}px`, width: `${segment.width}px` }">{{ segment.label }}</span>
     </div>
@@ -25,8 +25,12 @@ defineProps<{
 </template>
 
 <style scoped>
-.head {
+/* Pas « .head » : la vue Gantt a déjà une classe « head » (flex) qui s'appliquerait à cette racine et alignerait les lignes côte à côte. */
+.gantt-head {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: none;
 }
 .line {
   position: relative;

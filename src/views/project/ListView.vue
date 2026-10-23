@@ -231,17 +231,17 @@ function exportCsv(): void {
         <Column field="title" :header="$t('Titre')" :sortable="groupBy === 'none'" style="min-width: 18rem">
           <template #body="{ data }"><span class="title">{{ data.title }}</span></template>
         </Column>
-        <Column field="priorityRank" filter-field="priorityName" :header="$t('Priorité')" :sortable="groupBy === 'none'" v-bind="filterProps" style="width: 8.5rem">
+        <Column v-if="project.fieldOn('priority')" field="priorityRank" filter-field="priorityName" :header="$t('Priorité')" :sortable="groupBy === 'none'" v-bind="filterProps" style="width: 8.5rem">
           <template #body="{ data }">
             <ColorChip v-if="data.ticket.priorityId && project.prioritiesById.get(data.ticket.priorityId)" :label="data.priorityName" :color="project.prioritiesById.get(data.ticket.priorityId)!.color" :icon="project.prioritiesById.get(data.ticket.priorityId)!.icon" />
           </template>
           <template #filter="{ filterModel, filterCallback }"><ColumnValueFilter :filter-model="filterModel" :options="columnFilters.optionsFor('priorityName')" @apply="filterCallback()" /></template>
         </Column>
-        <Column field="categoryName" :header="$t('Catégorie')" :sortable="groupBy === 'none'" v-bind="filterProps" style="width: 10rem">
+        <Column v-if="project.fieldOn('category')" field="categoryName" :header="$t('Catégorie')" :sortable="groupBy === 'none'" v-bind="filterProps" style="width: 10rem">
           <template #body="{ data }"><ColorChip v-if="data.categoryColor" :label="data.categoryName" :color="data.categoryColor" /></template>
           <template #filter="{ filterModel, filterCallback }"><ColumnValueFilter :filter-model="filterModel" :options="columnFilters.optionsFor('categoryName')" @apply="filterCallback()" /></template>
         </Column>
-        <Column v-if="project.components.length" field="componentNames" :header="$t('Composants')" v-bind="filterProps" style="width: 11rem">
+        <Column v-if="project.components.length && project.fieldOn('components')" field="componentNames" :header="$t('Composants')" v-bind="filterProps" style="width: 11rem">
           <template #body="{ data }">
             <span class="chips">
               <template v-for="id in data.ticket.componentIds" :key="id">
@@ -259,24 +259,24 @@ function exportCsv(): void {
             </button>
           </template>
         </Column>
-        <Column filter-field="assigneeNames" :header="$t('Assignés')" v-bind="filterProps" style="width: 9rem">
+        <Column v-if="project.fieldOn('assignees')" filter-field="assigneeNames" :header="$t('Assignés')" v-bind="filterProps" style="width: 9rem">
           <template #filter="{ filterModel, filterCallback }"><ColumnValueFilter :filter-model="filterModel" :options="columnFilters.optionsFor('assigneeNames')" @apply="filterCallback()" /></template>
           <template #body="{ data }">
             <UserAvatarGroup v-if="data.assignees.length" :users="data.assignees" :highlight-ids="data.doneIds" :max="4" />
             <span v-else class="muted small">—</span>
           </template>
         </Column>
-        <Column field="progress" :header="$t('Progression')" :sortable="groupBy === 'none'" style="width: 10rem">
+        <Column v-if="project.fieldOn('progress')" field="progress" :header="$t('Progression')" :sortable="groupBy === 'none'" style="width: 10rem">
           <template #body="{ data }"><ProgressMeter :value="data.progress" /></template>
         </Column>
-        <Column field="deliveryName" :header="$t('Livraison')" :sortable="groupBy === 'none'" v-bind="filterProps" style="width: 10rem">
+        <Column v-if="project.fieldOn('delivery')" field="deliveryName" :header="$t('Livraison')" :sortable="groupBy === 'none'" v-bind="filterProps" style="width: 10rem">
           <template #filter="{ filterModel, filterCallback }"><ColumnValueFilter :filter-model="filterModel" :options="columnFilters.optionsFor('deliveryName')" @apply="filterCallback()" /></template>
           <template #body="{ data }"><ColorChip v-if="data.deliveryColor" :label="data.deliveryName" :color="data.deliveryColor" icon="pi pi-truck" /></template>
         </Column>
-        <Column field="start" :header="$t('Début')" :sortable="groupBy === 'none'" style="width: 7rem">
+        <Column v-if="project.fieldOn('dates')" field="start" :header="$t('Début')" :sortable="groupBy === 'none'" style="width: 7rem">
           <template #body="{ data }">{{ data.ticket.startDate ? formatDateShort(data.ticket.startDate) : '' }}</template>
         </Column>
-        <Column field="end" :header="$t('Échéance')" :sortable="groupBy === 'none'" style="width: 7.5rem">
+        <Column v-if="project.fieldOn('dates')" field="end" :header="$t('Échéance')" :sortable="groupBy === 'none'" style="width: 7.5rem">
           <template #body="{ data }">
             <span :class="{ late: data.overdue }">{{ data.end ? formatDateShort(data.end) : '' }}</span>
           </template>

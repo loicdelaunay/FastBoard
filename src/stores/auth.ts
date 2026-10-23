@@ -6,7 +6,8 @@ import { setCurrentUserId } from '@/api/http';
 import { realtime } from '@/realtime/socket';
 import type { Locale } from '@shared/locales';
 import { currentLocale, rememberLocale } from '@/i18n';
-import { applyTheme } from '@/theme/themeManager';
+import type { AppearanceDTO } from '@shared/themes';
+import { applyFonts, applyTheme, customThemes } from '@/theme/themeManager';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<MeDTO | null>(null);
@@ -26,7 +27,9 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = next;
     setCurrentUserId(next?.id ?? null);
     if (next) {
+      customThemes.value = next.appearance.customThemes;
       applyTheme(next.theme);
+      applyFonts(next.appearance.fonts);
       // La langue du compte l'emporte : on la mémorise et on recharge, les textes étant lus au chargement.
       if (next.locale && next.locale !== currentLocale()) {
         rememberLocale(next.locale);
@@ -75,12 +78,31 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function updateProfile(patch: { name?: string; theme?: string; locale?: Locale }): Promise<void> {
+  async function updateProfile(patch: { name?: string; theme?: string; locale?: Locale; appearance?: AppearanceDTO }): Promise<void> {
+    const previous = { themes: customThemes.value, theme: user.value?.theme, appearance: user.value?.appearance };
+    if (patch.appearance) {
+      customThemes.value = patch.appearance.customThemes;
+      applyFonts(patch.appearance.fonts);
+    }
     if (patch.theme) {
       applyTheme(patch.theme);
     }
-    const { user: fresh } = await api.updateMe(patch);
+    let fresh: MeDTO | null;
+    try {
+      ({ user: fresh } = await api.updateMe(patch));
+    } catch (error) {
+      // Refusé : l'apparence d'avant revient.
+      customThemes.value = previous.themes;
+      if (previous.appearance) applyFonts(previous.appearance.fonts);
+      applyTheme(previous.theme);
+      throw error;
+    }
     user.value = fresh;
+    if (fresh) {
+      // Le serveur a pu revenir au thème par défaut (thème personnalisé supprimé).
+      customThemes.value = fresh.appearance.customThemes;
+      if (fresh.theme !== patch.theme) applyTheme(fresh.theme);
+    }
   }
 
   async function uploadAvatar(blob: Blob): Promise<void> {

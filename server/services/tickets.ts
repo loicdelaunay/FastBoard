@@ -1,5 +1,6 @@
 import type { TicketStatus } from '../../shared/constants.ts';
 import type { ProjectEvent } from '../../shared/realtime.ts';
+import { coerceCustomValue, type CustomFieldValue } from '../../shared/ticketFields.ts';
 import type { AssigneeDTO, HistoryChange, HistoryEntryDTO, NameRef, TicketDTO } from '../../shared/types.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { nowIso, type Db, type SqlParam } from '../db/database.ts';
@@ -28,6 +29,8 @@ export interface CreateTicketInput {
   assigneeIds?: number[];
   /** Ticket parent (sous-ticket) ; `null` pour détacher. */
   parentId?: number | null;
+  /** Champs personnalisés : fusionnés avec les valeurs actuelles, `null` efface. */
+  customFields?: Record<string, unknown>;
 }
 
 export type UpdateTicketInput = Partial<CreateTicketInput>;
@@ -70,6 +73,7 @@ function toTicketDTO(row: TicketRow, extras: TicketExtras): TicketDTO {
     priorityId: row.priority_id,
     componentIds: extras.componentIds,
     parentId: row.parent_id,
+    customFields: parseCustomFields(row.custom_fields),
     deliveryId: row.delivery_id,
     initialDeliveryId: row.initial_delivery_id,
     startDate: row.start_date,
@@ -329,6 +333,48 @@ function assertParent(db: Db, projectId: number, ticketId: number | null, parent
   }
 }
 
+export function parseCustomFields(raw: string | null | undefined): Record<string, CustomFieldValue> {
+  try {
+    const value = JSON.parse(raw || '{}') as unknown;
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, CustomFieldValue>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Valeur lisible d'un champ personnalisé (historique, export). */
+export function customValueLabel(db: Db, type: string, value: CustomFieldValue | null | undefined): string | number | null {
+  if (value === null || value === undefined) return null;
+  if (type === 'user') return userRef(db, Number(value)).name;
+  if (Array.isArray(value)) return value.join(', ');
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  return value;
+}
+
+/** Vérifie et fusionne des valeurs de champs personnalisés ; retourne les valeurs à enregistrer et les changements. */
+function applyCustomFields(db: Db, projectId: number, current: Record<string, CustomFieldValue>, patch: Record<string, unknown>): { next: Record<string, CustomFieldValue>; changes: HistoryChange[] } {
+  const fields = getProjectSettings(db, projectId).customFields;
+  const next = { ...current };
+  const changes: HistoryChange[] = [];
+  for (const [id, raw] of Object.entries(patch)) {
+    const field = fields.find((entry) => entry.id === id);
+    if (!field) throw badRequest(`Champ personnalisé inconnu : ${id}.`);
+    let value: CustomFieldValue | null;
+    try {
+      value = coerceCustomValue(field, raw);
+    } catch (error) {
+      throw badRequest((error as Error).message);
+    }
+    if (field.type === 'user' && value !== null) assertMembers(db, projectId, [value as number]);
+    const before = current[id] ?? null;
+    if (JSON.stringify(before) === JSON.stringify(value)) continue;
+    if (value === null) delete next[id];
+    else next[id] = value;
+    changes.push({ field: 'custom', label: field.label, customType: field.type, from: customValueLabel(db, field.type, before), to: customValueLabel(db, field.type, value) });
+  }
+  return { next, changes };
+}
+
 function parentLabel(db: Db, id: number | null): string | null {
   if (id === null) return null;
   const row = db.get<{ project_id: number; number: number; title: string }>('SELECT project_id, number, title FROM tickets WHERE id = ?', id);
@@ -474,6 +520,7 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
     assertMembers(db, projectId, assigneeIds);
     assertDates(input.startDate, input.endDate);
     assertParent(db, projectId, null, input.parentId);
+    const custom = input.customFields ? applyCustomFields(db, projectId, {}, input.customFields).next : {};
 
     const status = input.status ?? 'backlog';
     assertStatusAvailable(db, projectId, status);
@@ -488,8 +535,8 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
     const now = nowIso();
     const { lastInsertRowid } = db.run(
       `INSERT INTO tickets (project_id, number, title, description, status, category_id, priority_id, delivery_id, initial_delivery_id,
-                            start_date, end_date, progress, position, created_by, created_at, updated_at, completed_at, status_changed_at, parent_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            start_date, end_date, progress, position, created_by, created_at, updated_at, completed_at, status_changed_at, parent_id, custom_fields)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       projectId,
       sequence.ticket_seq,
       input.title,
@@ -509,6 +556,7 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
       status === 'done' ? now : null,
       now,
       input.parentId ?? null,
+      JSON.stringify(custom),
     );
     if (input.componentIds?.length) {
       replaceComponents(db, lastInsertRowid, projectId, input.componentIds);
@@ -604,6 +652,13 @@ export function updateTicket(ctx: AppContext, actor: Actor, ticketId: number, in
       assertParent(db, projectId, ticketId, input.parentId);
       sets.parent_id = input.parentId;
       changes.push({ field: 'parent', from: parentLabel(db, row.parent_id), to: parentLabel(db, input.parentId) });
+    }
+    if (input.customFields !== undefined) {
+      const custom = applyCustomFields(db, projectId, parseCustomFields(row.custom_fields), input.customFields);
+      if (custom.changes.length) {
+        sets.custom_fields = JSON.stringify(custom.next);
+        changes.push(...custom.changes);
+      }
     }
     if (input.progress !== undefined && input.progress !== row.progress) {
       sets.progress = input.progress;
@@ -846,6 +901,23 @@ export function transferTicket(ctx: AppContext, actor: Actor, ticketId: number, 
     for (const child of db.all<{ id: number }>('SELECT id FROM tickets WHERE parent_id = ?', ticketId)) neighbours.add(child.id);
     if (row.parent_id !== null) neighbours.add(row.parent_id);
     db.run('UPDATE tickets SET parent_id = NULL WHERE parent_id = ?', ticketId);
+    // Champs personnalisés : gardés quand le projet cible a un champ de même libellé et de même type.
+    const sourceFields = getProjectSettings(db, row.project_id).customFields;
+    const targetFields = getProjectSettings(db, destination.id).customFields;
+    const values = parseCustomFields(row.custom_fields);
+    const mapped: Record<string, CustomFieldValue> = {};
+    for (const [id, value] of Object.entries(values)) {
+      const source = sourceFields.find((field) => field.id === id);
+      const target = source && targetFields.find((field) => field.type === source.type && field.label.toLowerCase() === source.label.toLowerCase());
+      if (!target) continue;
+      try {
+        const coerced = coerceCustomValue(target, value);
+        if (coerced !== null && !(target.type === 'user' && !members.has(coerced as number))) mapped[target.id] = coerced;
+      } catch {
+        // Choix absent de la liste du projet cible : valeur abandonnée.
+      }
+    }
+    db.run('UPDATE tickets SET custom_fields = ? WHERE id = ?', JSON.stringify(mapped), ticketId);
     const delivery = sameName(db, 'deliveries', row.delivery_id, destination.id);
     db.run(
       `UPDATE tickets SET project_id = ?, number = ?, status = ?, category_id = ?, priority_id = ?, delivery_id = ?, initial_delivery_id = ?,

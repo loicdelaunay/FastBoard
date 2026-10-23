@@ -183,7 +183,7 @@ defineExpose({ focus: () => editor.value?.focus() });
   border: 0;
   border-radius: 0 0 8px 8px;
   box-shadow: none;
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
   font-size: 0.85rem;
 }
 </style>

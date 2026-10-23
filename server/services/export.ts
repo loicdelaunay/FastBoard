@@ -56,7 +56,8 @@ export function exportProjectCsv(db: Db, access: ProjectAccess): string {
   const name = <T extends { id: number; name: string }>(list: T[], id: number | null): string => (id === null ? '' : (list.find((entry) => entry.id === id)?.name ?? ''));
   const user = (id: number): string => snapshot.users.find((entry) => entry.id === id)?.name ?? '';
   const column = (status: keyof typeof STATUS_META): string => settings.columns.find((entry) => entry.status === status)?.label ?? STATUS_META[status].label;
-  const header = ['Clé', 'Titre', 'Description', 'Statut', 'Priorité', 'Composants', 'Catégorie', 'Livraison', 'Début', 'Fin', 'Avancement (%)', 'Assignés', 'Ticket parent', 'Sous-tâches', 'Dépendances', 'Commentaires', 'Pièces jointes', 'Créé le', 'Modifié le', 'Terminé le'];
+  const custom = settings.customFields;
+  const header = ['Clé', 'Titre', 'Description', 'Statut', 'Priorité', 'Composants', 'Catégorie', 'Livraison', 'Début', 'Fin', 'Avancement (%)', 'Assignés', 'Ticket parent', 'Sous-tâches', 'Dépendances', 'Commentaires', 'Pièces jointes', 'Créé le', 'Modifié le', 'Terminé le', ...custom.map((field) => field.label)];
   const rows = snapshot.tickets
     .sort((a, b) => a.number - b.number)
     .map((ticket) => [
@@ -83,6 +84,13 @@ export function exportProjectCsv(db: Db, access: ProjectAccess): string {
       ticket.createdAt,
       ticket.updatedAt,
       ticket.completedAt,
+      ...custom.map((field) => {
+        const value = ticket.customFields[field.id];
+        if (value === undefined) return '';
+        if (field.type === 'user') return user(Number(value));
+        if (typeof value === 'boolean') return value ? 'Oui' : '';
+        return Array.isArray(value) ? value.join(', ') : value;
+      }),
     ]);
   return `﻿${[header, ...rows].map((row) => row.map(csvCell).join(';')).join('\r\n')}`;
 }

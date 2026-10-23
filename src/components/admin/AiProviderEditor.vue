@@ -271,7 +271,7 @@ async function test(): Promise<void> {
   padding: 0.4rem 0.7rem;
   border-radius: 8px;
   background: var(--fb-panel-alt);
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
   font-size: 0.85rem;
 }
 .models-head {

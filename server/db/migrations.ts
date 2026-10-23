@@ -447,6 +447,14 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE INDEX idx_ai_conversations_user ON ai_conversations (user_id, updated_at);
     `);
   },
+
+  // v12 : champs personnalisés des tickets, thèmes et polices personnalisés des utilisateurs.
+  (db) => {
+    db.exec(`
+      ALTER TABLE tickets ADD COLUMN custom_fields TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE users ADD COLUMN appearance TEXT NOT NULL DEFAULT '{}';
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

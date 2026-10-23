@@ -4,6 +4,8 @@ import type { TicketStatus } from './constants.ts';
 import type { RoleScope } from './permissions.ts';
 import type { Locale } from './locales.ts';
 import type { ProjectSettingsDTO } from './settings.ts';
+import type { CustomFieldType, CustomFieldValue } from './ticketFields.ts';
+import type { AppearanceDTO } from './themes.ts';
 
 export interface UserSummaryDTO {
   id: number;
@@ -16,6 +18,8 @@ export interface UserSummaryDTO {
 
 export interface MeDTO extends UserSummaryDTO {
   theme: string;
+  /** Thèmes et polices personnalisés de la personne. */
+  appearance: AppearanceDTO;
   /** Langue choisie ; `null` tant que la personne n'a rien choisi (l'interface suit alors le navigateur). */
   locale: Locale | null;
   roleId: number;
@@ -177,6 +181,8 @@ export interface TicketDTO {
   componentIds: number[];
   /** Ticket parent quand c'est un sous-ticket (même projet, un seul niveau). */
   parentId: number | null;
+  /** Valeurs des champs personnalisés du projet, par identifiant de champ (`cf_…`). */
+  customFields: Record<string, CustomFieldValue>;
   startDate: string | null;
   endDate: string | null;
   /** Avancement saisi à la main (utilisé quand le ticket n'a aucun assigné). */
@@ -242,12 +248,16 @@ export type HistoryField =
   | 'progress'
   | 'priority'
   | 'components'
-  | 'parent';
+  | 'parent'
+  | 'custom';
 
 export interface HistoryChange {
   field: HistoryField;
   from: string | number | null;
   to: string | number | null;
+  /** Champ personnalisé (`field: 'custom'`) : son libellé et son type au moment du changement. */
+  label?: string;
+  customType?: CustomFieldType;
 }
 
 export type HistoryData =

@@ -98,6 +98,8 @@ interface Names {
   components: Map<number, string>;
   deliveries: Map<number, string>;
   complete: readonly TicketStatus[];
+  /** Champs personnalisés du projet. */
+  custom: Array<{ id: string; label: string; type: string }>;
 }
 
 function namesOf(tool: ToolContext, access: ProjectAccess): Names {
@@ -111,6 +113,7 @@ function namesOf(tool: ToolContext, access: ProjectAccess): Names {
     components: new Map(snapshot.components.map((entry) => [entry.id, entry.name])),
     deliveries: new Map(snapshot.deliveries.map((entry) => [entry.id, entry.name])),
     complete: snapshot.project.settings.completeStatuses,
+    custom: snapshot.project.settings.customFields,
   };
 }
 
@@ -144,6 +147,13 @@ function ticketDetail(tool: ToolContext, ticket: TicketDTO, names: Names) {
     subtasks: ticket.subtasks.map((subtask) => ({ id: subtask.id, title: subtask.title, done: subtask.done, assignee: subtask.assigneeId ? names.users.get(subtask.assigneeId) : undefined })),
     dependencies: ticket.links.map((link) => ({ reason: link.reason, target: keyOf(link.targetId) })),
     parent: ticket.parentId ? keyOf(ticket.parentId) : undefined,
+    customFields: Object.fromEntries(
+      names.custom.flatMap((field) => {
+        const value = ticket.customFields[field.id];
+        if (value === undefined) return [];
+        return [[field.label, field.type === 'user' ? (names.users.get(Number(value)) ?? `#${String(value)}`) : value]];
+      }),
+    ),
     subTickets: tool.ctx.db.all<{ id: number }>('SELECT id FROM tickets WHERE parent_id = ? ORDER BY number', ticket.id).map((child) => keyOf(child.id)),
     comments: listComments(tool.ctx.db, ticket.id)
       .filter((comment) => !comment.deleted)

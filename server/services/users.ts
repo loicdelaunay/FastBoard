@@ -6,6 +6,7 @@ import type { AppContext } from '../context.ts';
 import { nowIso, type Db } from '../db/database.ts';
 import { badRequest, conflict, forbidden, notFound } from '../http/errors.ts';
 import { getAuthUser, type AuthUser } from './access.ts';
+import { DEFAULT_THEME_ID, isCustomThemeId, normalizeAppearance } from '../../shared/themes.ts';
 import { parsePermissions, toUserSummary, USER_COLUMNS, type UserRow } from './rows.ts';
 
 interface AdminUserRow extends UserRow {
@@ -227,9 +228,22 @@ function notifyMembersOfProject(ctx: AppContext, projectId: number): void {
 // Profil personnel
 // ---------------------------------------------------------------------------------------------------------------------
 
-export function updateOwnProfile(ctx: AppContext, userId: number, patch: { name?: string; theme?: string; locale?: string }): void {
+export function updateOwnProfile(ctx: AppContext, userId: number, patch: { name?: string; theme?: string; locale?: string; appearance?: unknown }): void {
   const sets: string[] = [];
   const params: string[] = [];
+  const current = ctx.db.get<{ theme: string; appearance: string }>('SELECT theme, appearance FROM users WHERE id = ?', userId);
+  let appearance = normalizeAppearance(JSON.parse(current?.appearance || '{}'));
+  if (patch.appearance !== undefined) {
+    appearance = normalizeAppearance(patch.appearance);
+    sets.push('appearance = ?');
+    params.push(JSON.stringify(appearance));
+  }
+  // Un thème personnalisé doit exister ; supprimer le thème utilisé ramène au thème par défaut.
+  const theme = patch.theme ?? current?.theme ?? DEFAULT_THEME_ID;
+  if (isCustomThemeId(theme) && !appearance.customThemes.some((entry) => entry.id === theme)) {
+    if (patch.theme !== undefined) throw badRequest('Thème inconnu.');
+    patch = { ...patch, theme: DEFAULT_THEME_ID };
+  }
   if (patch.name !== undefined) {
     sets.push('name = ?');
     params.push(patch.name);

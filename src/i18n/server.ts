@@ -5,6 +5,8 @@ import { currentLocale } from './index';
  * puis modèles à variables (noms, nombres), puis messages de validation (« champ : message »).
  */
 const EXACT: Record<string, string> = {
+  // 1.5
+  "Police invalide.": "Invalid font.",
   // 1.4
   "Un ticket ne peut pas être son propre parent.": "A ticket cannot be its own parent.",
   "Le ticket parent doit appartenir au même projet.": "The parent ticket must belong to the same project.",
@@ -190,6 +192,9 @@ const FILE_KINDS: Record<string, string> = {
 };
 
 const PATTERNS: Array<[RegExp, (match: RegExpExecArray) => string]> = [
+  // 1.5
+  [/^Valeur invalide pour « (.+) » : (.+) attendu\.$/, (m) => `Invalid value for “${m[1]}”: expected ${m[2]}.`],
+  [/^Champ personnalisé inconnu : (.+)\.$/, (m) => `Unknown custom field: ${m[1]}.`],
   // 1.4
   [/^Le fournisseur d'IA n'a pas répondu dans le délai \((\d+) s\)\.$/, (m) => `The AI provider did not answer in time (${m[1]} s).`],
   [/^Indiquez le chemin du fichier (.+)\.$/, (m) => `Enter the path of the ${FILE_KINDS[m[1]!] ?? m[1]} file.`],

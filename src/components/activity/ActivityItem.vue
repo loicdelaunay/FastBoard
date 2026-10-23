@@ -8,7 +8,7 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useProjectStore } from '@/stores/project';
 import { formatBytes } from '@/utils/files';
 import { formatDateTime, formatRelative } from '@/utils/format';
-import { FIELD_LABELS, SUBTASK_ACTIONS, formatChangeValue, linkReasonLabel } from '@/utils/historyFormat';
+import { fieldLabel, SUBTASK_ACTIONS, formatChangeValue, linkReasonLabel } from '@/utils/historyFormat';
 
 import { t } from '@/i18n';
 const props = defineProps<{ activity: ActivityDTO; fresh?: boolean }>();
@@ -223,8 +223,8 @@ const CONFIG_ACTIONS = { created: t('a créé'), updated: t('a modifié'), delet
       </p>
 
       <ul v-if="detailChanges.length" class="changes">
-        <li v-for="change in detailChanges" :key="change.field">
-          {{ FIELD_LABELS[change.field] }} :
+        <li v-for="change in detailChanges" :key="change.field + (change.label ?? '')">
+          {{ fieldLabel(change) }} :
           <span class="from">{{ formatChangeValue(change, 'from') }}</span>
           <i class="pi pi-arrow-right arrow"></i>
           <span class="to">{{ formatChangeValue(change, 'to') }}</span>

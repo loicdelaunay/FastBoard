@@ -5,7 +5,7 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useProjectStore } from '@/stores/project';
 import { formatBytes } from '@/utils/files';
 import { formatDateTime, formatRelative } from '@/utils/format';
-import { FIELD_LABELS, SUBTASK_ACTIONS, formatChangeValue, historyIcon, linkReasonLabel } from '@/utils/historyFormat';
+import { fieldLabel, SUBTASK_ACTIONS, formatChangeValue, historyIcon, linkReasonLabel } from '@/utils/historyFormat';
 import { notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
@@ -53,7 +53,7 @@ function icon(entry: HistoryEntryDTO): string {
           <template v-else-if="entry.data.kind === 'updated'">
             <p v-if="entry.data.auto === 'all_parts_done'" class="text auto">{{ $t('Toutes les parts sont terminées : le ticket passe automatiquement à « Terminé ».') }}</p>
             <p v-else-if="entry.data.auto === 'part_reopened'" class="text auto">{{ $t('Une part a été rouverte : le ticket repasse « En cours ».') }}</p>
-            <p v-for="change in entry.data.changes" :key="change.field" class="text"> {{ $t('a modifié {field} :', { field: FIELD_LABELS[change.field] }) }} <span class="from">{{ show(change, 'from') }}</span>
+            <p v-for="change in entry.data.changes" :key="change.field + (change.label ?? '')" class="text"> {{ $t('a modifié {field} :', { field: fieldLabel(change) }) }} <span class="from">{{ show(change, 'from') }}</span>
               <i class="pi pi-arrow-right arrow"></i>
               <span class="to">{{ show(change, 'to') }}</span>
             </p>

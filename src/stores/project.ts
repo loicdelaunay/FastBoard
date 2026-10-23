@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import { STATUS_META, type TicketStatus } from '@shared/constants';
 import { defaultSettings, type ColumnConfig, type ProjectSettingsDTO } from '@shared/settings';
 import type { PresenceUser, ProjectEvent } from '@shared/realtime';
+import type { TicketFieldKey } from '@shared/ticketFields';
 import type {
   AttachmentDTO,
   CategoryDTO,
@@ -80,6 +81,8 @@ export const useProjectStore = defineStore('project', () => {
     return map;
   });
   const childrenOf = (ticketId: number): TicketDTO[] => childrenByParent.value.get(ticketId) ?? [];
+  /** Champ standard affiché dans ce projet (onglet « Ticket » des réglages). */
+  const fieldOn = (key: TicketFieldKey): boolean => settings.value.ticketFields?.[key] !== false;
   const usersById = computed(() => new Map(users.value.map((user) => [user.id, user])));
   const categoriesById = computed(() => new Map(categories.value.map((category) => [category.id, category])));
   const deliveriesById = computed(() => new Map(deliveries.value.map((delivery) => [delivery.id, delivery])));
@@ -413,6 +416,11 @@ export const useProjectStore = defineStore('project', () => {
   function inversePatch(ticket: TicketDTO, patch: TicketInput): TicketInput {
     const inverse: Record<string, unknown> = {};
     for (const key of Object.keys(patch) as Array<keyof TicketInput>) {
+      if (key === 'customFields') {
+        // Seuls les champs modifiés reviennent à leur valeur d'avant (null : ils étaient vides).
+        inverse[key] = Object.fromEntries(Object.keys(patch.customFields ?? {}).map((id) => [id, ticket.customFields[id] ?? null]));
+        continue;
+      }
       inverse[key] = key === 'assigneeIds' ? ticket.assignees.map((assignee) => assignee.userId) : ticket[key];
     }
     return inverse as TicketInput;
@@ -733,7 +741,7 @@ export const useProjectStore = defineStore('project', () => {
     load, reload, leave,
     // tickets
     createTicket, updateTicket, moveTicket, updatePart, deleteTicket, forgetTicket, wasDeletedLocally,
-    setWatching, addSubtask, updateSubtask, deleteSubtask, addLink, deleteLink, linksOf, childrenOf,
+    setWatching, addSubtask, updateSubtask, deleteSubtask, addLink, deleteLink, linksOf, childrenOf, fieldOn,
     loadComments, loadHistory, loadAttachments, addAttachment, addAttachmentLink, removeAttachment, addComment, editComment, removeComment,
     // configuration
     updateProjectInfo, saveCategory, deleteCategory, saveListItem, deleteListItem, saveDelivery, deleteDelivery,

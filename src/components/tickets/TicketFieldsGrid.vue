@@ -80,7 +80,7 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
       </Select>
     </div>
 
-    <div class="field">
+    <div v-if="project.fieldOn('priority')" class="field">
       <label>{{ $t('Priorité') }}</label>
       <Select
         :model-value="values.priorityId"
@@ -100,7 +100,7 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
       </Select>
     </div>
 
-    <div class="field">
+    <div v-if="project.fieldOn('category')" class="field">
       <label>{{ $t('Catégorie') }}</label>
       <Select
         :model-value="values.categoryId"
@@ -120,7 +120,7 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
       </Select>
     </div>
 
-    <div v-if="project.components.length" class="field">
+    <div v-if="project.components.length && project.fieldOn('components')" class="field">
       <label>{{ $t('Composants') }}</label>
       <MultiSelect
         :model-value="values.componentIds"
@@ -144,7 +144,7 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
       </MultiSelect>
     </div>
 
-    <div class="field">
+    <div v-if="project.fieldOn('delivery')" class="field">
       <label>{{ $t('Livraison ciblée') }}</label>
       <Select
         :model-value="values.deliveryId"
@@ -159,7 +159,7 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
       <small v-if="initialDelivery" class="slip"><i class="pi pi-history"></i> {{ $t('Livraison initiale : {name} (reporté)', { name: initialDelivery.name }) }}</small>
     </div>
 
-    <div class="dates">
+    <div v-if="project.fieldOn('dates')" class="dates">
       <div class="field">
         <label>{{ $t('Début') }}</label>
         <DatePicker v-model="startDate" date-format="dd/mm/yy" show-week show-icon show-button-bar :max-date="maxStart" :disabled="disabled" :placeholder="$t('jj/mm/aaaa')" icon-display="input" />
@@ -169,9 +169,9 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
         <DatePicker v-model="endDate" date-format="dd/mm/yy" show-week show-icon show-button-bar :min-date="minEnd" :disabled="disabled" :placeholder="$t('jj/mm/aaaa')" icon-display="input" />
       </div>
     </div>
-    <small v-if="delivery && !values.startDate && !values.endDate" class="hint muted"> {{ $t('Sans dates propres, le ticket suit la livraison « {name} ».', { name: delivery.name }) }} </small>
+    <small v-if="delivery && !values.startDate && !values.endDate && project.fieldOn('dates')" class="hint muted"> {{ $t('Sans dates propres, le ticket suit la livraison « {name} ».', { name: delivery.name }) }} </small>
 
-    <div class="field">
+    <div v-if="project.fieldOn('assignees')" class="field">
       <div class="label-row">
         <label>{{ $t('Assignés') }}</label>
         <button v-if="canAssignMe" type="button" class="assign-me" @click="assignMe"><i class="pi pi-user-plus"></i> {{ $t('M’assigner') }}</button>

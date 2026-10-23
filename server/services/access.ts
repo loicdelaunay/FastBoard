@@ -1,5 +1,6 @@
 import { isLocale, type Locale } from '../../shared/locales.ts';
 import { ALL_PROJECT_PERMISSION_KEYS, hasPermission } from '../../shared/permissions.ts';
+import { normalizeAppearance, type AppearanceDTO } from '../../shared/themes.ts';
 import type { MeDTO, TokenInfoDTO } from '../../shared/types.ts';
 import type { AppContext } from '../context.ts';
 import type { Db } from '../db/database.ts';
@@ -16,6 +17,7 @@ export interface AuthUser {
   /** Permissions globales du rôle (peut contenir le joker `*`). */
   permissions: string[];
   theme: string;
+  appearance: AppearanceDTO;
   locale: Locale | null;
   avatarVersion: number;
   isActive: boolean;
@@ -30,6 +32,7 @@ interface AuthUserRow {
   role_id: number;
   is_active: number;
   theme: string;
+  appearance: string;
   locale: string | null;
   avatar_version: number;
   role_key: string | null;
@@ -37,9 +40,17 @@ interface AuthUserRow {
   permissions: string;
 }
 
+function parseAppearance(raw: string | null | undefined): AppearanceDTO {
+  try {
+    return normalizeAppearance(JSON.parse(raw || '{}'));
+  } catch {
+    return normalizeAppearance({});
+  }
+}
+
 export function getAuthUser(db: Db, userId: number): AuthUser | undefined {
   const row = db.get<AuthUserRow>(
-    `SELECT u.id, u.email, u.name, u.role_id, u.is_active, u.theme, u.locale, u.avatar_version,
+    `SELECT u.id, u.email, u.name, u.role_id, u.is_active, u.theme, u.appearance, u.locale, u.avatar_version,
             r.key AS role_key, r.name AS role_name, r.permissions
        FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ?`,
     userId,
@@ -56,6 +67,7 @@ export function getAuthUser(db: Db, userId: number): AuthUser | undefined {
     roleName: row.role_name,
     permissions: parsePermissions(row.permissions),
     theme: row.theme,
+    appearance: parseAppearance(row.appearance),
     locale: isLocale(row.locale) ? row.locale : null,
     avatarVersion: row.avatar_version,
     isActive: row.is_active === 1,
@@ -71,6 +83,7 @@ export function toMeDTO(user: AuthUser): MeDTO {
     avatarVersion: user.avatarVersion,
     isActive: user.isActive,
     theme: user.theme,
+    appearance: user.appearance,
     locale: user.locale,
     roleId: user.roleId,
     roleName: user.roleName,

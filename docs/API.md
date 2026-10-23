@@ -192,6 +192,18 @@ curl -s -X DELETE $FASTBOARD/api/subtasks/7 -H "Authorization: Bearer $TOKEN"
 
 Chaque appel retourne le ticket à jour. Cocher une sous-tâche dont on est responsable demande `ticket.update_own_part` ; le reste demande `ticket.edit`.
 
+### Champs personnalisés
+
+Chaque projet peut définir ses propres champs (`settings.customFields` dans `GET /projects/{id}`) : `id` (`cf_…`), `label`, `type` (`text`, `longtext`, `number`, `date`, `select`, `multiselect`, `checkbox`, `url`, `user`) et `options` pour les listes. Les valeurs sont dans `ticket.customFields`.
+
+```bash
+# Renseigner (ou effacer avec null) des champs personnalisés ; les autres valeurs ne changent pas
+curl -s -X PATCH $FASTBOARD/api/tickets/12 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "customFields": { "cf_budget": 1200, "cf_client": "Acme", "cf_valide": true, "cf_recette": "2026-12-01", "cf_referent": 3 } }'
+```
+
+Une valeur qui ne convient pas au type (choix absent de la liste, date mal écrite, personne non membre…) est refusée (`400`). `settings.ticketFields` indique les champs standard affichés dans l'interface (un champ masqué garde ses valeurs).
+
 ### Sous-tickets (comme les sous-tâches de Jira)
 
 Un sous-ticket est un ticket complet (colonne, assignés, dates, priorité…) rattaché à un ticket parent par `parentId`.

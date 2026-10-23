@@ -128,7 +128,7 @@ async function submit(): Promise<void> {
 }
 .password-row :deep(.p-inputtext) {
   flex: 1;
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
 }
 .toggle {
   cursor: pointer;

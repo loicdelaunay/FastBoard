@@ -218,7 +218,7 @@ describe('migration v2 : reprise de l\'existant', () => {
     assert.deepEqual(perms('guest'), []);
     assert.deepEqual(perms('editor'), ['ticket.create', 'attachment.create', 'ai.read', 'ai.write']);
     assert.deepEqual(perms('manager'), ['ticket.create', 'attachment.create', 'attachment.moderate', 'ai.read', 'ai.write']);
-    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 11);
+    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 12);
     for (const table of ['ticket_attachments', 'app_logs', 'metrics_minutes', 'ai_conversations']) {
       assert.ok(db.get('SELECT 1 FROM sqlite_master WHERE name = ?', table), `la table ${table} est créée`);
     }

@@ -8,7 +8,7 @@ export function getProjectSettings(db: Db, projectId: number): ProjectSettingsDT
   return parseSettings(db.get<{ settings: string }>('SELECT settings FROM projects WHERE id = ?', projectId)?.settings);
 }
 
-export type SettingsPatch = Partial<Omit<ProjectSettingsDTO, 'columns'>> & { columns?: ProjectSettingsDTO['columns'] };
+export type SettingsPatch = Partial<Omit<ProjectSettingsDTO, 'columns' | 'ticketFields'>> & { columns?: ProjectSettingsDTO['columns']; ticketFields?: Partial<ProjectSettingsDTO['ticketFields']> };
 
 /**
  * Fusionne un patch avec les réglages actuels et le valide : les six statuts doivent être présents une fois,
@@ -32,7 +32,7 @@ export function mergeSettings(db: Db, projectId: number, patch: SettingsPatch): 
       }
     }
   }
-  return normalizeSettings({ ...current, ...patch, columns: patch.columns ?? current.columns });
+  return normalizeSettings({ ...current, ...patch, columns: patch.columns ?? current.columns, ticketFields: { ...current.ticketFields, ...patch.ticketFields } });
 }
 
 /** Refuse un statut dont la colonne est masquée (création, modification ou déplacement d'un ticket). */
@@ -58,6 +58,8 @@ export function describeSettingsChange(before: ProjectSettingsDTO, after: Projec
   if (JSON.stringify(before.columnSort) !== JSON.stringify(after.columnSort)) parts.push('tri automatique des colonnes');
   toggle('alerte de livraison', before.deliveryAlert, after.deliveryAlert);
   toggle('avancement masqué à 0 %', before.hideZeroProgress, after.hideZeroProgress);
+  if (JSON.stringify(before.ticketFields) !== JSON.stringify(after.ticketFields)) parts.push('champs affichés des tickets');
+  if (JSON.stringify(before.customFields) !== JSON.stringify(after.customFields)) parts.push('champs personnalisés');
   if (before.deliveryWarnDays !== after.deliveryWarnDays || before.deliveryDangerDays !== after.deliveryDangerDays) parts.push('seuils d’alerte de livraison');
   if (JSON.stringify(before.columns) !== JSON.stringify(after.columns)) {
     parts.push('colonnes du Kanban');

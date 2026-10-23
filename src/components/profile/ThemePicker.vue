@@ -1,11 +1,77 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { THEMES, type ThemeDef } from '@shared/themes';
-import { currentThemeId } from '@/theme/themeManager';
+import { computed, ref } from 'vue';
+import { useConfirm } from 'primevue/useconfirm';
+import { APPEARANCE_LIMITS, DEFAULT_FONTS, SURFACE_SWATCHES, THEMES, findTheme, isHexColor, type CustomThemeDef, type ThemeDef } from '@shared/themes';
+import { useAuthStore } from '@/stores/auth';
+import { currentThemeId, customThemes } from '@/theme/themeManager';
+import { notifyError } from '@/utils/notify';
+import ThemeEditorDialog from './ThemeEditorDialog.vue';
 
 import { t } from '@/i18n';
 defineProps<{ disabled?: boolean }>();
 const emit = defineEmits<{ select: [themeId: string] }>();
+
+const auth = useAuthStore();
+const confirm = useConfirm();
+const editing = ref<CustomThemeDef | null>(null);
+const editorOpen = ref(false);
+
+/** Aperçu d'un thème personnalisé : couleur principale et fond calculé d'après la surface. */
+function customStyle(theme: CustomThemeDef): Record<string, string> {
+  const dark = theme.mode === 'dark';
+  const background = isHexColor(theme.surface) ? `color-mix(in srgb, ${theme.surface} ${dark ? 18 : 6}%, ${dark ? '#000' : '#fff'})` : SURFACE_SWATCHES[theme.surface as keyof typeof SURFACE_SWATCHES]?.[dark ? 'dark' : 'light'] ?? '#fff';
+  return { '--sw-bg': background, '--sw-fg': dark ? '#e5e7eb' : '#111827', '--sw-accent': theme.primary };
+}
+
+const newId = () => `custom-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+
+/** Nouveau thème : part du thème actuel. */
+function create(): void {
+  const current = findTheme(currentThemeId.value);
+  const custom = customThemes.value.find((theme) => theme.id === currentThemeId.value);
+  editing.value = custom
+    ? { ...custom, id: newId(), label: t('{name} (copie)', { name: custom.label }) }
+    : current
+      ? { id: newId(), label: '', mode: current.mode, preset: current.preset, primary: current.preview.accent, surface: current.surface }
+      : null;
+  editorOpen.value = true;
+}
+
+function edit(theme: CustomThemeDef): void {
+  editing.value = { ...theme };
+  editorOpen.value = true;
+}
+
+function appearance(themes: CustomThemeDef[]) {
+  return { customThemes: themes, fonts: auth.user?.appearance.fonts ?? { ...DEFAULT_FONTS } };
+}
+
+async function save(theme: CustomThemeDef): Promise<void> {
+  const exists = customThemes.value.some((entry) => entry.id === theme.id);
+  const themes = exists ? customThemes.value.map((entry) => (entry.id === theme.id ? theme : entry)) : [...customThemes.value, theme];
+  try {
+    await auth.updateProfile({ appearance: appearance(themes), theme: theme.id });
+  } catch (error) {
+    notifyError(error, t('Thème non enregistré'));
+  }
+}
+
+function remove(theme: CustomThemeDef): void {
+  confirm.require({
+    header: t('Supprimer le thème'),
+    message: t('Supprimer le thème « {name} » ?', { name: theme.label }),
+    icon: 'pi pi-trash',
+    acceptProps: { label: t('Supprimer'), severity: 'danger' },
+    rejectProps: { label: t('Annuler'), severity: 'secondary', text: true },
+    accept: async () => {
+      try {
+        await auth.updateProfile({ appearance: appearance(customThemes.value.filter((entry) => entry.id !== theme.id)) });
+      } catch (error) {
+        notifyError(error);
+      }
+    },
+  });
+}
 
 const groups = computed(() => [
   { key: 'light', title: t('Thèmes clairs'), icon: 'pi pi-sun', themes: THEMES.filter((theme) => theme.mode === 'light') },
@@ -19,6 +85,30 @@ function swatchStyle(theme: ThemeDef): Record<string, string> {
 
 <template>
   <div class="theme-picker">
+    <section>
+      <h4 class="group-title"><i class="pi pi-palette"></i> {{ $t('Mes thèmes') }}</h4>
+      <div class="grid" role="radiogroup" :aria-label="$t('Mes thèmes')">
+        <div v-for="theme in customThemes" :key="theme.id" class="custom-wrap">
+          <button type="button" role="radio" class="theme-card" :class="{ selected: currentThemeId === theme.id }" :aria-checked="currentThemeId === theme.id" :disabled="disabled" @click="emit('select', theme.id)">
+            <span class="swatch" :style="customStyle(theme)">
+              <span class="bar"></span>
+              <span class="lines"><i></i><i></i></span>
+              <span class="chip"></span>
+            </span>
+            <span class="name">{{ theme.label }}</span>
+            <i v-if="currentThemeId === theme.id" class="pi pi-check-circle check" :style="customStyle(theme)"></i>
+          </button>
+          <span class="tools">
+            <button v-tooltip.top="$t('Modifier')" type="button" class="tool" :aria-label="$t('Modifier')" @click="edit(theme)"><i class="pi pi-pencil"></i></button>
+            <button v-tooltip.top="$t('Supprimer')" type="button" class="tool" :aria-label="$t('Supprimer')" @click="remove(theme)"><i class="pi pi-trash"></i></button>
+          </span>
+        </div>
+        <button v-if="customThemes.length < APPEARANCE_LIMITS.themes" type="button" class="theme-card create" :disabled="disabled" @click="create">
+          <i class="pi pi-plus"></i>
+          <span class="name">{{ $t('Créer un thème') }}</span>
+        </button>
+      </div>
+    </section>
     <section v-for="group in groups" :key="group.key">
       <h4 class="group-title"><i :class="group.icon"></i> {{ group.title }}</h4>
       <div class="grid" role="radiogroup" :aria-label="group.title">
@@ -43,6 +133,7 @@ function swatchStyle(theme: ThemeDef): Record<string, string> {
         </button>
       </div>
     </section>
+    <ThemeEditorDialog v-model:visible="editorOpen" :theme="editing" :is-new="!customThemes.some((entry) => entry.id === editing?.id)" @save="save" />
   </div>
 </template>
 
@@ -138,6 +229,45 @@ function swatchStyle(theme: ThemeDef): Record<string, string> {
   padding: 0 0.15rem 0.1rem;
   font-size: 0.8rem;
   font-weight: 600;
+}
+.custom-wrap {
+  position: relative;
+}
+.custom-wrap .theme-card {
+  width: 100%;
+}
+.tools {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  display: none;
+  gap: 0.2rem;
+}
+.custom-wrap:hover .tools,
+.custom-wrap:focus-within .tools {
+  display: flex;
+}
+.tool {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+.create {
+  align-items: center;
+  justify-content: center;
+  min-height: 5.6rem;
+  border-style: dashed;
+  color: var(--fb-muted);
+}
+.create i {
+  font-size: 1.1rem;
 }
 .check {
   position: absolute;

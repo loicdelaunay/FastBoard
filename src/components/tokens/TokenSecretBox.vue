@@ -67,7 +67,7 @@ async function copy(text: string, what: string): Promise<void> {
   border-radius: 8px;
   background: var(--fb-panel);
   color: var(--fb-text);
-  font: 0.85rem ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font: 0.85rem var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
 }
 .how summary {
   cursor: pointer;
@@ -81,7 +81,7 @@ async function copy(text: string, what: string): Promise<void> {
   border-radius: 8px;
   background: var(--fb-panel);
   border: 1px solid var(--fb-border);
-  font: 0.78rem ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font: 0.78rem var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
   white-space: pre;
 }
 .actions {

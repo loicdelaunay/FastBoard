@@ -18,7 +18,13 @@ export const FIELD_LABELS: Record<HistoryChange['field'], string> = {
   endDate: t('la date de fin'),
   progress: t("l'avancement"),
   parent: t('le ticket parent'),
+  custom: t('un champ personnalisé'),
 };
+
+/** Libellé du champ modifié (« le titre », ou « Budget » pour un champ personnalisé). */
+export function fieldLabel(change: HistoryChange): string {
+  return change.field === 'custom' && change.label ? `« ${change.label} »` : FIELD_LABELS[change.field];
+}
 
 /** Valeur lisible (avant / après) d'une modification. */
 export function formatChangeValue(change: HistoryChange, side: 'from' | 'to'): string {
@@ -36,6 +42,10 @@ export function formatChangeValue(change: HistoryChange, side: 'from' | 'to'): s
       return `${value} %`;
     case 'description':
       return plainText(String(value));
+    case 'custom':
+      if (change.customType === 'checkbox') return value === 'true' ? t('coché') : t('non coché');
+      if (change.customType === 'date') return formatDateShort(String(value), true);
+      return String(value);
     default:
       return String(value);
   }

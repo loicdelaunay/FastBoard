@@ -107,7 +107,7 @@ function onClick(event: MouseEvent): void {
   padding: 0.1rem 0.35rem;
   border-radius: 5px;
   background: var(--fb-panel-alt);
-  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-family: var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
   font-size: 0.85em;
 }
 .markdown :deep(pre) {

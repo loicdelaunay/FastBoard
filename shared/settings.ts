@@ -1,6 +1,7 @@
 /** Réglages d'un projet : automatisations et personnalisation des colonnes du Kanban. */
 
 import { STATUS_META, TICKET_STATUSES, isTicketStatus, type TicketStatus } from './constants.ts';
+import { defaultTicketFields, normalizeCustomFields, normalizeTicketFields, type CustomFieldDef, type TicketFieldKey } from './ticketFields.ts';
 
 export const COLUMN_LABEL_MAX = 30;
 
@@ -46,6 +47,10 @@ export interface ProjectSettingsDTO {
   deliveryDangerDays: number;
   /** Onglet « Ticket » : la barre d'avancement n'apparaît pas sur les cartes des tickets à 0 %. */
   hideZeroProgress: boolean;
+  /** Onglet « Ticket » : champs standard affichés (faux = masqué, les valeurs sont conservées). */
+  ticketFields: Record<TicketFieldKey, boolean>;
+  /** Onglet « Ticket » : champs personnalisés du projet. */
+  customFields: CustomFieldDef[];
   /** Les six colonnes, dans l'ordre d'affichage. */
   columns: ColumnConfig[];
 }
@@ -67,6 +72,8 @@ export function defaultSettings(): ProjectSettingsDTO {
     deliveryWarnDays: 7,
     deliveryDangerDays: 2,
     hideZeroProgress: false,
+    ticketFields: defaultTicketFields(),
+    customFields: [],
     columns: defaultColumns(),
   };
 }
@@ -132,6 +139,8 @@ export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
     deliveryWarnDays: warn,
     deliveryDangerDays: Math.min(days('deliveryDangerDays'), warn),
     hideZeroProgress: flag('hideZeroProgress'),
+    ticketFields: normalizeTicketFields(source.ticketFields),
+    customFields: normalizeCustomFields(source.customFields),
     columns,
   };
 }
