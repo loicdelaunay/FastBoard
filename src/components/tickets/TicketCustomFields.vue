@@ -58,6 +58,19 @@ const list = (field: CustomFieldDef) => (Array.isArray(raw(field)) ? (raw(field)
 /** Hors du gabarit : « // » dans un attribut y gêne la vérification des types (vue-tsc). */
 const urlPlaceholder = 'https://…';
 const linkLabel = t('Ouvrir le lien');
+/** Listes ouvertes : texte tapé dans la recherche, proposé comme nouveau choix. */
+const optionFilters = reactive<Record<string, string>>({});
+function newOption(field: CustomFieldDef): string {
+  const value = (optionFilters[field.id] ?? '').trim().slice(0, CUSTOM_FIELD_LIMITS.optionMax);
+  return field.allowNewOptions && value && !field.options.some((option) => option.toLowerCase() === value.toLowerCase()) ? value : '';
+}
+function addOption(field: CustomFieldDef): void {
+  const value = newOption(field);
+  if (!value) return;
+  optionFilters[field.id] = '';
+  void save(field, field.type === 'multiselect' ? [...list(field), value] : value);
+}
+
 const activeUsers = computed(() => project.users.filter((user) => user.isActive));
 </script>
 
@@ -94,20 +107,34 @@ const activeUsers = computed(() => project.users.filter((user) => user.isActive)
         :model-value="str(field) ?? null"
         :options="field.options"
         show-clear
+        :filter="field.allowNewOptions || field.options.length > 8"
         :placeholder="$t('Aucun')"
         :disabled="disabled"
+        @filter="(event) => (optionFilters[field.id] = event.value)"
         @update:model-value="(value: string | null) => save(field, value)"
-      />
+      >
+        <template v-if="field.allowNewOptions" #footer>
+          <button v-if="newOption(field)" type="button" class="create-option" @click="addOption(field)"><i class="pi pi-plus"></i> {{ $t('Ajouter « {name} »', { name: newOption(field) }) }}</button>
+          <p v-else class="muted small create-hint">{{ $t('Tapez un nouveau choix pour l’ajouter.') }}</p>
+        </template>
+      </Select>
       <MultiSelect
         v-else-if="field.type === 'multiselect'"
         :input-id="`cf-${field.id}`"
         :model-value="list(field)"
         :options="field.options"
         display="chip"
+        :filter="field.allowNewOptions || field.options.length > 8"
         :placeholder="$t('Aucun')"
         :disabled="disabled"
+        @filter="(event) => (optionFilters[field.id] = event.value)"
         @update:model-value="(value: string[]) => save(field, value)"
-      />
+      >
+        <template v-if="field.allowNewOptions" #footer>
+          <button v-if="newOption(field)" type="button" class="create-option" @click="addOption(field)"><i class="pi pi-plus"></i> {{ $t('Ajouter « {name} »', { name: newOption(field) }) }}</button>
+          <p v-else class="muted small create-hint">{{ $t('Tapez un nouveau choix pour l’ajouter.') }}</p>
+        </template>
+      </MultiSelect>
       <div v-else-if="field.type === 'checkbox'" class="check">
         <Checkbox :input-id="`cf-${field.id}`" :model-value="bool(field)" binary :disabled="disabled" @update:model-value="(value: boolean) => save(field, value)" />
         <span class="small">{{ bool(field) ? $t('Oui') : $t('Non') }}</span>
@@ -162,5 +189,28 @@ const activeUsers = computed(() => project.users.filter((user) => user.isActive)
 }
 .open {
   color: var(--fb-accent);
+}
+.create-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.55rem 0.9rem;
+  border: 0;
+  border-top: 1px solid var(--fb-border);
+  background: transparent;
+  color: var(--fb-accent);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.create-option:hover {
+  background: var(--fb-accent-soft);
+}
+.create-hint {
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  border-top: 1px solid var(--fb-border);
 }
 </style>

@@ -178,6 +178,7 @@ export function userSummary(db: Db, viewer: AuthUser, userId: number): UserSumma
       userId: activity.user_id,
       via: activity.via,
       group: activity.grp,
+      comments: [],
       data: JSON.parse(activity.data) as ActivityData,
       createdAt: activity.created_at,
       projectKey: activity.project_key,

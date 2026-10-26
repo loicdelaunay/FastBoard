@@ -4,6 +4,7 @@ import type { AppContext } from '../context.ts';
 import { forbidden } from '../http/errors.ts';
 import { actorOf, currentUser, sessionOnly } from '../http/middleware.ts';
 import {
+  activityCommentSchema,
   activityQuerySchema,
   categoryPatchSchema,
   categorySchema,
@@ -22,6 +23,7 @@ import {
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal, requireProject } from '../services/access.ts';
 import { listActivities } from '../services/activity.ts';
+import { createActivityComment, deleteActivityComment, requireActivity, requireActivityComment, updateActivityComment } from '../services/activityComments.ts';
 import {
   addMember,
   buildSnapshot,
@@ -44,6 +46,7 @@ import { parsePermissions } from '../services/rows.ts';
 import { createItem, deleteItem, updateItem } from '../services/projectLists.ts';
 import { exportFileName, exportProjectCsv, exportProjectJson } from '../services/export.ts';
 import { createTicket, queryTickets } from '../services/tickets.ts';
+import { getProjectSettings } from '../services/projectSettings.ts';
 
 export function projectsRouter(ctx: AppContext): Router {
   const router = express.Router();
@@ -199,7 +202,11 @@ export function projectsRouter(ctx: AppContext): Router {
 
   router.post('/projects/:id/components', (req, res) => {
     const projectId = idParam(req.params.id);
-    requireProject(ctx, currentUser(res), projectId, 'project.edit');
+    // Réglage du projet : créer un composant depuis un ticket suffit d'avoir le droit de modifier les tickets.
+    const access = requireProject(ctx, currentUser(res), projectId);
+    if (!access.permissions.has('project.edit')) {
+      requireProject(ctx, currentUser(res), projectId, getProjectSettings(ctx.db, projectId).allowNewComponents ? 'ticket.edit' : 'project.edit');
+    }
     res.status(201).json({ component: createItem(ctx, actorOf(req, res), 'component', projectId, parse(listItemSchema, req.body)) });
   });
 
@@ -264,6 +271,28 @@ export function projectsRouter(ctx: AppContext): Router {
   });
 
   /** Journal d'activité du projet (le plus récent d'abord), paginé par curseur. */
+  // --- Commentaires du journal d'activité ---
+
+  router.post('/activities/:id/comments', (req, res) => {
+    const activity = requireActivity(ctx.db, idParam(req.params.id));
+    requireProject(ctx, currentUser(res), activity.project_id, 'comment.create');
+    const { body } = parse(activityCommentSchema, req.body);
+    res.status(201).json({ comment: createActivityComment(ctx, actorOf(req, res), activity.id, body) });
+  });
+
+  router.patch('/activity-comments/:id', (req, res) => {
+    const comment = requireActivityComment(ctx.db, idParam(req.params.id));
+    requireProject(ctx, currentUser(res), comment.project_id, 'comment.create');
+    const { body } = parse(activityCommentSchema, req.body);
+    res.json({ comment: updateActivityComment(ctx, actorOf(req, res), comment.id, body) });
+  });
+
+  router.delete('/activity-comments/:id', (req, res) => {
+    const comment = requireActivityComment(ctx.db, idParam(req.params.id));
+    const access = requireProject(ctx, currentUser(res), comment.project_id);
+    res.json({ comment: deleteActivityComment(ctx, actorOf(req, res), comment.id, access.permissions.has('comment.moderate')) });
+  });
+
   router.get('/projects/:id/activity', (req, res) => {
     const projectId = idParam(req.params.id);
     requireProject(ctx, currentUser(res), projectId);

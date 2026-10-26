@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { todayISO, addDays } from '@shared/dates';
-import type { ActivityDTO, ActivityGroup } from '@shared/types';
+import type { ActivityCommentDTO, ActivityDTO, ActivityGroup } from '@shared/types';
 import { api } from '@/api';
 import { realtime } from '@/realtime/socket';
 import { useProjectStore } from '@/stores/project';
@@ -129,6 +129,19 @@ export function useActivityFeed() {
     );
   }
 
+  /** Ajoute ou remplace un commentaire (réponse de l'API ou évènement temps réel, sans doublon). */
+  function upsertComment(comment: ActivityCommentDTO): void {
+    const item = items.value.find((entry) => entry.id === comment.activityId);
+    if (!item) return;
+    const list = item.comments ?? [];
+    const index = list.findIndex((entry) => entry.id === comment.id);
+    item.comments = index >= 0 ? list.map((entry) => (entry.id === comment.id ? comment : entry)) : [...list, comment];
+  }
+
+  const stopComments = realtime.on('event', (event, meta) => {
+    if (event.type === 'activity.comment' && meta.projectId === project.projectId) upsertComment(event.comment);
+  });
+
   const stopListening = realtime.on('event', (event, meta) => {
     if (event.type !== 'activity.created' || meta.projectId !== project.projectId || !matchesFilters(event.activity)) return;
     if (items.value.some((item) => item.id === event.activity.id)) return;
@@ -148,6 +161,7 @@ export function useActivityFeed() {
   });
   onBeforeUnmount(() => {
     stopListening();
+    stopComments();
     stopResync();
     project.setActivityViewOpen(false);
   });
@@ -186,5 +200,5 @@ export function useActivityFeed() {
     filters.search = '';
   }
 
-  return { filters, items, days, loading, loadingMore, hasMore: computed(() => nextBefore.value !== null), fresh, activeFilters, load, loadMore, reset };
+  return { filters, items, days, loading, loadingMore, hasMore: computed(() => nextBefore.value !== null), fresh, activeFilters, load, loadMore, reset, upsertComment };
 }

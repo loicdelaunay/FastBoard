@@ -202,7 +202,7 @@ curl -s -X PATCH $FASTBOARD/api/tickets/12 -H "Authorization: Bearer $TOKEN" -H 
   -d '{ "customFields": { "cf_budget": 1200, "cf_client": "Acme", "cf_valide": true, "cf_recette": "2026-12-01", "cf_referent": 3 } }'
 ```
 
-Une valeur qui ne convient pas au type (choix absent de la liste, date mal écrite, personne non membre…) est refusée (`400`). `settings.ticketFields` indique les champs standard affichés dans l'interface (un champ masqué garde ses valeurs).
+Une valeur qui ne convient pas au type (choix absent de la liste, date mal écrite, personne non membre…) est refusée (`400`), sauf pour une liste ouverte (`allowNewOptions`) : le nouveau choix est alors ajouté à la liste du projet. Avec `settings.allowNewComponents`, `POST /projects/{id}/components` est permis à qui peut modifier les tickets. `settings.ticketFields` indique les champs standard affichés dans l'interface (un champ masqué garde ses valeurs).
 
 ### Sous-tickets (comme les sous-tâches de Jira)
 
@@ -303,6 +303,16 @@ curl -s "$FASTBOARD/api/projects/1/activity?group=ticket&ticketId=12&limit=20" -
 ```
 
 Chaque évènement a un `group`, un `data.kind` (`ticket`, `ticket_deleted`, `comment`, `category`, `priority`, `component`, `delivery`, `member`, `project`), l'auteur (`userId`) et `via` (nom d'affichage du jeton si l'action vient de l'API). L'historique d'un ticket (`GET /tickets/{id}/history`) porte aussi `via`. Pour surveiller le tableau en continu, interrogez toutes les 10–30 secondes en mémorisant le plus grand `id` déjà vu, ou utilisez le WebSocket (§5).
+
+Chaque évènement porte aussi sa discussion (`comments`). Pour commenter un évènement (les personnes mentionnées sont notifiées) :
+
+```bash
+curl -s -X POST $FASTBOARD/api/activities/420/comments -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "body": "Validé avec @[Alice](user:3)" }'
+# Modifier (son propre commentaire) ou supprimer
+curl -s -X PATCH $FASTBOARD/api/activity-comments/7 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "body": "Validé" }'
+curl -s -X DELETE $FASTBOARD/api/activity-comments/7 -H "Authorization: Bearer $TOKEN"
+```
 
 ### Exporter un projet
 

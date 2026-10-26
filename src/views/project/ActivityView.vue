@@ -89,7 +89,7 @@ const personOptions = computed(() => project.users.map((user) => ({ label: user.
           <section v-for="day in feed.days.value" :key="day.key" class="day">
             <h3 class="day-title">{{ day.label }}</h3>
             <ul class="list">
-              <ActivityItem v-for="activity in day.items" :key="activity.id" :activity="activity" :fresh="feed.fresh.value.has(activity.id)" @open="openTicket" />
+              <ActivityItem v-for="activity in day.items" :key="activity.id" :activity="activity" :fresh="feed.fresh.value.has(activity.id)" @open="openTicket" @comment="feed.upsertComment" />
             </ul>
           </section>
 

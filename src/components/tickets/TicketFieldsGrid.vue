@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import DatePicker from 'primevue/datepicker';
 import MultiSelect from 'primevue/multiselect';
 import Select from 'primevue/select';
@@ -10,6 +10,9 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
 import { dateToIso, isoToDate } from '@/utils/dates';
+import { notifyError } from '@/utils/notify';
+
+import { t } from '@/i18n';
 
 export interface TicketFieldValues {
   status: TicketStatus;
@@ -38,6 +41,32 @@ const canAssignMe = computed(() => {
   const me = auth.user?.id;
   return !props.disabled && me !== undefined && project.users.some((user) => user.id === me) && !props.values.assigneeIds.includes(me);
 });
+
+/** Composant créé depuis le ticket (réglage du projet, ou droit de configurer le projet). */
+const canCreateComponent = computed(() => !props.disabled && !project.archived && (project.can('project.edit') || (project.settings.allowNewComponents && project.can('ticket.edit'))));
+const componentFilter = ref('');
+const COMPONENT_COLORS = ['#6366f1', '#0ea5e9', '#14b8a6', '#22c55e', '#eab308', '#f97316', '#ef4444', '#ec4899', '#a855f7', '#64748b'];
+const newComponentName = computed(() => {
+  const name = componentFilter.value.trim();
+  return name && !project.components.some((component) => component.name.toLowerCase() === name.toLowerCase()) ? name : '';
+});
+const creatingComponent = ref(false);
+
+async function createComponent(): Promise<void> {
+  const name = newComponentName.value;
+  if (!name || creatingComponent.value) return;
+  creatingComponent.value = true;
+  try {
+    await project.saveListItem('component', { name, color: COMPONENT_COLORS[project.components.length % COMPONENT_COLORS.length], icon: 'pi pi-box' });
+    const created = project.components.find((component) => component.name.toLowerCase() === name.toLowerCase());
+    if (created) emit('change', { componentIds: [...props.values.componentIds, created.id] });
+    componentFilter.value = '';
+  } catch (error) {
+    notifyError(error, t('Composant non créé'));
+  } finally {
+    creatingComponent.value = false;
+  }
+}
 
 function assignMe(): void {
   if (auth.user) emit('change', { assigneeIds: [...props.values.assigneeIds, auth.user.id] });
@@ -120,7 +149,7 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
       </Select>
     </div>
 
-    <div v-if="project.components.length && project.fieldOn('components')" class="field">
+    <div v-if="(project.components.length || canCreateComponent) && project.fieldOn('components')" class="field">
       <label>{{ $t('Composants') }}</label>
       <MultiSelect
         :model-value="values.componentIds"
@@ -129,9 +158,15 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
         option-value="id"
         :placeholder="$t('Aucun')"
         filter
+        :filter-placeholder="canCreateComponent ? $t('Chercher ou créer un composant') : undefined"
         :disabled="disabled"
+        @filter="(event) => (componentFilter = event.value)"
         @update:model-value="(value: number[]) => emit('change', { componentIds: value })"
       >
+        <template v-if="canCreateComponent" #footer>
+          <button v-if="newComponentName" type="button" class="create-option" :disabled="creatingComponent" @click="createComponent"><i :class="creatingComponent ? 'pi pi-spin pi-spinner' : 'pi pi-plus'"></i> {{ $t('Créer « {name} »', { name: newComponentName }) }}</button>
+          <p v-else class="muted small create-hint">{{ $t('Tapez un nom pour créer un composant.') }}</p>
+        </template>
         <template #value="{ value }">
           <span v-if="value?.length" class="chips">
             <template v-for="id in value" :key="id">
@@ -217,6 +252,29 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
 }
 .hint {
   margin-top: -0.4rem;
+}
+.create-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.55rem 0.9rem;
+  border: 0;
+  border-top: 1px solid var(--fb-border);
+  background: transparent;
+  color: var(--fb-accent);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.create-option:hover {
+  background: var(--fb-accent-soft);
+}
+.create-hint {
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  border-top: 1px solid var(--fb-border);
 }
 .label-row {
   display: flex;

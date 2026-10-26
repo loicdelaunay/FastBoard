@@ -25,7 +25,7 @@ const visible = computed(() => (onlyUnread.value ? store.items.filter((item) => 
 const badge = computed(() => (store.unread > 99 ? '99+' : String(store.unread)));
 
 function sentence(item: NotificationDTO): string {
-  if (item.type === 'mention') return t('vous a mentionné sur');
+  if (item.type === 'mention') return item.ticketKey ? t('vous a mentionné sur') : t('vous a mentionné dans l’activité du projet');
   if (item.type === 'assigned') return t('vous a assigné');
   return item.activity ? describeActivity(item.activity).text : t('a modifié');
 }
@@ -41,6 +41,9 @@ async function open(item: NotificationDTO): Promise<void> {
   if (!item.readAt) void store.markRead([item.id]).catch(() => undefined);
   if (item.projectId && item.ticketId) {
     await router.push({ name: 'project', params: { projectId: item.projectId }, query: { ticket: String(item.ticketId) } });
+  } else if (item.projectId && item.type === 'mention') {
+    // Mention dans un commentaire du journal d'activité.
+    await router.push({ name: 'activity', params: { projectId: item.projectId } });
   }
 }
 

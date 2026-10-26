@@ -108,6 +108,7 @@ export const componentSchemas: Record<string, Schema> = {
     roleKey: nullable(str()),
     createdAt: dateTime(),
     lastLoginAt: nullable(dateTime()),
+    lastSeenAt: nullable(dateTime('Dernière activité (requête ou présence en direct).')),
   }),
 
   Project: obj({
@@ -130,7 +131,8 @@ export const componentSchemas: Record<string, Schema> = {
       deliveryDangerDays: int(),
       hideZeroProgress: bool('La barre d’avancement est masquée sur les cartes des tickets à 0 %.'),
       ticketFields: { type: 'object', description: 'Champs standard affichés : `{ description, priority, category, components, delivery, dates, assignees, progress, attachments, subtasks, children, links, comments }` (booléens).' },
-      customFields: arr(obj({ id: str('`cf_…`'), label: str(), type: str('', { enum: ['text', 'longtext', 'number', 'date', 'select', 'multiselect', 'checkbox', 'url', 'user'] }), options: arr(str()), showOnCard: bool() })),
+      customFields: arr(obj({ id: str('`cf_…`'), label: str(), type: str('', { enum: ['text', 'longtext', 'number', 'date', 'select', 'multiselect', 'checkbox', 'url', 'user'] }), options: arr(str()), showOnCard: bool(), allowNewOptions: bool('Listes : ajout de choix depuis les tickets.') })),
+      allowNewComponents: bool('Les personnes qui modifient les tickets peuvent créer un composant depuis un ticket.'),
       columns: arr(obj({ status: ref('TicketStatus'), label: str('Nom affiché de la colonne.'), color: str('#RRGGBB'), hidden: bool() })),
     }, [], "Réglages du projet : automatisations et colonnes du Kanban (ordre d'affichage, noms, couleurs)."),
     createdAt: dateTime(),
@@ -281,6 +283,15 @@ export const componentSchemas: Record<string, Schema> = {
       additionalProperties: true,
     },
   }),
+  ActivityComment: obj({
+    id: int(),
+    activityId: int(),
+    userId: nullable(int()),
+    body: str('Texte (mentions `@[Nom](user:ID)`), vide si supprimé.'),
+    deleted: bool(),
+    createdAt: dateTime(),
+    updatedAt: dateTime(),
+  }),
   Activity: obj({
     id: int(),
     projectId: int(),
@@ -288,6 +299,7 @@ export const componentSchemas: Record<string, Schema> = {
     via: nullable(str("Nom du jeton d'API quand l'action vient de l'API (agent, script).")),
     group: str('', { enum: ['ticket', 'comment', 'config', 'member'] }),
     createdAt: dateTime(),
+    comments: arr(ref('ActivityComment')),
     data: {
       type: 'object',
       description:

@@ -217,6 +217,9 @@ export async function exportAnalysisPdf(scope: AnalysisScope): Promise<void> {
             datasets: [
               { label: pdfText(t('Idéal')), data: burndown.ideal, borderColor: '#94a3b8', borderDash: [6, 6], borderWidth: 2, pointRadius: 0, tension: 0 },
               { label: pdfText(t('Réel')), data: burndown.actual, borderColor: '#4f46e5', backgroundColor: 'rgba(79,70,229,0.12)', fill: true, borderWidth: 3, pointRadius: 0, stepped: 'before', spanGaps: false },
+              ...(burndown.hasReview
+                ? [{ label: pdfText(t('Réel, « {column} » compris', { column: project.statusMeta('review').label })), data: burndown.withReview, borderColor: '#f97316', borderDash: [4, 3], borderWidth: 2, pointRadius: 0, stepped: 'before' as const, spanGaps: false }]
+                : []),
             ],
           },
           options: {

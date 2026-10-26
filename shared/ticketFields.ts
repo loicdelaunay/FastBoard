@@ -47,6 +47,8 @@ export interface CustomFieldDef {
   options: string[];
   /** La valeur s'affiche sur la carte du Kanban. */
   showOnCard: boolean;
+  /** Listes : les personnes qui modifient les tickets peuvent ajouter un choix depuis un ticket. */
+  allowNewOptions: boolean;
 }
 
 /** Valeur d'un champ personnalisé : texte, nombre, booléen, liste de choix ou identifiant de personne. */
@@ -79,7 +81,7 @@ export function normalizeCustomFields(raw: unknown): CustomFieldDef[] {
       type === 'select' || type === 'multiselect'
         ? [...new Set((Array.isArray(entry.options) ? entry.options : []).filter((option): option is string => typeof option === 'string').map((option) => option.trim().slice(0, CUSTOM_FIELD_LIMITS.optionMax)).filter(Boolean))].slice(0, CUSTOM_FIELD_LIMITS.options)
         : [];
-    fields.push({ id: entry.id, label, type, options, showOnCard: entry.showOnCard === true });
+    fields.push({ id: entry.id, label, type, options, showOnCard: entry.showOnCard === true, allowNewOptions: (type === 'select' || type === 'multiselect') && entry.allowNewOptions === true });
     if (fields.length >= CUSTOM_FIELD_LIMITS.fields) break;
   }
   return fields;

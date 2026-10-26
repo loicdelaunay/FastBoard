@@ -78,9 +78,11 @@ const auth = useAuthStore();
 const watching = computed(() => auth.user !== null && props.ticket.watcherIds.includes(auth.user.id));
 const watchers = computed(() => props.ticket.watcherIds.flatMap((id) => project.usersById.get(id) ?? []));
 const watchBusy = ref(false);
+const watchHover = ref(false);
 
 async function toggleWatch(): Promise<void> {
   watchBusy.value = true;
+  watchHover.value = false;
   try {
     await project.setWatching(props.ticket.id, !watching.value);
   } catch (error) {
@@ -189,14 +191,21 @@ function askDelete(): void {
 
     <aside class="side">
       <div class="watch">
+        <!-- Le bouton annonce l'action : « Suivre » ; une fois abonné, « Suivi ✓ », et « Ne plus suivre » au survol. -->
         <Button
-          :label="watching ? $t('Suivi') : $t('Suivre')"
-          :icon="watching ? 'pi pi-eye' : 'pi pi-eye-slash'"
-          :severity="watching ? undefined : 'secondary'"
-          :outlined="!watching"
+          :label="watching ? (watchHover ? $t('Ne plus suivre') : $t('Suivi')) : $t('Suivre')"
+          :icon="watching ? (watchHover ? 'pi pi-bell-slash' : 'pi pi-check') : 'pi pi-bell'"
+          :severity="watching && watchHover ? 'danger' : watching ? 'success' : undefined"
+          :outlined="watching"
           size="small"
+          class="watch-button"
           :loading="watchBusy"
-          v-tooltip.top="watching ? $t('Vous êtes notifié des changements. Cliquez pour ne plus suivre.') : $t('Être notifié des changements de ce ticket')"
+          :aria-pressed="watching"
+          v-tooltip.top="watching ? $t('Vous recevez une notification à chaque changement. Cliquez pour ne plus suivre.') : $t('Recevoir une notification à chaque changement de ce ticket')"
+          @mouseenter="watchHover = true"
+          @mouseleave="watchHover = false"
+          @focus="watchHover = true"
+          @blur="watchHover = false"
           @click="toggleWatch"
         />
         <span v-if="watchers.length" class="muted small" :title="watchers.map((user) => user.name).join(', ')">{{ $t('{n} abonné|{n} abonnés', { n: watchers.length }) }}</span>

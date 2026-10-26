@@ -455,6 +455,25 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       ALTER TABLE users ADD COLUMN appearance TEXT NOT NULL DEFAULT '{}';
     `);
   },
+
+  // v13 : dernière activité des comptes (sessions réutilisées) et commentaires sur le journal d'activité.
+  (db) => {
+    db.exec(`
+      ALTER TABLE users ADD COLUMN last_seen_at TEXT;
+      UPDATE users SET last_seen_at = last_login_at;
+      CREATE TABLE activity_comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        activity_id INTEGER NOT NULL REFERENCES activities (id) ON DELETE CASCADE,
+        project_id INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users (id) ON DELETE SET NULL,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+      CREATE INDEX idx_activity_comments_activity ON activity_comments (activity_id, id);
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

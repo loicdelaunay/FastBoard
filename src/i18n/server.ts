@@ -5,6 +5,12 @@ import { currentLocale } from './index';
  * puis modèles à variables (noms, nombres), puis messages de validation (« champ : message »).
  */
 const EXACT: Record<string, string> = {
+  // 1.6
+  "Évènement introuvable.": "Event not found.",
+  "Le commentaire est vide.": "The comment is empty.",
+  "Ce commentaire a été supprimé.": "This comment has been deleted.",
+  "Vous ne pouvez modifier que vos propres commentaires.": "You can only edit your own comments.",
+  "Vous ne pouvez supprimer que vos propres commentaires.": "You can only delete your own comments.",
   // 1.5
   "Police invalide.": "Invalid font.",
   // 1.4
@@ -192,6 +198,8 @@ const FILE_KINDS: Record<string, string> = {
 };
 
 const PATTERNS: Array<[RegExp, (match: RegExpExecArray) => string]> = [
+  // 1.6
+  [/^« (.+) » a déjà (\d+) choix\.$/, (m) => `“${m[1]}” already has ${m[2]} choices.`],
   // 1.5
   [/^Valeur invalide pour « (.+) » : (.+) attendu\.$/, (m) => `Invalid value for “${m[1]}”: expected ${m[2]}.`],
   [/^Champ personnalisé inconnu : (.+)\.$/, (m) => `Unknown custom field: ${m[1]}.`],

@@ -27,6 +27,7 @@ export interface UserRow {
   avatar_version: number;
   created_at: string;
   last_login_at: string | null;
+  last_seen_at?: string | null;
 }
 
 export interface RoleRow {

@@ -214,6 +214,7 @@ export const settingsPatchSchema = z.object({
   deliveryDangerDays: z.number().int().min(0).max(365).optional().describe('Jours restants à partir desquels la pastille passe au rouge.'),
   confetti: z.boolean().optional().describe('Confettis quand un ticket arrive dans « Terminé ».'),
   hideZeroProgress: z.boolean().optional().describe('Masque la barre d’avancement des tickets à 0 %.'),
+  allowNewComponents: z.boolean().optional().describe('Les personnes qui modifient les tickets peuvent créer un composant depuis un ticket.'),
   ticketFields: z.partialRecord(z.enum(TICKET_FIELDS), z.boolean()).optional().describe('Champs standard affichés dans les tickets (`false` = masqué, les valeurs sont conservées).'),
   customFields: z
     .array(
@@ -223,6 +224,7 @@ export const settingsPatchSchema = z.object({
         type: z.enum(CUSTOM_FIELD_TYPES),
         options: z.array(z.string().trim().min(1).max(CUSTOM_FIELD_LIMITS.optionMax)).max(CUSTOM_FIELD_LIMITS.options).default([]),
         showOnCard: z.boolean().default(false),
+        allowNewOptions: z.boolean().default(false).describe('Listes : ajout de choix depuis les tickets.'),
       }),
     )
     .max(CUSTOM_FIELD_LIMITS.fields)
@@ -457,6 +459,10 @@ export const httpsTestSchema = z.object(certificateFiles);
 
 export const selfSignedSchema = z.object({
   hostnames: z.array(z.string().trim().min(1).max(253).regex(/^[A-Za-z0-9.:*-]+$/, 'Nom d’hôte ou adresse IP invalide.')).min(1).max(20).describe('Noms et adresses couverts (ex. `fastboard.local`, `192.168.1.20`).'),
+});
+
+export const activityCommentSchema = z.object({
+  body: z.string().trim().min(1, 'Le commentaire est vide.').max(2_000).describe('Texte ; mentions : `@[Nom](user:ID)` (la personne est notifiée).'),
 });
 
 export const notificationQuerySchema = z.object({

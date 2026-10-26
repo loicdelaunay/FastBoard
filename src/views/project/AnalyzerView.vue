@@ -69,6 +69,10 @@ const burndownData = computed(() => {
     datasets: [
       { label: t('Idéal'), data: series.ideal, borderColor: colors.value.muted, borderDash: [6, 6], borderWidth: 2, pointRadius: 0, tension: 0 },
       { label: t('Réel'), data: series.actual, borderColor: colors.value.accent, backgroundColor: `${colors.value.accent}22`, fill: true, borderWidth: 3, pointRadius: 0, stepped: 'before', spanGaps: false },
+      // « À tester » compté comme fait : l'écart avec la courbe réelle montre ce qui attend la recette.
+      ...(series.hasReview
+        ? [{ label: t('Réel, « {column} » compris', { column: project.statusMeta('review').label }), data: series.withReview, borderColor: '#f97316', backgroundColor: '#f9731618', fill: false, borderWidth: 2, borderDash: [4, 3], pointRadius: 0, stepped: 'before', spanGaps: false }]
+        : []),
     ],
   };
 });

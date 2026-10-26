@@ -11,6 +11,7 @@ import type {
   ApiTokenScope,
   CategoryDTO,
   CommentDTO,
+  ActivityCommentDTO,
   DeliveryDTO,
   HistoryEntryDTO,
   MeDTO,
@@ -284,6 +285,9 @@ export const api = {
   openAttachment: (attachmentId: number) => http<{ ok: true; revealed: boolean }>('POST', `/attachments/${attachmentId}/open`),
   history: (ticketId: number) => http<{ history: HistoryEntryDTO[] }>('GET', `/tickets/${ticketId}/history`),
 
+  addActivityComment: (activityId: number, body: string) => http<{ comment: ActivityCommentDTO }>('POST', `/activities/${activityId}/comments`, { body: { body } }),
+  editActivityComment: (commentId: number, body: string) => http<{ comment: ActivityCommentDTO }>('PATCH', `/activity-comments/${commentId}`, { body: { body } }),
+  deleteActivityComment: (commentId: number) => http<{ comment: ActivityCommentDTO }>('DELETE', `/activity-comments/${commentId}`),
   activity: (projectId: number, filters: ActivityFilters = {}) => {
     const query = new URLSearchParams();
     if (filters.group?.length) query.set('group', filters.group.join(','));

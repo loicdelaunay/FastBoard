@@ -23,10 +23,11 @@ function toAdminUser(row: AdminUserRow): AdminUserDTO {
     roleKey: row.role_key,
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
+    lastSeenAt: row.last_seen_at ?? row.last_login_at,
   };
 }
 
-const ADMIN_USER_SELECT = `SELECT ${USER_COLUMNS}, r.key AS role_key, r.name AS role_name
+const ADMIN_USER_SELECT = `SELECT ${USER_COLUMNS}, u.last_seen_at, r.key AS role_key, r.name AS role_name
                              FROM users u JOIN roles r ON r.id = u.role_id`;
 
 export function listAdminUsers(db: Db): AdminUserDTO[] {

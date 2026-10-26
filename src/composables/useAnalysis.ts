@@ -38,6 +38,10 @@ export interface BurndownSeries {
   labels: string[];
   ideal: Array<number | null>;
   actual: Array<number | null>;
+  /** Reste à faire en comptant les tickets « À tester » comme faits (à partir du jour où ils y sont arrivés). */
+  withReview: Array<number | null>;
+  /** Des tickets sont « À tester » : la courbe orange apporte quelque chose. */
+  hasReview: boolean;
 }
 
 const clampPercent = (value: number): number => Math.min(100, Math.max(0, Math.round(value)));
@@ -121,8 +125,21 @@ export function useAnalysis(scope: Ref<AnalysisScope>) {
         doneDay.set(day, (doneDay.get(day) ?? 0) + 1);
       }
     }
+    // Tickets « À tester » : arrivés dans la colonne le jour de leur dernier changement de colonne.
+    const reviewDay = new Map<string, number>();
+    for (const ticket of list) {
+      if (ticket.status === 'review') {
+        const day = localDay(ticket.statusChangedAt);
+        reviewDay.set(day, (reviewDay.get(day) ?? 0) + 1);
+      }
+    }
     const days = Math.max(1, diffDays(start, end) + 1);
     const labels: string[] = [];
+    const withReview: Array<number | null> = [];
+    let inReview = 0;
+    for (const [day, count] of reviewDay) {
+      if (day < start) inReview += count;
+    }
     const ideal: Array<number | null> = [];
     const actual: Array<number | null> = [];
     let remaining = total;
@@ -138,9 +155,11 @@ export function useAnalysis(scope: Ref<AnalysisScope>) {
       labels.push(day);
       ideal.push(Math.round((startRemaining * (days - 1 - index)) / Math.max(1, days - 1) * 100) / 100);
       remaining -= doneDay.get(day) ?? 0;
+      inReview += reviewDay.get(day) ?? 0;
       actual.push(day <= today ? remaining : null);
+      withReview.push(day <= today ? Math.max(0, remaining - inReview) : null);
     }
-    return { labels, ideal, actual };
+    return { labels, ideal, actual, withReview, hasReview: reviewDay.size > 0 };
   });
 
   const workload = computed<WorkloadRow[]>(() => {

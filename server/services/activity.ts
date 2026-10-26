@@ -1,6 +1,7 @@
 import type { ActivityData, ActivityDTO, ActivityGroup } from '../../shared/types.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { nowIso, type Db, type SqlParam } from '../db/database.ts';
+import { commentsByActivity } from './activityComments.ts';
 import { notifyActivity } from './notifications.ts';
 
 const GROUP_OF: Record<ActivityData['kind'], ActivityGroup> = {
@@ -35,6 +36,7 @@ function toDTO(row: ActivityRow): ActivityDTO {
     group: row.grp,
     data: JSON.parse(row.data) as ActivityData,
     createdAt: row.created_at,
+    comments: [],
   };
 }
 
@@ -51,7 +53,7 @@ export function logActivity(ctx: AppContext, actor: Actor, projectId: number, da
     JSON.stringify(data),
     createdAt,
   );
-  const activity: ActivityDTO = { id: lastInsertRowid, projectId, userId: actor.userId, via: actor.via ?? null, group, data, createdAt };
+  const activity: ActivityDTO = { id: lastInsertRowid, projectId, userId: actor.userId, via: actor.via ?? null, group, data, createdAt, comments: [] };
   ctx.hub.publish(projectId, [{ type: 'activity.created', activity }], actor);
   try {
     notifyActivity(ctx, actor, projectId, data);
@@ -103,5 +105,6 @@ export function listActivities(db: Db, projectId: number, query: ActivityQuery):
     query.limit + 1,
   );
   const page = rows.slice(0, query.limit);
-  return { activities: page.map(toDTO), nextBefore: rows.length > query.limit ? (page.at(-1)?.id ?? null) : null };
+  const comments = commentsByActivity(db, page.map((row) => row.id));
+  return { activities: page.map((row) => ({ ...toDTO(row), comments: comments.get(row.id) ?? [] })), nextBefore: rows.length > query.limit ? (page.at(-1)?.id ?? null) : null };
 }

@@ -163,6 +163,19 @@ export function notifyActivity(ctx: AppContext, actor: Actor, projectId: number,
   }
 }
 
+/**
+ * Mentions dans un commentaire du journal d'activité : chaque personne nouvellement mentionnée (qui voit le projet)
+ * reçoit une notification « mention » rattachée à l'évènement commenté (et à son ticket, s'il y en a un).
+ */
+export function notifyActivityCommentMentions(ctx: AppContext, actor: Actor, projectId: number, activity: ActivityData, text: string, previous: string): void {
+  const before = mentionedUserIds(previous);
+  const ticketId = 'ticketId' in activity && typeof activity.ticketId === 'number' && ctx.db.get('SELECT 1 FROM tickets WHERE id = ?', activity.ticketId) ? activity.ticketId : null;
+  for (const userId of mentionedUserIds(text)) {
+    if (before.has(userId) || userId === actor.userId || !canSee(ctx.db, userId, projectId)) continue;
+    insert(ctx, userId, 'mention', projectId, ticketId, actor, activity, excerptAround(text, userId));
+  }
+}
+
 // --- Lecture -----------------------------------------------------------------------------------------------------------
 
 export function listNotifications(db: Db, userId: number, query: { limit: number; before?: number; unreadOnly?: boolean }): { notifications: NotificationDTO[]; unread: number; nextBefore: number | null } {

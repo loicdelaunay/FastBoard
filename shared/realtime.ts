@@ -1,6 +1,7 @@
 /** Protocole WebSocket (JSON). */
 
 import type {
+  ActivityCommentDTO,
   ActivityDTO,
   AppInfoDTO,
   NotificationDTO,
@@ -29,6 +30,8 @@ export type ProjectEvent =
   | { type: 'attachment.deleted'; attachment: AttachmentDTO; attachmentCount: number }
   | { type: 'history.created'; entry: HistoryEntryDTO }
   | { type: 'activity.created'; activity: ActivityDTO }
+  /** Commentaire ajouté, modifié ou supprimé sur un évènement du journal. */
+  | { type: 'activity.comment'; comment: ActivityCommentDTO }
   | { type: 'category.upserted'; category: CategoryDTO }
   | { type: 'category.deleted'; categoryId: number }
   | { type: 'priority.upserted'; priority: PriorityDTO }

@@ -1,6 +1,6 @@
 import type { TicketStatus } from '../../shared/constants.ts';
 import type { ProjectEvent } from '../../shared/realtime.ts';
-import { coerceCustomValue, type CustomFieldValue } from '../../shared/ticketFields.ts';
+import { CUSTOM_FIELD_LIMITS, coerceCustomValue, type CustomFieldValue } from '../../shared/ticketFields.ts';
 import type { AssigneeDTO, HistoryChange, HistoryEntryDTO, NameRef, TicketDTO } from '../../shared/types.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { nowIso, type Db, type SqlParam } from '../db/database.ts';
@@ -10,7 +10,7 @@ import { removeStoredFiles, storagesOfTicket } from './attachments.ts';
 import { addHistory } from './history.ts';
 import { queueMentions, watchTicket } from './notifications.ts';
 import { assertStatusAvailable, getProjectSettings } from './projectSettings.ts';
-import { toLinkDTO, toSubtaskDTO, type AssigneeRow, type LinkRow, type SubtaskRow, type TicketRow } from './rows.ts';
+import { toLinkDTO, toProjectDTO, toSubtaskDTO, type AssigneeRow, type LinkRow, type ProjectRow, type SubtaskRow, type TicketRow } from './rows.ts';
 
 const POSITION_STEP = 1024;
 const MIN_GAP = 1e-6;
@@ -352,8 +352,25 @@ export function customValueLabel(db: Db, type: string, value: CustomFieldValue |
 }
 
 /** Vérifie et fusionne des valeurs de champs personnalisés ; retourne les valeurs à enregistrer et les changements. */
-function applyCustomFields(db: Db, projectId: number, current: Record<string, CustomFieldValue>, patch: Record<string, unknown>): { next: Record<string, CustomFieldValue>; changes: HistoryChange[] } {
-  const fields = getProjectSettings(db, projectId).customFields;
+function applyCustomFields(db: Db, projectId: number, current: Record<string, CustomFieldValue>, patch: Record<string, unknown>): { next: Record<string, CustomFieldValue>; changes: HistoryChange[]; newOptions: boolean } {
+  const settings = getProjectSettings(db, projectId);
+  const fields = settings.customFields;
+  // Listes ouvertes (réglage du champ) : un choix inconnu est ajouté à la liste du projet.
+  let newOptions = false;
+  for (const [id, raw] of Object.entries(patch)) {
+    const field = fields.find((entry) => entry.id === id);
+    if (!field?.allowNewOptions) continue;
+    const values = (Array.isArray(raw) ? raw : [raw]).filter((value): value is string => typeof value === 'string').map((value) => value.trim().slice(0, CUSTOM_FIELD_LIMITS.optionMax)).filter(Boolean);
+    for (const value of values) {
+      if (field.options.includes(value)) continue;
+      if (field.options.length >= CUSTOM_FIELD_LIMITS.options) throw badRequest(`« ${field.label} » a déjà ${CUSTOM_FIELD_LIMITS.options} choix.`);
+      field.options.push(value);
+      newOptions = true;
+    }
+    if (Array.isArray(raw)) patch[id] = raw.map((value) => (typeof value === 'string' ? value.trim().slice(0, CUSTOM_FIELD_LIMITS.optionMax) : value));
+    else if (typeof raw === 'string') patch[id] = raw.trim().slice(0, CUSTOM_FIELD_LIMITS.optionMax);
+  }
+  if (newOptions) db.run('UPDATE projects SET settings = ?, updated_at = ? WHERE id = ?', JSON.stringify(settings), nowIso(), projectId);
   const next = { ...current };
   const changes: HistoryChange[] = [];
   for (const [id, raw] of Object.entries(patch)) {
@@ -372,7 +389,13 @@ function applyCustomFields(db: Db, projectId: number, current: Record<string, Cu
     else next[id] = value;
     changes.push({ field: 'custom', label: field.label, customType: field.type, from: customValueLabel(db, field.type, before), to: customValueLabel(db, field.type, value) });
   }
-  return { next, changes };
+  return { next, changes, newOptions };
+}
+
+/** Nouveaux choix ajoutés depuis un ticket : les réglages du projet sont rediffusés. */
+function publishProject(ctx: AppContext, actor: Actor, projectId: number): void {
+  const row = ctx.db.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', projectId);
+  if (row) ctx.hub.publish(projectId, [{ type: 'project.updated', project: toProjectDTO(row) }], actor);
 }
 
 function parentLabel(db: Db, id: number | null): string | null {
@@ -511,6 +534,7 @@ function reconcileStatus(
 export function createTicket(ctx: AppContext, actor: Actor, projectId: number, input: CreateTicketInput): TicketDTO {
   const { db } = ctx;
   const collector: Collector = { events: [], history: [] };
+  let optionsAdded = false;
 
   const ticketId = db.transaction(() => {
     assertCategory(db, projectId, input.categoryId);
@@ -520,7 +544,9 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
     assertMembers(db, projectId, assigneeIds);
     assertDates(input.startDate, input.endDate);
     assertParent(db, projectId, null, input.parentId);
-    const custom = input.customFields ? applyCustomFields(db, projectId, {}, input.customFields).next : {};
+    const customResult = input.customFields ? applyCustomFields(db, projectId, {}, input.customFields) : null;
+    if (customResult?.newOptions) optionsAdded = true;
+    const custom = customResult?.next ?? {};
 
     const status = input.status ?? 'backlog';
     assertStatusAvailable(db, projectId, status);
@@ -585,6 +611,7 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
     return lastInsertRowid;
   });
 
+  if (optionsAdded) publishProject(ctx, actor, projectId);
   const ticket = getTicketDTO(db, ticketId);
   if (input.description) queueMentions(ticketId, input.description);
   collector.events.push({ type: 'ticket.created', ticket });
@@ -596,6 +623,7 @@ export function updateTicket(ctx: AppContext, actor: Actor, ticketId: number, in
   const { db } = ctx;
   const collector: Collector = { events: [], history: [] };
   let projectId = 0;
+  let optionsAdded = false;
 
   db.transaction(() => {
     const row = requireTicket(db, ticketId);
@@ -655,6 +683,7 @@ export function updateTicket(ctx: AppContext, actor: Actor, ticketId: number, in
     }
     if (input.customFields !== undefined) {
       const custom = applyCustomFields(db, projectId, parseCustomFields(row.custom_fields), input.customFields);
+      if (custom.newOptions) optionsAdded = true;
       if (custom.changes.length) {
         sets.custom_fields = JSON.stringify(custom.next);
         changes.push(...custom.changes);
@@ -680,6 +709,7 @@ export function updateTicket(ctx: AppContext, actor: Actor, ticketId: number, in
     }
   });
 
+  if (optionsAdded) publishProject(ctx, actor, projectId);
   const ticket = getTicketDTO(db, ticketId);
   collector.events.unshift({ type: 'ticket.updated', ticket });
   flush(ctx, actor, projectId, ticketId, collector);

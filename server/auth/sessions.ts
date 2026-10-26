@@ -23,6 +23,18 @@ export function createSession(ctx: AppContext, userId: number, userAgent: string
 }
 
 /** Retourne l'utilisateur de la session si elle est valide et le compte actif. */
+/** Dernière écriture de « dernière activité » par compte (au plus une toutes les 5 minutes). */
+const lastSeenWrites = new Map<number, number>();
+const SEEN_INTERVAL_MS = 5 * 60 * 1000;
+
+/** Note l'activité d'un compte : la session est réutilisée des jours durant sans nouvelle connexion. */
+export function markSeen(ctx: AppContext, userId: number, force = false): void {
+  const now = Date.now();
+  if (!force && now - (lastSeenWrites.get(userId) ?? 0) < SEEN_INTERVAL_MS) return;
+  lastSeenWrites.set(userId, now);
+  ctx.db.run('UPDATE users SET last_seen_at = ? WHERE id = ?', new Date(now).toISOString(), userId);
+}
+
 export function resolveSession(ctx: AppContext, token: string | undefined): AuthUser | null {
   if (!token) {
     return null;
@@ -39,7 +51,9 @@ export function resolveSession(ctx: AppContext, token: string | undefined): Auth
     return null;
   }
   const user = getAuthUser(ctx.db, session.user_id);
-  return user && user.isActive ? user : null;
+  if (!user || !user.isActive) return null;
+  markSeen(ctx, user.id);
+  return user;
 }
 
 export function destroySession(ctx: AppContext, token: string | undefined): void {

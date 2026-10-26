@@ -58,7 +58,7 @@ function saveFields(next: CustomFieldDef[]): Promise<void> {
 async function addField(): Promise<void> {
   const label = newLabel.value.trim();
   if (!label || fields.value.length >= CUSTOM_FIELD_LIMITS.fields) return;
-  await saveFields([...fields.value, { id: newCustomFieldId(), label, type: newType.value, options: [], showOnCard: false }]);
+  await saveFields([...fields.value, { id: newCustomFieldId(), label, type: newType.value, options: [], showOnCard: false, allowNewOptions: false }]);
   newLabel.value = '';
 }
 
@@ -132,6 +132,14 @@ function remove(field: CustomFieldDef): void {
         </label>
       </div>
       <p class="muted small">{{ $t('Le titre et la colonne restent toujours affichés.') }}</p>
+      <label class="field-toggle open-list">
+        <i class="pi pi-box"></i>
+        <span class="grow">
+          <strong>{{ $t('Créer des composants depuis les tickets') }}</strong>
+          <small class="muted">{{ $t('Les personnes qui modifient les tickets peuvent ajouter un composant en le tapant dans le champ Composants, sans passer par les réglages.') }}</small>
+        </span>
+        <ToggleSwitch :model-value="project.settings.allowNewComponents" :disabled="!canEdit" :aria-label="$t('Créer des composants depuis les tickets')" @update:model-value="(value: boolean) => saveSettings({ allowNewComponents: value })" />
+      </label>
     </section>
 
     <section class="card block">
@@ -159,12 +167,16 @@ function remove(field: CustomFieldDef): void {
               {{ option }}
               <button v-if="canEdit" type="button" :aria-label="$t('Retirer {name}', { name: option })" @click="removeOption(field, option)"><i class="pi pi-times"></i></button>
             </span>
-            <span v-if="!field.options.length" class="muted small">{{ $t('Aucun choix : ajoutez-en au moins un.') }}</span>
+            <span v-if="!field.options.length" class="muted small">{{ field.allowNewOptions ? $t('Aucun choix pour l’instant : ils seront ajoutés depuis les tickets.') : $t('Aucun choix : ajoutez-en au moins un.') }}</span>
             <form v-if="canEdit" class="option-add" @submit.prevent="addOption(field)">
               <InputText v-model="optionDrafts[field.id]" size="small" :maxlength="CUSTOM_FIELD_LIMITS.optionMax" :placeholder="$t('Nouveau choix')" :aria-label="$t('Nouveau choix')" />
               <Button type="submit" icon="pi pi-plus" size="small" severity="secondary" :aria-label="$t('Ajouter')" />
             </form>
           </div>
+          <label v-if="hasOptions(field.type)" class="card-toggle small open-options">
+            <ToggleSwitch :model-value="field.allowNewOptions" :disabled="!canEdit" :aria-label="$t('Ajout de choix depuis les tickets')" @update:model-value="(value: boolean) => patchField(field.id, { allowNewOptions: value })" />
+            {{ $t('Ajout de choix depuis les tickets') }}
+          </label>
         </li>
       </ul>
       <p v-else class="muted small">{{ $t('Aucun champ personnalisé pour l’instant.') }}</p>
@@ -263,6 +275,20 @@ function remove(field: CustomFieldDef): void {
 .grow {
   flex: 1;
   min-width: 0;
+}
+.open-list {
+  margin-top: 0.2rem;
+  padding: 0.6rem 0.5rem;
+  border-top: 1px solid var(--fb-border);
+  border-radius: 0;
+}
+.open-list .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.open-options {
+  padding-left: 1.6rem;
 }
 .custom-list {
   display: flex;

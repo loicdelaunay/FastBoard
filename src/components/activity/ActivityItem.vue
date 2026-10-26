@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { isTicketStatus } from '@shared/constants';
 import { formatDateShort } from '@shared/dates';
-import type { ActivityDTO, HistoryChange } from '@shared/types';
+import type { ActivityCommentDTO, ActivityDTO, HistoryChange } from '@shared/types';
+import ActivityComments from './ActivityComments.vue';
 import StatusTag from '@/components/common/StatusTag.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useProjectStore } from '@/stores/project';
@@ -12,7 +13,11 @@ import { fieldLabel, SUBTASK_ACTIONS, formatChangeValue, linkReasonLabel } from 
 
 import { t } from '@/i18n';
 const props = defineProps<{ activity: ActivityDTO; fresh?: boolean }>();
-const emit = defineEmits<{ open: [ticketId: number] }>();
+const emit = defineEmits<{ open: [ticketId: number]; comment: [comment: ActivityCommentDTO] }>();
+
+/** Zone de saisie d'un commentaire ouverte. */
+const composing = ref(false);
+const commentCount = computed(() => (props.activity.comments ?? []).filter((comment) => !comment.deleted).length);
 
 const project = useProjectStore();
 
@@ -238,7 +243,10 @@ const CONFIG_ACTIONS = { created: t('a créé'), updated: t('a modifié'), delet
         <i :class="icon"></i>
         <time :datetime="activity.createdAt" :title="formatDateTime(activity.createdAt)">{{ formatRelative(activity.createdAt) }}</time>
         <span v-if="activity.via" class="via"><i class="pi pi-microchip-ai"></i> {{ $t('via « {via} »', { via: activity.via }) }}</span>
+        <button v-if="project.can('comment.create') && !project.archived" type="button" class="comment-link" @click="composing = !composing"><i class="pi pi-comment"></i> {{ commentCount ? $t('{n} commentaire|{n} commentaires', { n: commentCount }) + ' · ' + $t('Répondre') : $t('Commenter') }}</button>
+        <span v-else-if="commentCount" class="muted"><i class="pi pi-comment"></i> {{ $t('{n} commentaire|{n} commentaires', { n: commentCount }) }}</span>
       </p>
+      <ActivityComments :activity="activity" :composing="composing" @comment="(comment) => emit('comment', comment)" @close="composing = false" />
     </div>
   </li>
 </template>
@@ -359,6 +367,20 @@ button.key:hover {
 }
 .meta i {
   font-size: 0.75rem;
+}
+.comment-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fb-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.comment-link:hover {
+  text-decoration: underline;
 }
 .via {
   color: var(--fb-accent);

@@ -51,6 +51,8 @@ export interface ProjectSettingsDTO {
   ticketFields: Record<TicketFieldKey, boolean>;
   /** Onglet « Ticket » : champs personnalisés du projet. */
   customFields: CustomFieldDef[];
+  /** Les personnes qui modifient les tickets peuvent créer un composant depuis un ticket. */
+  allowNewComponents: boolean;
   /** Les six colonnes, dans l'ordre d'affichage. */
   columns: ColumnConfig[];
 }
@@ -74,6 +76,7 @@ export function defaultSettings(): ProjectSettingsDTO {
     hideZeroProgress: false,
     ticketFields: defaultTicketFields(),
     customFields: [],
+    allowNewComponents: false,
     columns: defaultColumns(),
   };
 }
@@ -87,7 +90,7 @@ const isColor = (value: unknown): value is string => typeof value === 'string' &
 export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
   const defaults = defaultSettings();
   const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert' | 'hideZeroProgress'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
+  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert' | 'hideZeroProgress' | 'allowNewComponents'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
 
   const seen = new Set<TicketStatus>();
   const columns: ColumnConfig[] = [];
@@ -141,6 +144,7 @@ export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
     hideZeroProgress: flag('hideZeroProgress'),
     ticketFields: normalizeTicketFields(source.ticketFields),
     customFields: normalizeCustomFields(source.customFields),
+    allowNewComponents: flag('allowNewComponents'),
     columns,
   };
 }

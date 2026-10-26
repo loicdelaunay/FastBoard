@@ -35,6 +35,8 @@ export interface AdminUserDTO extends UserSummaryDTO {
   roleKey: string | null;
   createdAt: string;
   lastLoginAt: string | null;
+  /** Dernière requête ou déconnexion temps réel (la session est réutilisée sans nouvelle connexion). */
+  lastSeenAt: string | null;
 }
 
 export interface RoleDTO {
@@ -357,6 +359,19 @@ export type ActivityData =
   | { kind: 'member'; action: 'added' | 'removed' | 'left' | 'role_changed'; user: NameRef; role?: string; previousRole?: string }
   | { kind: 'project'; changes: ProjectChange[] };
 
+/** Commentaire sur un évènement du journal d'activité (mentions `@[Nom](user:12)` possibles). */
+export interface ActivityCommentDTO {
+  id: number;
+  activityId: number;
+  /** Auteur ; `null` si le compte a été supprimé. */
+  userId: number | null;
+  /** Vide si le commentaire a été supprimé. */
+  body: string;
+  deleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ActivityDTO {
   id: number;
   projectId: number;
@@ -367,6 +382,8 @@ export interface ActivityDTO {
   group: ActivityGroup;
   data: ActivityData;
   createdAt: string;
+  /** Discussion sur l'évènement. */
+  comments: ActivityCommentDTO[];
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

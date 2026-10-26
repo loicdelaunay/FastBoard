@@ -3,6 +3,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMessage, PresenceUser, ProjectEvent, ServerMessage } from '../../shared/realtime.ts';
 import type { TokenInfoDTO } from '../../shared/types.ts';
 import { authenticate } from '../auth/authenticate.ts';
+import { markSeen } from '../auth/sessions.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { isAllowedOrigin } from '../http/origin.ts';
 import { getAuthUser, resolveProjectAccess } from '../services/access.ts';
@@ -87,6 +88,8 @@ export class Hub {
     ws.on('message', (raw) => this.#onMessage(client, raw.toString()));
     ws.on('close', () => {
       this.#clients.delete(client);
+      // Fin de présence en direct : c'est la dernière activité connue de la personne.
+      if (this.#ctx && !token) markSeen(this.#ctx, userId, true);
       this.#ctx?.logger.debug('realtime', 'WebSocket déconnecté', { clients: this.#clients.size }, userId);
       if (client.projectId !== null) {
         this.#broadcastPresence(client.projectId);

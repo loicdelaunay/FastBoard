@@ -16,7 +16,7 @@ import ColumnValueFilter from '@/components/common/ColumnValueFilter.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useColumnFilters } from '@/composables/useColumnFilters';
 import { useAuthStore } from '@/stores/auth';
-import { formatRelative } from '@/utils/format';
+import { formatDateTime, formatRelative } from '@/utils/format';
 import { notify, notifyError } from '@/utils/notify';
 import { matchesQuery } from '@/utils/search';
 
@@ -40,7 +40,7 @@ const filtered = computed(() =>
       ...user,
       roleLabel: t(user.roleName),
       statusLabel: !user.isActive ? t('Désactivé') : online.value.has(user.id) ? t('En ligne') : t('Hors ligne'),
-      lastLogin: user.lastLoginAt ?? '',
+      lastLogin: online.value.has(user.id) ? '9999' : (user.lastSeenAt ?? user.lastLoginAt ?? ''),
     })),
 );
 const columnFilters = useColumnFilters(filtered, ['roleLabel', 'statusLabel']);
@@ -147,8 +147,11 @@ async function toggleActive(user: AdminUserDTO): Promise<void> {
           <span v-else class="muted small">{{ $t('Hors ligne') }}</span>
         </template>
       </Column>
-      <Column field="lastLogin" :header="$t('Dernière connexion')" sortable style="min-width: 10rem">
-        <template #body="{ data }"><span class="muted small">{{ data.lastLoginAt ? formatRelative(data.lastLoginAt) : $t('Jamais') }}</span></template>
+      <Column field="lastLogin" :header="$t('Dernière activité')" sortable style="min-width: 10rem">
+        <template #body="{ data }">
+          <span v-if="online.has(data.id)" class="small online-now">{{ $t('En ce moment') }}</span>
+          <span v-else class="muted small" :title="data.lastLoginAt ? $t('Dernière connexion : {date}', { date: formatDateTime(data.lastLoginAt) }) : undefined">{{ data.lastSeenAt || data.lastLoginAt ? formatRelative(data.lastSeenAt ?? data.lastLoginAt) : $t('Jamais') }}</span>
+        </template>
       </Column>
       <Column header="" style="width: 9rem">
         <template #body="{ data }">
@@ -190,6 +193,10 @@ async function toggleActive(user: AdminUserDTO): Promise<void> {
 .actions {
   display: flex;
   justify-content: flex-end;
+}
+.online-now {
+  color: #16a34a;
+  font-weight: 600;
 }
 .online {
   display: inline-flex;

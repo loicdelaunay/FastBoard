@@ -117,7 +117,7 @@ export function publicAuthRouter(ctx: AppContext): Router {
     attempts.delete(key);
 
     const { token, maxAgeSeconds } = createSession(ctx, row.id, req.get('user-agent'));
-    ctx.db.run('UPDATE users SET last_login_at = ? WHERE id = ?', nowIso(), row.id);
+    ctx.db.run('UPDATE users SET last_login_at = ?, last_seen_at = ? WHERE id = ?', nowIso(), nowIso(), row.id);
     res.setHeader('Set-Cookie', serializeSessionCookie(ctx.config.cookieName, token, { maxAgeSeconds, secure: isSecure(req) }));
     const user = getAuthUser(ctx.db, row.id);
     ctx.logger.info('auth', `Connexion de ${email}`, { ip: req.ip ?? null, userAgent: (req.get('user-agent') ?? '').slice(0, 160) }, row.id, res.locals.requestId as string);

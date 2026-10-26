@@ -368,6 +368,37 @@ const OPERATIONS: Operation[] = [
     query: S.activityQuerySchema,
     ok: obj({ activities: arr(ref('Activity')), nextBefore: { oneOf: [int(), { type: 'null' }], description: 'Curseur de la page suivante, ou `null`.' } }),
   },
+  {
+    method: 'post',
+    path: '/activities/{id}/comments',
+    tag: 'Activité',
+    permission: 'comment.create',
+    summary: 'Commenter un évènement du journal',
+    description: 'Les personnes mentionnées (`@[Nom](user:ID)`) sont notifiées. Diffusé en direct (`activity.comment`).',
+    params: { id: "Identifiant de l'évènement." },
+    body: S.activityCommentSchema,
+    status: 201,
+    ok: obj({ comment: ref('ActivityComment') }),
+  },
+  {
+    method: 'patch',
+    path: '/activity-comments/{id}',
+    tag: 'Activité',
+    permission: 'comment.create',
+    summary: 'Modifier son commentaire du journal',
+    params: { id: 'Identifiant du commentaire.' },
+    body: S.activityCommentSchema,
+    ok: obj({ comment: ref('ActivityComment') }),
+  },
+  {
+    method: 'delete',
+    path: '/activity-comments/{id}',
+    tag: 'Activité',
+    summary: 'Supprimer un commentaire du journal',
+    description: 'Son auteur, ou une personne ayant `comment.moderate`. Suppression logique.',
+    params: { id: 'Identifiant du commentaire.' },
+    ok: obj({ comment: ref('ActivityComment') }),
+  },
 
   // --- Membres ---------------------------------------------------------------------------------------------------------
   {

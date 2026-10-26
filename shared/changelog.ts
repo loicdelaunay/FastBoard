@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.6.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,17 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '1.6.0',
+    date: '2026-10-26',
+    changes: [
+      { category: 'Nouveauté', text: 'Activités : commentez chaque évènement du journal, avec des mentions @ qui notifient les personnes.' },
+      { category: 'Nouveauté', text: 'Réglages du projet : autoriser la création de composants et de choix de listes directement depuis les tickets.' },
+      { category: 'Nouveauté', text: 'Analyseur : le burn-down affiche aussi, en orange, le reste à faire en comptant les tickets « À tester ».' },
+      { category: 'Correction', text: 'Administration des utilisateurs : la dernière activité se met à jour même quand la session est réutilisée pendant des jours.' },
+      { category: 'Correction', text: 'Bouton Suivre plus clair : « Suivre » pour s’abonner, « Suivi » une fois abonné et « Ne plus suivre » au survol.' },
+    ],
+  },
   {
     version: '1.5.0',
     date: '2026-10-23',
