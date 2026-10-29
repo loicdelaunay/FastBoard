@@ -235,13 +235,17 @@ const categoryOptions = {
 }
 .scope-field {
   display: flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: 0.6rem;
+  min-width: 0;
 }
 .scopes {
-  min-width: min(100%, 20rem);
+  width: 20rem;
+  max-width: 100%;
 }
 .current-delivery {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;

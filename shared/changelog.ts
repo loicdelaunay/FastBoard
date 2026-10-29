@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '1.7.0';
+export const APP_VERSION = '1.7.1';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,15 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '1.7.1',
+    date: '2026-10-29',
+    changes: [
+      { category: 'Sécurité', text: 'Mise à jour de body-parser (2.4.0) : corrige un déni de service possible avec un corps de requête compressé.' },
+      { category: 'Correction', text: 'Analyseur : le raccourci vers la version en cours ne chevauche plus le choix de la livraison.' },
+      { category: 'Correction', text: 'Le bouton de l’assistant IA dans l’en-tête d’un ticket reprend l’icône du cerveau.' },
+    ],
+  },
   {
     version: '1.7.0',
     date: '2026-10-29',

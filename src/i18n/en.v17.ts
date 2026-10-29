@@ -3,10 +3,13 @@ export const enV17: Record<string, string> = {
   'Analyseur : masquer les terminés dans « Non assigné »': 'Analyzer: hide done tickets in “Unassigned”',
   'Dans la charge par personne, les tickets terminés sans personne assignée ne sont pas comptés : « Non assigné » ne montre que le travail restant à attribuer.':
     'In the workload per person, done tickets without an assignee are not counted: “Unassigned” only shows work still to be assigned.',
-  'Fermer l’assistant IA': 'Close the AI assistant',
-  'Demander à l’assistant IA à propos de ce ticket': 'Ask the AI assistant about this ticket',
   'Prochaine version': 'Next release',
   'Version en cours': 'Current release',
+
+  // Journal des modifications 1.7.1
+  'Mise à jour de body-parser (2.4.0) : corrige un déni de service possible avec un corps de requête compressé.': 'body-parser update (2.4.0): fixes a possible denial of service with a compressed request body.',
+  'Analyseur : le raccourci vers la version en cours ne chevauche plus le choix de la livraison.': 'Analyzer: the current release shortcut no longer overlaps the release picker.',
+  'Le bouton de l’assistant IA dans l’en-tête d’un ticket reprend l’icône du cerveau.': 'The AI assistant button in a ticket header uses the brain icon again.',
 
   // Journal des modifications 1.7
   'L’assistant IA s’ouvre par-dessus un ticket, avec un bouton dans l’en-tête du ticket ; il connaît le ticket ouvert.': 'The AI assistant opens on top of a ticket, with a button in the ticket header; it knows the open ticket.',
