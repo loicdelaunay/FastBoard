@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '1.6.0';
+export const APP_VERSION = '1.7.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,17 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '1.7.0',
+    date: '2026-10-29',
+    changes: [
+      { category: 'Nouveauté', text: 'L’assistant IA s’ouvre par-dessus un ticket, avec un bouton dans l’en-tête du ticket ; il connaît le ticket ouvert.' },
+      { category: 'Nouveauté', text: 'Analyseur : raccourci vers la version en cours (ou la prochaine) à côté du choix de la livraison.' },
+      { category: 'Amélioration', text: 'Analyseur : la charge par personne détaille chaque colonne du Kanban, avec ses couleurs (aussi dans le rapport PDF).' },
+      { category: 'Amélioration', text: 'Option du projet (activée par défaut) : les tickets terminés ne sont plus comptés dans « Non assigné » de la charge par personne.' },
+      { category: 'Amélioration', text: 'Un ticket créé depuis une vue filtrée reprend la catégorie, la livraison et les personnes filtrées.' },
+    ],
+  },
   {
     version: '1.6.0',
     date: '2026-10-26',

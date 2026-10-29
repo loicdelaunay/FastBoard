@@ -8,6 +8,8 @@ import UserAvatarGroup from '@/components/common/UserAvatarGroup.vue';
 import { useTicketActions } from '@/composables/useTicketActions';
 import { useTicketRoute } from '@/composables/useTicketRoute';
 import { realtime } from '@/realtime/socket';
+import { useAiStore } from '@/stores/ai';
+import { useAppStore } from '@/stores/app';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
 import { notify } from '@/utils/notify';
@@ -22,6 +24,10 @@ const auth = useAuthStore();
 const project = useProjectStore();
 const { openTicketId, closeTicket } = useTicketRoute();
 const actions = useTicketActions();
+const ai = useAiStore();
+const app = useAppStore();
+/** Raccourci vers l'assistant IA, qui connaît alors le ticket ouvert. */
+const aiAvailable = computed(() => app.info.ai && auth.can('ai.use'));
 
 const canDelete = computed(() => project.can('ticket.delete') && !project.archived);
 
@@ -94,6 +100,18 @@ function onDeleted(): void {
           <UserAvatarGroup :users="viewers" size="small" :max="4" /> {{ $t('consulte ce ticket|consultent ce ticket', { n: viewers.length }) }} </span>
         <Button v-if="ticket" v-tooltip.bottom="$t('Copier le lien')" icon="pi pi-link" text rounded severity="secondary" size="small" :aria-label="$t('Copier le lien du ticket')" @click="actions.copyLink(ticket.id)" />
         <Button v-if="ticket && canDelete" v-tooltip.bottom="$t('Supprimer le ticket')" icon="pi pi-trash" text rounded severity="danger" size="small" :aria-label="$t('Supprimer le ticket')" @click="actions.confirmDelete(ticket, onDeleted)" />
+        <button
+          v-if="ticket && aiAvailable"
+          v-tooltip.bottom="ai.open ? $t('Fermer l’assistant IA') : $t('Demander à l’assistant IA à propos de ce ticket')"
+          type="button"
+          class="ai-toggle"
+          :class="{ on: ai.open }"
+          :aria-pressed="ai.open"
+          :aria-label="$t('Assistant IA')"
+          @click="ai.toggle()"
+        >
+          <i class="pi pi-sparkles"></i>
+        </button>
       </div>
     </template>
 
@@ -111,9 +129,31 @@ function onDeleted(): void {
 <style scoped>
 .dlg-head {
   display: flex;
+  flex: 1;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.6rem;
+}
+/* Juste à gauche des boutons agrandir / fermer de la fenêtre. */
+.ai-toggle {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  margin-left: auto;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #a95cff;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ai-toggle:hover {
+  background: color-mix(in srgb, #a95cff 14%, transparent);
+}
+.ai-toggle.on {
+  background: conic-gradient(from 0deg, #4f8cff, #a95cff, #ff6fa7, #4f8cff);
+  color: #fff;
 }
 .key {
   padding: 0.1rem 0.55rem;

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import Select from 'primevue/select';
 import Button from 'primevue/button';
-import { formatDateShort } from '@shared/dates';
+import { formatDateShort, todayISO } from '@shared/dates';
 import AlertList from '@/components/analyzer/AlertList.vue';
 import ChartCard from '@/components/analyzer/ChartCard.vue';
 import DeliveryTable from '@/components/analyzer/DeliveryTable.vue';
@@ -46,6 +46,18 @@ const scopeOptions = computed(() => [
   })),
 ]);
 
+/**
+ * Livraison en cours (aujourd'hui dans sa période ; la première à finir s'il y en a plusieurs), à défaut la prochaine :
+ * raccourci à côté du choix de la version analysée.
+ */
+const currentDelivery = computed(() => {
+  const today = todayISO();
+  const running = project.deliveries.filter((delivery) => delivery.startDate <= today && today <= delivery.endDate).sort((a, b) => a.endDate.localeCompare(b.endDate))[0];
+  if (running) return { delivery: running, upcoming: false };
+  const next = project.deliveries.filter((delivery) => delivery.startDate > today).sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+  return next ? { delivery: next, upcoming: true } : null;
+});
+
 const scopeTitle = computed(() => (analysis.delivery.value ? t('Livraison « {name} »', { name: analysis.delivery.value.name }) : t('Ensemble du projet')));
 const hasTickets = computed(() => analysis.tickets.value.length > 0);
 
@@ -87,12 +99,8 @@ const burndownOptions = computed(() => ({
 
 const workloadData = computed(() => ({
   labels: analysis.workload.value.map((row) => row.label),
-  datasets: [
-    { label: t('Terminés'), data: analysis.workload.value.map((row) => row.done), backgroundColor: '#22c55e' },
-    { label: t('En cours / à tester'), data: analysis.workload.value.map((row) => row.active), backgroundColor: colors.value.accent },
-    { label: t('Bloqués'), data: analysis.workload.value.map((row) => row.blocked), backgroundColor: '#ef4444' },
-    { label: t('En attente'), data: analysis.workload.value.map((row) => row.waiting), backgroundColor: '#94a3b8' },
-  ],
+  // Une série par colonne du Kanban (nom et couleur du projet), dans l'ordre du tableau.
+  datasets: project.visibleColumns.map((column) => ({ label: column.label, data: analysis.workload.value.map((row) => row.byStatus[column.status]), backgroundColor: column.color })),
 }));
 const workloadOptions = {
   indexAxis: 'y',
@@ -136,8 +144,24 @@ const categoryOptions = {
               </template>
             </Select>
           </label>
+          <button
+            v-if="currentDelivery"
+            type="button"
+            class="current-delivery"
+            :class="{ active: scope === currentDelivery.delivery.id }"
+            :style="{ '--d': currentDelivery.delivery.color }"
+            :aria-pressed="scope === currentDelivery.delivery.id"
+            v-tooltip.bottom="`${formatDateShort(currentDelivery.delivery.startDate)} → ${formatDateShort(currentDelivery.delivery.endDate)}`"
+            @click="scope = scope === currentDelivery.delivery.id ? 'all' : currentDelivery.delivery.id"
+          >
+            <i class="pi pi-truck"></i>
+            <span class="muted">{{ currentDelivery.upcoming ? $t('Prochaine version') : $t('Version en cours') }}</span>
+            <strong>{{ currentDelivery.delivery.name }}</strong>
+            <i v-if="scope === currentDelivery.delivery.id" class="pi pi-times close"></i>
+          </button>
           <Button
             v-if="project.tickets.length"
+            class="pdf-button"
             :label="$t('Exporter en PDF')"
             icon="pi pi-file-pdf"
             severity="secondary"
@@ -205,7 +229,7 @@ const categoryOptions = {
 .scope-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
 }
@@ -216,6 +240,37 @@ const categoryOptions = {
 }
 .scopes {
   min-width: min(100%, 20rem);
+}
+.current-delivery {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--d) 45%, var(--fb-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--d) 8%, transparent);
+  color: var(--fb-text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.current-delivery i {
+  color: var(--d);
+}
+.current-delivery:hover {
+  background: color-mix(in srgb, var(--d) 16%, transparent);
+}
+.current-delivery.active {
+  border-color: var(--d);
+  background: color-mix(in srgb, var(--d) 22%, transparent);
+}
+.current-delivery .close {
+  font-size: 0.65rem;
+  color: var(--fb-muted);
+}
+.pdf-button {
+  margin-left: auto;
 }
 .scope-option {
   display: inline-flex;

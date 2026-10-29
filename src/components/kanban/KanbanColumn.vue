@@ -5,6 +5,7 @@ import InputText from 'primevue/inputtext';
 import type { TicketStatus } from '@shared/constants';
 import type { TicketDTO } from '@shared/types';
 import { useKanbanDnd } from '@/composables/useKanbanDnd';
+import { useTicketFilters } from '@/composables/useTicketFilters';
 import { useProjectStore } from '@/stores/project';
 import { notifyError } from '@/utils/notify';
 import TicketCard from './TicketCard.vue';
@@ -15,6 +16,7 @@ const emit = defineEmits<{ open: [ticketId: number] }>();
 
 const project = useProjectStore();
 const dnd = useKanbanDnd();
+const { creationDefaults } = useTicketFilters();
 
 const column = ref<HTMLElement | null>(null);
 const list = ref<HTMLElement | null>(null);
@@ -46,7 +48,8 @@ async function submitNew(): Promise<void> {
   }
   creating.value = true;
   try {
-    await project.createTicket({ title, status: props.status });
+    // Les filtres en cours (catégorie, livraison, personnes) s'appliquent au nouveau ticket.
+    await project.createTicket({ title, status: props.status, ...creationDefaults() });
     newTitle.value = '';
   } catch (error) {
     notifyError(error, t('Création impossible'));

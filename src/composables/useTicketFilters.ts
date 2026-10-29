@@ -89,5 +89,23 @@ export function useTicketFilters() {
       Number(state.mineOnly),
   );
 
-  return { filters: state, filtered, activeCount, reset: resetTicketFilters };
+  /**
+   * Valeurs d'un ticket créé pendant que des filtres sont actifs : il reprend la catégorie, la livraison et les
+   * personnes filtrées (et « Mes tickets »), pour rester visible là où on l'a créé.
+   */
+  function creationDefaults(): { categoryId?: number; deliveryId?: number; assigneeIds?: number[] } {
+    const first = (ids: Array<NoneOr<number>>) => ids.find((id): id is number => id !== 'none');
+    const members = new Set(project.users.filter((user) => user.isActive).map((user) => user.id));
+    const assignees = state.assigneeIds.filter((id): id is number => id !== 'none' && members.has(id));
+    if (state.mineOnly && auth.user && members.has(auth.user.id) && !assignees.includes(auth.user.id)) assignees.push(auth.user.id);
+    const categoryId = first(state.categoryIds);
+    const deliveryId = first(state.deliveryIds);
+    return {
+      ...(categoryId !== undefined && project.categoriesById.has(categoryId) ? { categoryId } : {}),
+      ...(deliveryId !== undefined && project.deliveriesById.has(deliveryId) ? { deliveryId } : {}),
+      ...(assignees.length ? { assigneeIds: assignees } : {}),
+    };
+  }
+
+  return { filters: state, filtered, activeCount, reset: resetTicketFilters, creationDefaults };
 }

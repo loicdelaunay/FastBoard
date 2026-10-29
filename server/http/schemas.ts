@@ -215,6 +215,7 @@ export const settingsPatchSchema = z.object({
   confetti: z.boolean().optional().describe('Confettis quand un ticket arrive dans « Terminé ».'),
   hideZeroProgress: z.boolean().optional().describe('Masque la barre d’avancement des tickets à 0 %.'),
   allowNewComponents: z.boolean().optional().describe('Les personnes qui modifient les tickets peuvent créer un composant depuis un ticket.'),
+  hideDoneUnassigned: z.boolean().optional().describe('Analyseur : ne pas compter les tickets terminés dans « Non assigné » (charge par personne).'),
   ticketFields: z.partialRecord(z.enum(TICKET_FIELDS), z.boolean()).optional().describe('Champs standard affichés dans les tickets (`false` = masqué, les valeurs sont conservées).'),
   customFields: z
     .array(

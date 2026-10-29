@@ -28,6 +28,8 @@ export interface WorkloadRow {
   key: string;
   label: string;
   user: UserSummaryDTO | null;
+  /** Tickets de la personne dans chaque colonne du Kanban. */
+  byStatus: Record<TicketStatus, number>;
   done: number;
   active: number;
   blocked: number;
@@ -168,15 +170,18 @@ export function useAnalysis(scope: Ref<AnalysisScope>) {
       let row = rows.get(userId);
       if (!row) {
         const user = userId === 'none' ? null : (project.usersById.get(userId) ?? null);
-        row = { key: String(userId), label: user?.name ?? t('Non assigné'), user, done: 0, active: 0, blocked: 0, waiting: 0 };
+        row = { key: String(userId), label: user?.name ?? t('Non assigné'), user, byStatus: Object.fromEntries(TICKET_STATUSES.map((status) => [status, 0])) as Record<TicketStatus, number>, done: 0, active: 0, blocked: 0, waiting: 0 };
         rows.set(userId, row);
       }
       return row;
     };
     for (const ticket of tickets.value) {
       const owners: Array<number | 'none'> = ticket.assignees.length ? ticket.assignees.map((assignee) => assignee.userId) : ['none'];
+      // Réglage du projet : un ticket terminé sans assigné n'est plus du « travail non assigné ».
+      if (owners[0] === 'none' && ticket.status === 'done' && project.settings.hideDoneUnassigned) continue;
       for (const owner of owners) {
         const row = rowFor(owner);
+        row.byStatus[ticket.status]++;
         if (ticket.status === 'done') row.done++;
         else if (ticket.status === 'blocked') row.blocked++;
         else if (ticket.status === 'in_progress' || ticket.status === 'review') row.active++;

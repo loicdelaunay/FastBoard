@@ -27,6 +27,8 @@ app.config.globalProperties.$t = t;
 app.use(PrimeVue, {
   theme: { preset: Aura, options: { darkModeSelector: '.app-dark', cssLayer: false } },
   locale: currentLocale() === 'en' ? primevueEn : primevueFr,
+  // Fenêtres modales sous le panneau de l'assistant IA (1150), listes et infobulles au-dessus de tout.
+  zIndex: { modal: 1100, overlay: 1200, menu: 1200, tooltip: 1300 },
 });
 app.use(ToastService);
 app.use(ConfirmationService);

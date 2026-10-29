@@ -162,6 +162,8 @@ function onKeydown(event: KeyboardEvent): void {
     event.preventDefault();
     send();
   } else if (event.key === 'Escape' && !page.value) {
+    // Échap ferme le panneau, pas la fenêtre du ticket ouverte dessous.
+    event.stopPropagation();
     ai.toggle(false);
   }
 }
@@ -353,7 +355,8 @@ onBeforeUnmount(() => (resizing.value = false));
 <style scoped>
 .ai-panel {
   position: fixed;
-  z-index: 60;
+  /* Au-dessus de la fenêtre d'un ticket (modale PrimeVue, 1100) : l'assistant reste utilisable ticket ouvert. */
+  z-index: 1150;
   top: calc(var(--fb-header-h) + 0.5rem);
   right: 0.5rem;
   bottom: 0.5rem;

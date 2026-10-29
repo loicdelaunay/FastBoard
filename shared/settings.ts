@@ -53,6 +53,8 @@ export interface ProjectSettingsDTO {
   customFields: CustomFieldDef[];
   /** Les personnes qui modifient les tickets peuvent créer un composant depuis un ticket. */
   allowNewComponents: boolean;
+  /** Analyseur, charge par personne : les tickets terminés sans assigné ne sont pas comptés dans « Non assigné ». */
+  hideDoneUnassigned: boolean;
   /** Les six colonnes, dans l'ordre d'affichage. */
   columns: ColumnConfig[];
 }
@@ -77,6 +79,7 @@ export function defaultSettings(): ProjectSettingsDTO {
     ticketFields: defaultTicketFields(),
     customFields: [],
     allowNewComponents: false,
+    hideDoneUnassigned: true,
     columns: defaultColumns(),
   };
 }
@@ -90,7 +93,7 @@ const isColor = (value: unknown): value is string => typeof value === 'string' &
 export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
   const defaults = defaultSettings();
   const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert' | 'hideZeroProgress' | 'allowNewComponents'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
+  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert' | 'hideZeroProgress' | 'allowNewComponents' | 'hideDoneUnassigned'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
 
   const seen = new Set<TicketStatus>();
   const columns: ColumnConfig[] = [];
@@ -145,6 +148,7 @@ export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
     ticketFields: normalizeTicketFields(source.ticketFields),
     customFields: normalizeCustomFields(source.customFields),
     allowNewComponents: flag('allowNewComponents'),
+    hideDoneUnassigned: flag('hideDoneUnassigned'),
     columns,
   };
 }

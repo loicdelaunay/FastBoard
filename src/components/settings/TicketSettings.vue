@@ -116,6 +116,15 @@ function remove(field: CustomFieldDef): void {
       <ToggleSwitch input-id="ticket-hideZeroProgress" :model-value="project.settings.hideZeroProgress" :disabled="!canEdit" @update:model-value="(value: boolean) => saveSettings({ hideZeroProgress: value })" />
     </section>
 
+    <section class="row card">
+      <i class="pi pi-user-minus icon" aria-hidden="true"></i>
+      <div class="text">
+        <label for="ticket-hideDoneUnassigned" class="title">{{ $t('Analyseur : masquer les terminés dans « Non assigné »') }}</label>
+        <p class="muted small">{{ $t('Dans la charge par personne, les tickets terminés sans personne assignée ne sont pas comptés : « Non assigné » ne montre que le travail restant à attribuer.') }}</p>
+      </div>
+      <ToggleSwitch input-id="ticket-hideDoneUnassigned" :model-value="project.settings.hideDoneUnassigned" :disabled="!canEdit" @update:model-value="(value: boolean) => saveSettings({ hideDoneUnassigned: value })" />
+    </section>
+
     <section class="card block">
       <div class="block-head">
         <div>

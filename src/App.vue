@@ -24,7 +24,7 @@ const route = useRoute();
     <ProfileDialog v-if="auth.isAuthenticated" />
     <!-- La page dédiée de l'assistant affiche sa propre conversation : pas de panneau latéral en plus. -->
     <AiPanel v-if="auth.isAuthenticated && app.info.ai && auth.can('ai.use') && route.name !== 'assistant'" />
-    <Toast position="bottom-right" />
+    <Toast position="bottom-right" :base-z-index="1250" />
     <ConfirmDialog />
   </div>
 </template>

@@ -61,6 +61,7 @@ export function describeSettingsChange(before: ProjectSettingsDTO, after: Projec
   if (JSON.stringify(before.ticketFields) !== JSON.stringify(after.ticketFields)) parts.push('champs affichés des tickets');
   if (JSON.stringify(before.customFields) !== JSON.stringify(after.customFields)) parts.push('champs personnalisés');
   toggle('ajout de composants depuis les tickets', before.allowNewComponents, after.allowNewComponents);
+  toggle('terminés masqués dans « Non assigné »', before.hideDoneUnassigned, after.hideDoneUnassigned);
   if (before.deliveryWarnDays !== after.deliveryWarnDays || before.deliveryDangerDays !== after.deliveryDangerDays) parts.push('seuils d’alerte de livraison');
   if (JSON.stringify(before.columns) !== JSON.stringify(after.columns)) {
     parts.push('colonnes du Kanban');

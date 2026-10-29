@@ -9,7 +9,7 @@ import PresenceStack from '@/components/project/PresenceStack.vue';
 import TicketContextMenu from '@/components/tickets/TicketContextMenu.vue';
 import TicketQuickEdit from '@/components/tickets/TicketQuickEdit.vue';
 import TicketDialog from '@/components/tickets/TicketDialog.vue';
-import { resetTicketFilters } from '@/composables/useTicketFilters';
+import { resetTicketFilters, useTicketFilters } from '@/composables/useTicketFilters';
 import { useProjectStore } from '@/stores/project';
 import { useUiStore } from '@/stores/ui';
 import { notify } from '@/utils/notify';
@@ -18,6 +18,7 @@ import { t } from '@/i18n';
 const route = useRoute();
 const router = useRouter();
 const project = useProjectStore();
+const ticketFilters = useTicketFilters();
 const ui = useUiStore();
 
 const projectId = computed(() => Number(route.params.projectId));
@@ -45,6 +46,11 @@ watch(projectId, (id) => void open(id));
 onBeforeUnmount(() => project.leave());
 
 watch(currentView, (view) => realtime.setPresence({ view }), { immediate: true });
+
+/** « Nouveau ticket » depuis une vue filtrée (liste, Kanban, Gantt) : le ticket reprend les filtres en cours. */
+function createDefaults() {
+  return ['list', 'kanban', 'gantt'].includes(currentView.value) ? ticketFilters.creationDefaults() : {};
+}
 
 watch(
   () => project.status,
@@ -76,7 +82,7 @@ function onKeydown(event: KeyboardEvent): void {
     void project.redo();
   } else if (!mod && !event.altKey && key === 'n' && canCreate.value && !document.querySelector('.p-dialog')) {
     event.preventDefault();
-    ui.openCreate();
+    ui.openCreate(createDefaults());
   }
 }
 onMounted(() => window.addEventListener('keydown', onKeydown));
@@ -116,7 +122,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
           <Button v-tooltip.bottom="project.undoLabel ? $t('Annuler : {undoLabel} (Ctrl+Z)', { undoLabel: project.undoLabel }) : $t('Annuler (Ctrl+Z)')" icon="pi pi-undo" text rounded severity="secondary" :aria-label="$t('Annuler')" :disabled="!project.canUndo" @click="project.undo()" />
           <Button v-tooltip.bottom="project.redoLabel ? $t('Rétablir : {redoLabel} (Ctrl+Y)', { redoLabel: project.redoLabel }) : $t('Rétablir (Ctrl+Y)')" icon="pi pi-refresh" text rounded severity="secondary" :aria-label="$t('Rétablir')" :disabled="!project.canRedo" @click="project.redo()" />
           <Button v-if="canConfigure" v-tooltip.bottom="$t('Réglages du projet')" icon="pi pi-cog" text rounded severity="secondary" :aria-label="$t('Réglages du projet')" @click="router.push({ name: 'settings', params: { projectId } })" />
-          <Button v-if="canCreate" :label="$t('Nouveau ticket')" icon="pi pi-plus" @click="ui.openCreate()" />
+          <Button v-if="canCreate" :label="$t('Nouveau ticket')" icon="pi pi-plus" @click="ui.openCreate(createDefaults())" />
         </div>
       </header>
 

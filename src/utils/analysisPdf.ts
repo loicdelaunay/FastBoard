@@ -242,10 +242,7 @@ export async function exportAnalysisPdf(scope: AnalysisScope): Promise<void> {
           data: {
             labels: workload.slice(0, rows).map((row) => pdfText(row.label)),
             datasets: [
-              { label: pdfText(t('Terminés')), data: workload.slice(0, rows).map((row) => row.done), backgroundColor: '#22c55e' },
-              { label: pdfText(t('En cours / à tester')), data: workload.slice(0, rows).map((row) => row.active), backgroundColor: '#4f46e5' },
-              { label: pdfText(t('Bloqués')), data: workload.slice(0, rows).map((row) => row.blocked), backgroundColor: '#ef4444' },
-              { label: pdfText(t('En attente')), data: workload.slice(0, rows).map((row) => row.waiting), backgroundColor: '#94a3b8' },
+              ...columns.map((column) => ({ label: pdfText(column.label), data: workload.slice(0, rows).map((row) => row.byStatus[column.status]), backgroundColor: column.color })),
             ],
           },
           options: { indexAxis: 'y', plugins: { legend: legend('bottom') }, scales: { x: { ...axis, stacked: true, ticks: { ...axis.ticks, precision: 0 } }, y: { ...axis, stacked: true, grid: { display: false } } } },

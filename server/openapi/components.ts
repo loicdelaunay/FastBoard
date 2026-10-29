@@ -133,6 +133,7 @@ export const componentSchemas: Record<string, Schema> = {
       ticketFields: { type: 'object', description: 'Champs standard affichés : `{ description, priority, category, components, delivery, dates, assignees, progress, attachments, subtasks, children, links, comments }` (booléens).' },
       customFields: arr(obj({ id: str('`cf_…`'), label: str(), type: str('', { enum: ['text', 'longtext', 'number', 'date', 'select', 'multiselect', 'checkbox', 'url', 'user'] }), options: arr(str()), showOnCard: bool(), allowNewOptions: bool('Listes : ajout de choix depuis les tickets.') })),
       allowNewComponents: bool('Les personnes qui modifient les tickets peuvent créer un composant depuis un ticket.'),
+      hideDoneUnassigned: bool('Analyseur : les tickets terminés ne sont pas comptés dans « Non assigné » (charge par personne).'),
       columns: arr(obj({ status: ref('TicketStatus'), label: str('Nom affiché de la colonne.'), color: str('#RRGGBB'), hidden: bool() })),
     }, [], "Réglages du projet : automatisations et colonnes du Kanban (ordre d'affichage, noms, couleurs)."),
     createdAt: dateTime(),
