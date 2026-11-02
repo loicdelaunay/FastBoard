@@ -28,7 +28,7 @@ const POSITION_STEP = 1024;
 const FLASH_MS = 2200;
 
 /** Champs appliqués tout de suite en local (le serveur confirme ensuite). */
-const OPTIMISTIC_KEYS = ['title', 'description', 'status', 'categoryId', 'priorityId', 'componentIds', 'deliveryId', 'startDate', 'endDate', 'progress', 'parentId'] as const;
+const OPTIMISTIC_KEYS = ['title', 'description', 'status', 'categoryId', 'priorityId', 'componentIds', 'deliveryId', 'startDate', 'endDate', 'progress', 'parentId', 'progressFromChildren'] as const;
 
 export type ListKind = 'priority' | 'component';
 

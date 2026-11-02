@@ -1,6 +1,6 @@
 import { APP_VERSION } from '../../shared/changelog.ts';
 import { STATUS_META } from '../../shared/constants.ts';
-import { ticketProgress } from '../../shared/progress.ts';
+import { childrenByParent, ticketProgress } from '../../shared/progress.ts';
 import type { Db } from '../db/database.ts';
 import type { ProjectAccess } from './access.ts';
 import { listComments } from './comments.ts';
@@ -57,6 +57,7 @@ export function exportProjectCsv(db: Db, access: ProjectAccess): string {
   const user = (id: number): string => snapshot.users.find((entry) => entry.id === id)?.name ?? '';
   const column = (status: keyof typeof STATUS_META): string => settings.columns.find((entry) => entry.status === status)?.label ?? STATUS_META[status].label;
   const custom = settings.customFields;
+  const children = childrenByParent(snapshot.tickets);
   const header = ['Clé', 'Titre', 'Description', 'Statut', 'Priorité', 'Composants', 'Catégorie', 'Livraison', 'Début', 'Fin', 'Avancement (%)', 'Assignés', 'Ticket parent', 'Sous-tâches', 'Dépendances', 'Commentaires', 'Pièces jointes', 'Créé le', 'Modifié le', 'Terminé le', ...custom.map((field) => field.label)];
   const rows = snapshot.tickets
     .sort((a, b) => a.number - b.number)
@@ -71,7 +72,7 @@ export function exportProjectCsv(db: Db, access: ProjectAccess): string {
       name(snapshot.deliveries, ticket.deliveryId),
       ticket.startDate,
       ticket.endDate,
-      ticketProgress(ticket, settings.completeStatuses),
+      ticketProgress(ticket, settings.completeStatuses, children.get(ticket.id)),
       ticket.assignees.map((assignee) => user(assignee.userId)).join(', '),
       ticket.parentId ? `${snapshot.project.key}-${snapshot.tickets.find((entry) => entry.id === ticket.parentId)?.number ?? '?'}` : '',
       ticket.subtasks.length ? `${ticket.subtasks.filter((subtask) => subtask.done).length}/${ticket.subtasks.length}` : '',

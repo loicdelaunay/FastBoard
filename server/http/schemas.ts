@@ -278,6 +278,7 @@ export const createTicketSchema = z.object({
   progress: percent.optional().describe("Avancement manuel (%), utilisé quand le ticket n'a aucun assigné."),
   assigneeIds: z.array(id).max(50).optional().describe('Utilisateurs assignés (doivent être membres du projet).'),
   parentId: nullableId.optional().describe('Ticket parent : fait de ce ticket un sous-ticket (même projet, un seul niveau). `null` pour le détacher.'),
+  progressFromChildren: z.boolean().optional().describe('Avec des sous-tickets : l’avancement suit le leur (vrai par défaut) ; `false` : avancement propre au ticket.'),
   customFields: z
     .record(z.string().regex(/^cf_[a-z0-9]{1,24}$/), z.union([z.string().max(5_000), z.number(), z.boolean(), z.array(z.string().max(60)).max(50), z.null()]))
     .optional()

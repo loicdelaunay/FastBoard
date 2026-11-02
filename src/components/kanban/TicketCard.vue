@@ -30,7 +30,12 @@ const children = computed(() => project.childrenOf(props.ticket.id));
 const childrenDone = computed(() => children.value.filter((child) => project.settings.completeStatuses.includes(child.status)).length);
 const parent = computed(() => (props.ticket.parentId ? project.ticketsById.get(props.ticket.parentId) : undefined));
 /** Réglage « Ticket » du projet : pas de barre à 0 %. */
-const showProgress = computed(() => project.fieldOn('progress') && (props.ticket.assignees.length > 0 || progress.value > 0) && !(project.settings.hideZeroProgress && progress.value === 0));
+const showProgress = computed(
+  () =>
+    project.fieldOn('progress') &&
+    (props.ticket.assignees.length > 0 || progress.value > 0 || (children.value.length > 0 && props.ticket.progressFromChildren)) &&
+    !(project.settings.hideZeroProgress && progress.value === 0),
+);
 /** Champs personnalisés affichés sur la carte (réglage du champ), avec leur valeur lisible. */
 const cardFields = computed(() =>
   project.settings.customFields.flatMap((field) => {

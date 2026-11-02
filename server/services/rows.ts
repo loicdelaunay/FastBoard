@@ -88,6 +88,8 @@ export interface TicketRow {
   parent_id: number | null;
   /** Valeurs des champs personnalisés (JSON `{ <id>: valeur }`). */
   custom_fields: string;
+  /** 1 : l'avancement suit celui des sous-tickets. */
+  progress_from_children: number;
   status_changed_at: string | null;
   start_date: string | null;
   end_date: string | null;

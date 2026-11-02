@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import Checkbox from 'primevue/checkbox';
+import ToggleSwitch from 'primevue/toggleswitch';
 import { assigneeProgress, partsSummary } from '@shared/progress';
 import { progressOf } from '@/utils/progress';
 import type { TicketDTO } from '@shared/types';
@@ -20,6 +21,22 @@ const auth = useAuthStore();
 const project = useProjectStore();
 
 const global = computed(() => progressOf(props.ticket));
+/** Sous-tickets : l'avancement peut suivre le leur (réglage du ticket, activé par défaut). */
+const children = computed(() => (project.fieldOn('children') ? project.childrenOf(props.ticket.id) : []));
+const fromChildren = computed(() => children.value.length > 0 && props.ticket.progressFromChildren);
+const fromChildrenHint = computed(() =>
+  props.ticket.progressFromChildren
+    ? t('La progression du ticket suit celle de ses sous-tickets.')
+    : t('La progression du ticket vient de ses parts ou se règle à la main.'),
+);
+
+async function setFromChildren(value: boolean): Promise<void> {
+  try {
+    await project.updateTicket(props.ticket.id, { progressFromChildren: value }, { label: t('Calcul de l’avancement') });
+  } catch (error) {
+    notifyError(error);
+  }
+}
 const summary = computed(() => partsSummary(props.ticket));
 const writable = computed(() => !project.archived);
 const canEditTicket = computed(() => writable.value && project.can('ticket.edit'));
@@ -64,13 +81,19 @@ async function setManualProgress(progress: number): Promise<void> {
 <template>
   <section class="parts">
     <header class="head">
-      <h3 class="title">{{ $t('Avancement') }}</h3>
+      <div class="title-row">
+        <h3 class="title">{{ $t('Avancement') }}</h3>
+        <label v-if="children.length" v-tooltip.top="fromChildrenHint" class="from-children muted">
+          <ToggleSwitch class="mini-switch" :model-value="ticket.progressFromChildren" :disabled="!canEditTicket" :aria-label="$t('Avancement d’après les sous-tickets')" @update:model-value="setFromChildren" />
+          <span>{{ $t('d’après les sous-tickets') }}</span>
+        </label>
+      </div>
       <span v-if="ticket.assignees.length" class="muted small">{{ $t('{done} / {total} part terminée|{done} / {total} parts terminées', { n: summary.total, done: summary.done, total: summary.total }) }}</span>
     </header>
 
     <div class="global">
       <ProgressMeter :value="global" :height="12" />
-      <span class="muted small global-label">{{ $t('Progression globale') }}</span>
+      <span class="muted small global-label">{{ fromChildren ? $t('Progression globale, moyenne des {n} sous-tickets', { n: children.length }) : $t('Progression globale') }}</span>
     </div>
 
     <ul v-if="ticket.assignees.length" class="list">
@@ -108,7 +131,7 @@ async function setManualProgress(progress: number): Promise<void> {
       </li>
     </ul>
 
-    <div v-else class="manual">
+    <div v-else-if="!fromChildren" class="manual">
       <p class="muted small">{{ $t('Aucune personne assignée : l\'avancement se règle à la main.') }}</p>
       <ProgressSlider :model-value="ticket.status === 'done' ? 100 : ticket.progress" :disabled="!canEditTicket" @commit="setManualProgress" />
     </div>
@@ -127,12 +150,31 @@ async function setManualProgress(progress: number): Promise<void> {
 }
 .head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
+}
+.title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
 }
 .title {
   font-size: 0.95rem;
   font-weight: 700;
+}
+.from-children {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.mini-switch {
+  --p-toggleswitch-width: 1.75rem;
+  --p-toggleswitch-height: 1rem;
+  --p-toggleswitch-handle-size: 0.7rem;
 }
 .global {
   display: flex;

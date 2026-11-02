@@ -219,6 +219,12 @@ curl -s -X PATCH $FASTBOARD/api/tickets/15 -H "Authorization: Bearer $TOKEN" -H 
 
 Les sous-tickets d'un ticket sont ceux dont `parentId` vaut son identifiant (`GET /projects/{id}` → `tickets`). Règles : même projet, un seul niveau (un sous-ticket n'a pas de sous-tickets, un ticket qui en a ne peut pas en devenir un). Supprimer le parent ou le déplacer dans un autre projet détache ses sous-tickets, qui restent.
 
+L'avancement d'un ticket qui a des sous-tickets est, par défaut, la moyenne de l'avancement de ses sous-tickets (un parent dans une colonne « terminée » vaut toujours 100 %). Le champ `progressFromChildren` (vrai par défaut) règle ce calcul ticket par ticket ; `false` rend au ticket son avancement propre (parts des assignés ou valeur manuelle) :
+
+```bash
+curl -s -X PATCH $FASTBOARD/api/tickets/12 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "progressFromChildren": false }'
+```
+
 ### Dépendances entre tickets
 
 ```bash

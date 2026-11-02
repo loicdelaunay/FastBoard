@@ -19,6 +19,7 @@ export const FIELD_LABELS: Record<HistoryChange['field'], string> = {
   progress: t("l'avancement"),
   parent: t('le ticket parent'),
   custom: t('un champ personnalisé'),
+  progressFromChildren: t('le calcul de l’avancement'),
 };
 
 /** Libellé du champ modifié (« le titre », ou « Budget » pour un champ personnalisé). */
@@ -42,6 +43,8 @@ export function formatChangeValue(change: HistoryChange, side: 'from' | 'to'): s
       return `${value} %`;
     case 'description':
       return plainText(String(value));
+    case 'progressFromChildren':
+      return value === 'true' ? t('d’après les sous-tickets') : t('propre au ticket');
     case 'custom':
       if (change.customType === 'checkbox') return value === 'true' ? t('coché') : t('non coché');
       if (change.customType === 'date') return formatDateShort(String(value), true);

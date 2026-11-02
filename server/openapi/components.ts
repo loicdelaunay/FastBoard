@@ -205,6 +205,7 @@ export const componentSchemas: Record<string, Schema> = {
     componentIds: arr(int()),
     parentId: nullable(int("Ticket parent quand c'est un sous-ticket (même projet, un seul niveau).")),
     customFields: { type: 'object', description: 'Valeurs des champs personnalisés du projet : `{ <id cf_…>: valeur }` (voir `settings.customFields`).' },
+    progressFromChildren: bool('Avec des sous-tickets : l’avancement est la moyenne du leur (vrai par défaut).'),
     deliveryId: nullable(int('Livraison ciblée.')),
     initialDeliveryId: nullable(int('Première livraison ciblée (repère les tickets reportés).')),
     startDate: nullable(date()),

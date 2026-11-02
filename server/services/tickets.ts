@@ -31,6 +31,8 @@ export interface CreateTicketInput {
   parentId?: number | null;
   /** Champs personnalisés : fusionnés avec les valeurs actuelles, `null` efface. */
   customFields?: Record<string, unknown>;
+  /** Avec des sous-tickets : l'avancement suit le leur. */
+  progressFromChildren?: boolean;
 }
 
 export type UpdateTicketInput = Partial<CreateTicketInput>;
@@ -74,6 +76,7 @@ function toTicketDTO(row: TicketRow, extras: TicketExtras): TicketDTO {
     componentIds: extras.componentIds,
     parentId: row.parent_id,
     customFields: parseCustomFields(row.custom_fields),
+    progressFromChildren: row.progress_from_children !== 0,
     deliveryId: row.delivery_id,
     initialDeliveryId: row.initial_delivery_id,
     startDate: row.start_date,
@@ -561,8 +564,8 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
     const now = nowIso();
     const { lastInsertRowid } = db.run(
       `INSERT INTO tickets (project_id, number, title, description, status, category_id, priority_id, delivery_id, initial_delivery_id,
-                            start_date, end_date, progress, position, created_by, created_at, updated_at, completed_at, status_changed_at, parent_id, custom_fields)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            start_date, end_date, progress, position, created_by, created_at, updated_at, completed_at, status_changed_at, parent_id, custom_fields, progress_from_children)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       projectId,
       sequence.ticket_seq,
       input.title,
@@ -583,6 +586,7 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
       now,
       input.parentId ?? null,
       JSON.stringify(custom),
+      input.progressFromChildren === false ? 0 : 1,
     );
     if (input.componentIds?.length) {
       replaceComponents(db, lastInsertRowid, projectId, input.componentIds);
@@ -688,6 +692,10 @@ export function updateTicket(ctx: AppContext, actor: Actor, ticketId: number, in
         sets.custom_fields = JSON.stringify(custom.next);
         changes.push(...custom.changes);
       }
+    }
+    if (input.progressFromChildren !== undefined && input.progressFromChildren !== (row.progress_from_children !== 0)) {
+      sets.progress_from_children = input.progressFromChildren ? 1 : 0;
+      changes.push({ field: 'progressFromChildren', from: row.progress_from_children !== 0 ? 'true' : 'false', to: input.progressFromChildren ? 'true' : 'false' });
     }
     if (input.progress !== undefined && input.progress !== row.progress) {
       sets.progress = input.progress;

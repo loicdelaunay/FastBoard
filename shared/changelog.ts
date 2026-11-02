@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '1.7.1';
+export const APP_VERSION = '1.8.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,13 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '1.8.0',
+    date: '2026-11-02',
+    changes: [
+      { category: 'Nouveauté', text: 'Ticket avec des sous-tickets : son avancement suit celui de ses sous-tickets (réglable dans l’Avancement du ticket, activé par défaut).' },
+    ],
+  },
   {
     version: '1.7.1',
     date: '2026-10-29',

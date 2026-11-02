@@ -1,6 +1,6 @@
 import { DEFAULT_CATEGORIES, DEFAULT_PRIORITIES } from '../../shared/constants.ts';
 import { suggestProjectKey } from '../../shared/projectKey.ts';
-import { ticketProgress } from '../../shared/progress.ts';
+import { childrenByParent, ticketProgress } from '../../shared/progress.ts';
 import { diffDays, todayISO } from '../../shared/dates.ts';
 import type {
   NameRef,
@@ -103,6 +103,8 @@ export function listProjectSummaries(db: Db, user: AuthUser): ProjectSummaryDTO[
     .map((row) => {
     const tickets = listTicketDTOs(db, row.id);
     const complete = parseSettings(row.settings).completeStatuses;
+    const children = childrenByParent(tickets);
+    const progressOf = (ticket: (typeof tickets)[number]) => ticketProgress(ticket, complete, children.get(ticket.id));
     const today = todayISO();
     const delivery = db.get<DeliveryRow>('SELECT * FROM deliveries WHERE project_id = ? AND start_date <= ? AND end_date >= ? ORDER BY end_date, id LIMIT 1', row.id, today, today);
     let currentDelivery: ProjectSummaryDTO['currentDelivery'] = null;
@@ -115,7 +117,7 @@ export function listProjectSummaries(db: Db, user: AuthUser): ProjectSummaryDTO[
         color: delivery.color,
         startDate: delivery.start_date,
         endDate: delivery.end_date,
-        progress: own.length ? Math.round(own.reduce((sum, ticket) => sum + ticketProgress(ticket, complete), 0) / own.length) : 0,
+        progress: own.length ? Math.round(own.reduce((sum, ticket) => sum + progressOf(ticket), 0) / own.length) : 0,
         timeElapsed: Math.min(100, Math.round(((diffDays(delivery.start_date, today) + 1) / total) * 100)),
         ticketCount: own.length,
         doneCount: own.filter((ticket) => complete.includes(ticket.status) || ticket.status === 'done').length,
@@ -123,7 +125,7 @@ export function listProjectSummaries(db: Db, user: AuthUser): ProjectSummaryDTO[
       };
     }
     const progress = tickets.length
-      ? Math.round(tickets.reduce((sum, ticket) => sum + ticketProgress(ticket, complete), 0) / tickets.length)
+      ? Math.round(tickets.reduce((sum, ticket) => sum + progressOf(ticket), 0) / tickets.length)
       : 0;
     const { users } = listMembers(db, row.id);
     return {

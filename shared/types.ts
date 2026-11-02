@@ -185,6 +185,8 @@ export interface TicketDTO {
   parentId: number | null;
   /** Valeurs des champs personnalisés du projet, par identifiant de champ (`cf_…`). */
   customFields: Record<string, CustomFieldValue>;
+  /** Avec des sous-tickets : l'avancement suit le leur (vrai par défaut). */
+  progressFromChildren: boolean;
   startDate: string | null;
   endDate: string | null;
   /** Avancement saisi à la main (utilisé quand le ticket n'a aucun assigné). */
@@ -251,7 +253,8 @@ export type HistoryField =
   | 'priority'
   | 'components'
   | 'parent'
-  | 'custom';
+  | 'custom'
+  | 'progressFromChildren';
 
 export interface HistoryChange {
   field: HistoryField;

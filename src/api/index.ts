@@ -57,6 +57,8 @@ export interface TicketInput {
   parentId?: number | null;
   /** Champs personnalisés : `{ <id>: valeur }`, fusionnés ; `null` efface. */
   customFields?: Record<string, CustomFieldValue | null>;
+  /** Avec des sous-tickets : l'avancement suit le leur. */
+  progressFromChildren?: boolean;
 }
 
 /** Fournisseur d'IA tel qu'envoyé par l'administration (sans `id` : nouveau). */

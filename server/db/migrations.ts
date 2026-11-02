@@ -474,6 +474,11 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE INDEX idx_activity_comments_activity ON activity_comments (activity_id, id);
     `);
   },
+
+  // v14 : avancement d'un ticket parent calculé d'après ses sous-tickets (réglable par ticket, activé par défaut).
+  (db) => {
+    db.exec('ALTER TABLE tickets ADD COLUMN progress_from_children INTEGER NOT NULL DEFAULT 1');
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

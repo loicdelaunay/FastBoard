@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AiChangeDTO, AiTicketFields } from '../../shared/ai.ts';
 import { STATUS_META, TICKET_STATUSES, isTicketStatus, type TicketStatus } from '../../shared/constants.ts';
-import { ticketProgress } from '../../shared/progress.ts';
+import { childrenByParent, ticketProgress } from '../../shared/progress.ts';
 import type { TicketDTO } from '../../shared/types.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { HttpError, badRequest, forbidden, notFound } from '../http/errors.ts';
@@ -100,6 +100,8 @@ interface Names {
   complete: readonly TicketStatus[];
   /** Champs personnalisés du projet. */
   custom: Array<{ id: string; label: string; type: string }>;
+  /** Sous-tickets de chaque parent (avancement des parents). */
+  children: Map<number, TicketDTO[]>;
 }
 
 function namesOf(tool: ToolContext, access: ProjectAccess): Names {
@@ -114,6 +116,7 @@ function namesOf(tool: ToolContext, access: ProjectAccess): Names {
     deliveries: new Map(snapshot.deliveries.map((entry) => [entry.id, entry.name])),
     complete: snapshot.project.settings.completeStatuses,
     custom: snapshot.project.settings.customFields,
+    children: childrenByParent(snapshot.tickets),
   };
 }
 
@@ -125,7 +128,7 @@ function ticketLine(ticket: TicketDTO, names: Names) {
     status: `${ticket.status} (${names.columns.get(ticket.status) ?? STATUS_META[ticket.status].label})`,
     priority: ticket.priorityId ? (names.priorities.get(ticket.priorityId) ?? null) : null,
     assignees: ticket.assignees.map((assignee) => names.users.get(assignee.userId) ?? `#${assignee.userId}`),
-    progress: ticketProgress(ticket, names.complete),
+    progress: ticketProgress(ticket, names.complete, names.children.get(ticket.id)),
     endDate: ticket.endDate,
     delivery: ticket.deliveryId ? (names.deliveries.get(ticket.deliveryId) ?? null) : null,
   };
