@@ -376,6 +376,19 @@ export const aiChatSchema = z.object({
           .array(z.string().max(AI_LIMITS.imageChars).regex(/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/, 'Image invalide (PNG, JPEG, WebP ou GIF en base64).'))
           .max(AI_LIMITS.imagesPerMessage)
           .optional(),
+        files: z
+          .array(
+            z.object({
+              name: z.string().trim().min(1).max(255),
+              type: z.string().max(200).default(''),
+              text: z.string().max(AI_LIMITS.fileChars),
+              pages: z.number().int().positive().max(100_000).optional(),
+              truncated: z.boolean().optional(),
+            }),
+          )
+          .max(AI_LIMITS.filesPerMessage)
+          .optional()
+          .describe('Fichiers joints : texte extrait par l’interface (CSV, PDF, texte…), envoyé à tous les modèles.'),
       }),
     )
     .min(1)

@@ -10,6 +10,7 @@ import { enV16 } from './en.v16.ts';
 import { enV17 } from './en.v17.ts';
 import { enV18 } from './en.v18.ts';
 import { enV19 } from './en.v19.ts';
+import { enV20 } from './en.v20.ts';
 
 /** Catalogue anglais : clé = texte français (voir `index.ts`). */
-export const en: Record<string, string> = { ...enA, ...enB, ...enC, ...enPdf, ...enV11, ...enV12, ...enV13, ...enV14, ...enV15, ...enV16, ...enV17, ...enV18, ...enV19 };
+export const en: Record<string, string> = { ...enA, ...enB, ...enC, ...enPdf, ...enV11, ...enV12, ...enV13, ...enV14, ...enV15, ...enV16, ...enV17, ...enV18, ...enV19, ...enV20 };

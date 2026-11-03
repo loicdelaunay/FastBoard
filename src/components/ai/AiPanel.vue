@@ -6,9 +6,10 @@ import Popover from 'primevue/popover';
 import Select from 'primevue/select';
 import SelectButton from 'primevue/selectbutton';
 import ToggleSwitch from 'primevue/toggleswitch';
-import { AI_LIMITS, REASONING_LEVELS, type AiWriteMode, type ReasoningLevel } from '@shared/ai';
+import { AI_LIMITS, REASONING_LEVELS, type AiFile, type AiWriteMode, type ReasoningLevel } from '@shared/ai';
+import { AI_FILE_ACCEPT, fileIcon, fileInfo, isImage, readForAi } from '@/utils/aiFiles';
 import { imageToDataUrl } from '@/utils/image';
-import { notifyError } from '@/utils/notify';
+import { notify, notifyError } from '@/utils/notify';
 import MarkdownView from '@/components/common/MarkdownView.vue';
 import AiChanges from './AiChanges.vue';
 import AiHistory from './AiHistory.vue';
@@ -37,6 +38,10 @@ const router = useRouter();
 
 const input = ref('');
 const images = ref<string[]>([]);
+const files = ref<AiFile[]>([]);
+/** Fichiers en cours de lecture (extraction du texte d'un PDF…). */
+const reading = ref(0);
+const dragging = ref(false);
 const picker = ref<HTMLInputElement | null>(null);
 const settingsPanel = ref<InstanceType<typeof Popover> | null>(null);
 const showHistory = ref(false);
@@ -59,29 +64,69 @@ const modelOptions = computed(() => {
 });
 const formatTokens = (value: number) => (value >= 1_000_000 ? `${Math.round(value / 100_000) / 10} M` : `${Math.round(value / 1_000)} k`);
 
-async function addImages(files: Blob[]): Promise<void> {
-  if (!ai.model?.vision) return;
-  for (const file of files.filter((entry) => entry.type.startsWith('image/')).slice(0, AI_LIMITS.imagesPerMessage - images.value.length)) {
+/** Joint des fichiers : images (modèles avec vision), PDF, CSV et autres fichiers texte, dont le texte est extrait ici. */
+async function addFiles(list: File[]): Promise<void> {
+  for (const file of list) {
+    if (isImage(file)) {
+      if (!ai.model?.vision) {
+        notify('warn', t('Image non jointe'), t('Ce modèle ne lit pas les images : choisissez un modèle avec vision dans les réglages.'));
+      } else if (images.value.length >= AI_LIMITS.imagesPerMessage) {
+        notify('warn', t('Image non jointe'), t('{n} images au plus par message.', { n: AI_LIMITS.imagesPerMessage }));
+      } else {
+        try {
+          images.value.push(await imageToDataUrl(file));
+        } catch (error) {
+          notifyError(error, t('Image non jointe'));
+        }
+      }
+      continue;
+    }
+    if (files.value.length + reading.value >= AI_LIMITS.filesPerMessage) {
+      notify('warn', t('Fichier non joint'), t('{n} fichiers au plus par message.', { n: AI_LIMITS.filesPerMessage }));
+      continue;
+    }
+    reading.value += 1;
     try {
-      images.value.push(await imageToDataUrl(file));
+      const read = await readForAi(file, ai.model?.vision ? AI_LIMITS.imagesPerMessage - images.value.length : 0);
+      files.value.push(read.file);
+      images.value.push(...read.images);
     } catch (error) {
-      notifyError(error, t('Image non jointe'));
+      notifyError(error, t('Fichier non joint'));
+    } finally {
+      reading.value -= 1;
     }
   }
 }
 
 function onPick(event: Event): void {
   const element = event.target as HTMLInputElement;
-  void addImages(Array.from(element.files ?? []));
+  void addFiles(Array.from(element.files ?? []));
   element.value = '';
 }
 
 function onPaste(event: ClipboardEvent): void {
-  const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith('image/'));
-  if (files.length && ai.model?.vision) {
+  const pasted = Array.from(event.clipboardData?.files ?? []);
+  if (pasted.length) {
     event.preventDefault();
-    void addImages(files);
+    void addFiles(pasted);
   }
+}
+
+// --- Glisser-déposer des fichiers sur le panneau ---
+const carriesFiles = (event: DragEvent) => Boolean(event.dataTransfer?.types.includes('Files'));
+function onDragOver(event: DragEvent): void {
+  if (!carriesFiles(event) || !canRead.value) return;
+  event.preventDefault();
+  dragging.value = true;
+}
+function onDragLeave(event: DragEvent): void {
+  if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) dragging.value = false;
+}
+function onDrop(event: DragEvent): void {
+  dragging.value = false;
+  if (!carriesFiles(event) || !canRead.value) return;
+  event.preventDefault();
+  void addFiles(Array.from(event.dataTransfer?.files ?? []));
 }
 const list = ref<HTMLElement | null>(null);
 const field = ref<HTMLTextAreaElement | null>(null);
@@ -149,12 +194,15 @@ watch(
 // Un modèle sans vision ne reçoit pas d'images.
 watch(() => ai.model?.vision, (vision) => !vision && (images.value = []));
 
+const hasAttachments = computed(() => images.value.length > 0 || files.value.length > 0);
+
 function send(text = input.value): void {
-  if ((!text.trim() && !images.value.length) || ai.busy || !canRead.value) return;
+  if ((!text.trim() && !hasAttachments.value) || ai.busy || reading.value || !canRead.value) return;
   showHistory.value = false;
-  void ai.send(text, context.value, canWrite.value, images.value);
+  void ai.send(text, context.value, canWrite.value, images.value, files.value);
   input.value = '';
   images.value = [];
+  files.value = [];
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -235,7 +283,12 @@ onBeforeUnmount(() => (resizing.value = false));
         <AiHistory />
       </aside>
 
-      <div class="main">
+      <div class="main" @dragenter="onDragOver" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
+        <div v-if="dragging" class="drop-zone" aria-hidden="true">
+          <i class="pi pi-paperclip"></i>
+          <strong>{{ $t('Déposez vos fichiers ici') }}</strong>
+          <span class="muted small">{{ ai.model?.vision ? $t('PDF, CSV, fichiers texte ou images') : $t('PDF, CSV ou fichiers texte') }}</span>
+        </div>
         <header class="head">
           <div class="title">
             <span class="glyph" aria-hidden="true"><i class="pi pi-sparkles"></i></span>
@@ -310,6 +363,13 @@ onBeforeUnmount(() => (resizing.value = false));
             <div v-if="turn.role === 'user'" class="bubble user">
               <div v-if="turn.images?.length" class="thumbs"><img v-for="(src, imageIndex) in turn.images" :key="imageIndex" :src="src" alt="" /></div>
               <span v-else-if="turn.imageCount" class="muted small image-count"><i class="pi pi-image"></i> {{ $t('{n} image jointe|{n} images jointes', { n: turn.imageCount }) }}</span>
+              <div v-if="turn.files?.length" class="file-chips">
+                <span v-for="(file, fileIndex) in turn.files" :key="fileIndex" v-tooltip.top="file.dropped ? $t('Contenu non conservé dans l’historique') : undefined" class="file-chip" :class="{ dropped: file.dropped }">
+                  <i :class="fileIcon(file)"></i>
+                  <span class="file-name truncate">{{ file.name }}</span>
+                  <span v-if="!file.dropped && fileInfo(file)" class="file-info">{{ fileInfo(file) }}</span>
+                </span>
+              </div>
               {{ turn.content }}
             </div>
             <div v-else class="bubble assistant">
@@ -323,15 +383,33 @@ onBeforeUnmount(() => (resizing.value = false));
           </template>
         </div>
 
-        <div v-if="images.length" class="pending">
-          <span v-for="(src, index) in images" :key="index" class="pending-image">
+        <div v-if="hasAttachments || reading" class="pending">
+          <span v-for="(file, index) in files" :key="`f${index}`" class="pending-file" :title="file.name">
+            <i :class="fileIcon(file)"></i>
+            <span class="pending-file-text">
+              <span class="file-name truncate">{{ file.name }}</span>
+              <span class="file-info">{{ fileInfo(file) }}</span>
+            </span>
+            <button type="button" :aria-label="$t('Retirer le fichier')" @click="files.splice(index, 1)"><i class="pi pi-times"></i></button>
+          </span>
+          <span v-if="reading" class="pending-file reading"><i class="pi pi-spin pi-spinner"></i> {{ $t('Lecture du fichier…') }}</span>
+          <span v-for="(src, index) in images" :key="`i${index}`" class="pending-image">
             <img :src="src" alt="" />
             <button type="button" :aria-label="$t('Retirer l’image')" @click="images.splice(index, 1)"><i class="pi pi-times"></i></button>
           </span>
         </div>
         <form class="composer" @submit.prevent="send()">
-          <button v-if="ai.model?.vision" v-tooltip.top="$t('Joindre une image (ou collez-la)')" type="button" class="attach" :disabled="images.length >= AI_LIMITS.imagesPerMessage" :aria-label="$t('Joindre une image')" @click="picker?.click()"><i class="pi pi-image"></i></button>
-          <input ref="picker" type="file" accept="image/*" multiple class="file" @change="onPick" />
+          <button
+            v-tooltip.top="ai.model?.vision ? $t('Joindre des fichiers : PDF, CSV, texte ou images (ou collez-les, glissez-les)') : $t('Joindre des fichiers : PDF, CSV ou texte (ou collez-les, glissez-les)')"
+            type="button"
+            class="attach"
+            :disabled="!canRead || (files.length + reading >= AI_LIMITS.filesPerMessage && (!ai.model?.vision || images.length >= AI_LIMITS.imagesPerMessage))"
+            :aria-label="$t('Joindre des fichiers')"
+            @click="picker?.click()"
+          >
+            <i class="pi pi-paperclip"></i>
+          </button>
+          <input ref="picker" type="file" :accept="ai.model?.vision ? `image/*,${AI_FILE_ACCEPT}` : AI_FILE_ACCEPT" multiple class="file" @change="onPick" />
           <textarea
             ref="field"
             v-model="input"
@@ -344,7 +422,7 @@ onBeforeUnmount(() => (resizing.value = false));
             @paste="onPaste"
           ></textarea>
           <Button v-if="ai.busy" type="button" icon="pi pi-stop-circle" rounded severity="secondary" :aria-label="$t('Arrêter')" @click="ai.stop()" />
-          <Button v-else type="submit" icon="pi pi-send" rounded class="send" :disabled="(!input.trim() && !images.length) || !canRead" :aria-label="$t('Envoyer')" />
+          <Button v-else type="submit" icon="pi pi-send" rounded class="send" :disabled="(!input.trim() && !hasAttachments) || reading > 0 || !canRead" :aria-label="$t('Envoyer')" />
         </form>
         <p class="disclaimer muted">{{ $t('L’IA peut se tromper : vérifiez les informations importantes. Ses modifications apparaissent « via Assistant IA ».') }}</p>
       </div>
@@ -407,11 +485,30 @@ onBeforeUnmount(() => (resizing.value = false));
   overflow-y: auto;
 }
 .main {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+.drop-zone {
+  position: absolute;
+  inset: 0.5rem;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border: 2px dashed #a95cff;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--fb-panel) 88%, #a95cff);
+  pointer-events: none;
+}
+.drop-zone .pi {
+  color: #a95cff;
+  font-size: 1.6rem;
 }
 .resize {
   position: absolute;
@@ -649,8 +746,65 @@ onBeforeUnmount(() => (resizing.value = false));
 }
 .pending {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.4rem;
   margin: 0 0.75rem 0.4rem;
+}
+.pending-file {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 14rem;
+  height: 3.4rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--fb-border);
+  border-radius: 8px;
+  background: var(--fb-panel-alt);
+  font-size: 0.78rem;
+}
+.pending-file > .pi {
+  color: #a95cff;
+  font-size: 1.1rem;
+}
+.pending-file.reading {
+  color: var(--fb-muted);
+}
+.pending-file-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.file-name {
+  font-weight: 600;
+}
+.file-info {
+  color: var(--fb-muted);
+  font-size: 0.7rem;
+}
+.file-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.35rem;
+  white-space: normal;
+}
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.2rem 0.55rem;
+  border-radius: 8px;
+  background: var(--fb-panel);
+  font-size: 0.75rem;
+}
+.file-chip.dropped {
+  opacity: 0.6;
+}
+.file-chip .pi {
+  color: #a95cff;
 }
 .pending-image {
   position: relative;
@@ -662,6 +816,7 @@ onBeforeUnmount(() => (resizing.value = false));
   object-fit: cover;
   border: 1px solid var(--fb-border);
 }
+.pending-file button,
 .pending-image button {
   position: absolute;
   top: -0.35rem;

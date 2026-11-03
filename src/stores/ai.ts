@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import type { AiChangeDTO, AiContext, AiConversationSummaryDTO, AiMessage, AiModelChoiceDTO, AiStreamEvent, AiWriteMode, ReasoningLevel } from '@shared/ai';
+import type { AiChangeDTO, AiContext, AiConversationSummaryDTO, AiFile, AiMessage, AiModelChoiceDTO, AiStreamEvent, AiWriteMode, ReasoningLevel } from '@shared/ai';
 import { api } from '@/api';
 import { httpHeaders } from '@/api/http';
 import { translateServerMessage } from '@/i18n/server';
@@ -19,6 +19,11 @@ export interface AiStep {
   text?: string;
 }
 
+/** Fichier joint à un message ; `dropped` : contenu non conservé (conversation enregistrée trop lourde). */
+export interface AiTurnFile extends AiFile {
+  dropped?: boolean;
+}
+
 export interface AiTurn {
   id: number;
   role: 'user' | 'assistant';
@@ -26,6 +31,7 @@ export interface AiTurn {
   images?: string[];
   /** Images jointes non conservées dans l'historique enregistré. */
   imageCount?: number;
+  files?: AiTurnFile[];
   /** Modèle qui a répondu. */
   model?: string;
   steps: AiStep[];
@@ -36,6 +42,10 @@ export interface AiTurn {
 }
 
 const PREFS_KEY = 'fb.ai.prefs';
+/** Pièces jointes renvoyées avec l'historique (les plus récentes d'abord), pour rester sous la limite d'une requête. */
+const HISTORY_ATTACHMENT_CHARS = 8_000_000;
+/** Texte des fichiers gardé dans une conversation enregistrée (les plus récents d'abord). */
+const SAVED_FILE_CHARS = 1_000_000;
 export const PANEL_WIDTH = { min: 340, max: 1100, default: 420 };
 
 function newConversationId(): string {
@@ -121,11 +131,18 @@ export const useAiStore = defineStore('ai', () => {
   const conversations = ref<AiConversationSummaryDTO[]>([]);
   const historyLoading = ref(false);
 
-  const history = computed<AiMessage[]>(() =>
-    turns.value
+  const history = computed<AiMessage[]>(() => {
+    let room = HISTORY_ATTACHMENT_CHARS;
+    return turns.value
       .filter((turn) => turn.content && !turn.error)
-      .map((turn) => ({ role: turn.role, content: turn.content, ...(turn.images?.length ? { images: turn.images } : {}) })),
-  );
+      .reverse()
+      .map((turn) => {
+        const files = (turn.files ?? []).filter((file) => !file.dropped && (room -= file.text.length) >= 0).map(({ dropped: _, ...file }) => file);
+        const images = (turn.images ?? []).filter((url) => (room -= url.length) >= 0);
+        return { role: turn.role, content: turn.content, ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) };
+      })
+      .reverse();
+  });
 
   function toggle(value = !open.value): void {
     open.value = value;
@@ -178,11 +195,19 @@ export const useAiStore = defineStore('ai', () => {
     }
   }
 
-  /** Enregistre la conversation (sans les images, trop lourdes : leur nombre est gardé). */
+  /** Enregistre la conversation : sans les images, trop lourdes (leur nombre est gardé), ni le texte des fichiers les plus anciens au-delà d'un plafond. */
   async function persist(): Promise<void> {
     const first = turns.value.find((turn) => turn.role === 'user');
     if (!first) return;
-    const saved = turns.value.map(({ images, ...turn }) => ({ ...turn, ...(images?.length ? { imageCount: images.length } : {}) }));
+    let room = SAVED_FILE_CHARS;
+    const saved = [...turns.value]
+      .reverse()
+      .map(({ images, files, ...turn }) => ({
+        ...turn,
+        ...(images?.length ? { imageCount: images.length } : {}),
+        ...(files?.length ? { files: files.map((file) => (file.dropped || (room -= file.text.length) >= 0 ? file : { ...file, text: '', dropped: true })) } : {}),
+      }))
+      .reverse();
     const title = first.content.replace(/\s+/g, ' ').trim().slice(0, 100) || t('Conversation');
     try {
       const { conversation } = await api.aiSaveConversation(conversationId.value, { title, context: conversationContext.value, turns: saved });
@@ -192,13 +217,14 @@ export const useAiStore = defineStore('ai', () => {
     }
   }
 
-  async function send(text: string, context: AiContext, canWrite: boolean, images: string[] = []): Promise<void> {
-    const content = text.trim() || (images.length ? t('Que vois-tu sur cette image ?') : '');
+  async function send(text: string, context: AiContext, canWrite: boolean, images: string[] = [], files: AiFile[] = []): Promise<void> {
+    const content =
+      text.trim() || (files.length ? t('Analyse le fichier joint.|Analyse les fichiers joints.', { n: files.length }) : images.length ? t('Que vois-tu sur cette image ?') : '');
     if (!content || busy.value) return;
     const attached = model.value?.vision ? images : [];
-    const messages: AiMessage[] = [...history.value, { role: 'user', content, ...(attached.length ? { images: attached } : {}) }];
+    const messages: AiMessage[] = [...history.value, { role: 'user', content, ...(attached.length ? { images: attached } : {}), ...(files.length ? { files } : {}) }];
     if (!turns.value.length) conversationContext.value = { projectId: context.projectId ?? null, ticketId: context.ticketId ?? null };
-    turns.value.push({ id: nextId++, role: 'user', content, images: attached, steps: [] });
+    turns.value.push({ id: nextId++, role: 'user', content, images: attached, ...(files.length ? { files } : {}), steps: [] });
     turns.value.push({ id: nextId++, role: 'assistant', content: '', steps: [], edits: [] });
     // L'objet réactif (et non l'objet brut) : ses modifications pendant le flux s'affichent.
     const answer = turns.value[turns.value.length - 1]!;

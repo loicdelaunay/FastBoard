@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '1.9.0';
+export const APP_VERSION = '1.10.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,16 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '1.10.0',
+    date: '2026-11-03',
+    changes: [
+      {
+        category: 'Nouveauté',
+        text: 'Assistant IA : joignez des fichiers à vos questions (PDF, CSV, texte, JSON…) avec le trombone, en les glissant sur le panneau ou en les collant ; leur texte est lu par tous les modèles, et un PDF scanné est lu en images par un modèle avec vision.',
+      },
+    ],
+  },
   {
     version: '1.9.0',
     date: '2026-11-03',

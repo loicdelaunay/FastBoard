@@ -71,11 +71,26 @@ export interface DetectedModelDTO extends AiModelDTO {
   ownedBy: string | null;
 }
 
+/** Fichier joint à un message : son texte, extrait dans le navigateur (CSV, PDF, texte, JSON…). */
+export interface AiFile {
+  name: string;
+  /** Type MIME d'origine (ex. `text/csv`, `application/pdf`), vide s'il est inconnu. */
+  type: string;
+  /** Contenu texte, au plus `AI_LIMITS.fileChars` caractères. */
+  text: string;
+  /** Nombre de pages (PDF). */
+  pages?: number;
+  /** Le texte a été coupé (fichier trop long). */
+  truncated?: boolean;
+}
+
 export interface AiMessage {
   role: 'user' | 'assistant';
   content: string;
   /** Images jointes (URL `data:image/…;base64,…`), envoyées seulement aux modèles avec vision. */
   images?: string[];
+  /** Fichiers joints (texte extrait), envoyés à tous les modèles. */
+  files?: AiFile[];
 }
 
 /** Contexte ouvert dans l'interface : le projet et, le cas échéant, le ticket affichés. */
@@ -167,6 +182,11 @@ export const AI_LIMITS = {
   imagesPerMessage: 4,
   /** Taille maximale d'une image jointe (URL data, en caractères). */
   imageChars: 3_000_000,
+  filesPerMessage: 5,
+  /** Texte gardé par fichier joint (en caractères). */
+  fileChars: 200_000,
+  /** Taille maximale d'un fichier choisi dans le panneau (en octets), avant extraction du texte. */
+  fileBytes: 25 * 1024 * 1024,
   models: 50,
   providers: 10,
   /** Conversations gardées par personne. */
