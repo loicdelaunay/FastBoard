@@ -168,3 +168,10 @@ npm run build       # contrôle des types puis build de production
 - Le **Gantt est développé sur mesure** (Vue, sans bibliothèque) : il s'intègre au temps réel, aux thèmes et aux permissions, affiche les semaines ISO et se pilote au clavier.
 - Les images de profil sont stockées dans SQLite (réduites à 256 px côté navigateur, PNG/JPEG/WebP uniquement).
 - L'annuaire des utilisateurs (pour inviter) est visible de tout compte connecté : adaptez `GET /api/users` si ce n'est pas souhaité.
+
+## Licence
+
+FastBoard est distribué sous **licence MIT** : vous pouvez l'utiliser, le modifier et le redistribuer librement, y compris
+à des fins commerciales, en conservant la mention de copyright (voir [LICENSE](LICENSE)). Les dépendances gardent leur
+propre licence (MIT, ISC, BSD et Apache 2.0 pour l'essentiel ; `elkjs`, embarqué par Mermaid pour la mise en page des
+diagrammes, est sous EPL 2.0).
