@@ -49,7 +49,10 @@ const merged = computed(() => {
   <section class="chart-card card">
     <header class="head">
       <h3 class="title">{{ title }}</h3>
-      <span v-if="subtitle" class="muted small">{{ subtitle }}</span>
+      <div class="aside">
+        <span v-if="subtitle" class="muted small">{{ subtitle }}</span>
+        <slot name="actions" />
+      </div>
     </header>
     <div class="canvas" :style="{ height: `${height}px` }">
       <p v-if="empty" class="empty muted">{{ $t('Pas encore de données.') }}</p>
@@ -75,6 +78,13 @@ const merged = computed(() => {
 .title {
   font-size: 0.95rem;
   font-weight: 700;
+}
+.aside {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem 0.75rem;
 }
 .canvas {
   position: relative;

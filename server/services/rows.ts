@@ -90,6 +90,8 @@ export interface TicketRow {
   custom_fields: string;
   /** 1 : l'avancement suit celui des sous-tickets. */
   progress_from_children: number;
+  /** Rattachement à la livraison actuelle (NULL sans livraison). */
+  delivery_set_at: string | null;
   status_changed_at: string | null;
   start_date: string | null;
   end_date: string | null;

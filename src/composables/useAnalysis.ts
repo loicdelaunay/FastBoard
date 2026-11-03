@@ -1,6 +1,7 @@
-import { computed, type Ref } from 'vue';
+import { computed, ref, watch, type Ref } from 'vue';
 import { TICKET_STATUSES, type TicketStatus } from '@shared/constants';
-import { addDays, diffDays, toDayNumber, todayISO } from '@shared/dates';
+import { burndownSeries, type BurndownSeries } from '@shared/burndown';
+import { diffDays, toDayNumber, todayISO } from '@shared/dates';
 import { progressOf } from '@/utils/progress';
 import type { DeliveryDTO, TicketDTO, UserSummaryDTO } from '@shared/types';
 import { useProjectStore } from '@/stores/project';
@@ -8,6 +9,29 @@ import { dueDate, isOverdue } from '@/utils/tickets';
 
 import { t } from '@/i18n';
 export type AnalysisScope = 'all' | number;
+
+const ADDED_STORAGE_KEY = 'fastboard.burndown.added';
+
+function storedShowAdded(): boolean {
+  try {
+    return localStorage.getItem(ADDED_STORAGE_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Burn-down : un ticket ajouté en cours de période (créé, ou rattaché à la livraison analysée) fait remonter la courbe
+ * le jour de son ajout, avec des barres qui comptent les ajouts. Préférence de chaque utilisateur, activée par défaut.
+ */
+export const burndownShowsAdded = ref(storedShowAdded());
+watch(burndownShowsAdded, (value) => {
+  try {
+    localStorage.setItem(ADDED_STORAGE_KEY, value ? '1' : '0');
+  } catch {
+    // Stockage indisponible (navigation privée) : réglage gardé pour la session.
+  }
+});
 
 export interface Alert {
   id: string;
@@ -36,15 +60,6 @@ export interface WorkloadRow {
   waiting: number;
 }
 
-export interface BurndownSeries {
-  labels: string[];
-  ideal: Array<number | null>;
-  actual: Array<number | null>;
-  /** Reste à faire en comptant les tickets « À tester » comme faits (à partir du jour où ils y sont arrivés). */
-  withReview: Array<number | null>;
-  /** Des tickets sont « À tester » : la courbe orange apporte quelque chose. */
-  hasReview: boolean;
-}
 
 const clampPercent = (value: number): number => Math.min(100, Math.max(0, Math.round(value)));
 
@@ -53,6 +68,7 @@ function localDay(iso: string): string {
   return todayISO(new Date(iso));
 }
 
+
 /** Indicateurs de pilotage d'un périmètre (tout le projet ou une livraison). */
 export function useAnalysis(scope: Ref<AnalysisScope>) {
   const project = useProjectStore();
@@ -60,6 +76,10 @@ export function useAnalysis(scope: Ref<AnalysisScope>) {
 
   const delivery = computed<DeliveryDTO | null>(() => (scope.value === 'all' ? null : (project.deliveriesById.get(scope.value) ?? null)));
   const tickets = computed(() => (scope.value === 'all' ? project.tickets : project.tickets.filter((ticket) => ticket.deliveryId === scope.value)));
+
+  /** Jour d'ajout d'un ticket au périmètre : rattachement à la livraison analysée, sinon création. */
+  const addedDay = (ticket: TicketDTO): string =>
+    localDay(scope.value !== 'all' && ticket.deliveryAddedAt ? ticket.deliveryAddedAt : ticket.createdAt);
 
   const deliveryOf = (ticket: TicketDTO): DeliveryDTO | undefined => (ticket.deliveryId ? project.deliveriesById.get(ticket.deliveryId) : undefined);
 
@@ -110,7 +130,6 @@ export function useAnalysis(scope: Ref<AnalysisScope>) {
 
   const burndown = computed<BurndownSeries>(() => {
     const list = tickets.value;
-    const total = list.length;
     let start = period.value?.start;
     let end = period.value?.end;
     if (!start || !end) {
@@ -120,48 +139,13 @@ export function useAnalysis(scope: Ref<AnalysisScope>) {
     if (toDayNumber(end) < toDayNumber(today) && list.some((ticket) => ticket.status !== 'done')) {
       end = today;
     }
-    const doneDay = new Map<string, number>();
-    for (const ticket of list) {
-      if (ticket.status === 'done') {
-        const day = localDay(ticket.completedAt ?? ticket.updatedAt);
-        doneDay.set(day, (doneDay.get(day) ?? 0) + 1);
-      }
-    }
-    // Tickets « À tester » : arrivés dans la colonne le jour de leur dernier changement de colonne.
-    const reviewDay = new Map<string, number>();
-    for (const ticket of list) {
-      if (ticket.status === 'review') {
-        const day = localDay(ticket.statusChangedAt);
-        reviewDay.set(day, (reviewDay.get(day) ?? 0) + 1);
-      }
-    }
-    const days = Math.max(1, diffDays(start, end) + 1);
-    const labels: string[] = [];
-    const withReview: Array<number | null> = [];
-    let inReview = 0;
-    for (const [day, count] of reviewDay) {
-      if (day < start) inReview += count;
-    }
-    const ideal: Array<number | null> = [];
-    const actual: Array<number | null> = [];
-    let remaining = total;
-    // Les tickets terminés avant le début de la période sont déjà décomptés.
-    for (const [day, count] of doneDay) {
-      if (day < start) {
-        remaining -= count;
-      }
-    }
-    const startRemaining = remaining;
-    for (let index = 0; index < days; index++) {
-      const day = addDays(start, index);
-      labels.push(day);
-      ideal.push(Math.round((startRemaining * (days - 1 - index)) / Math.max(1, days - 1) * 100) / 100);
-      remaining -= doneDay.get(day) ?? 0;
-      inReview += reviewDay.get(day) ?? 0;
-      actual.push(day <= today ? remaining : null);
-      withReview.push(day <= today ? Math.max(0, remaining - inReview) : null);
-    }
-    return { labels, ideal, actual, withReview, hasReview: reviewDay.size > 0 };
+    const days = list.map((ticket) => ({
+      added: addedDay(ticket),
+      done: ticket.status === 'done' ? localDay(ticket.completedAt ?? ticket.updatedAt) : null,
+      // « À tester » : arrivé dans la colonne le jour de son dernier changement de colonne.
+      review: ticket.status === 'review' ? localDay(ticket.statusChangedAt) : null,
+    }));
+    return burndownSeries(days, { start, end, today }, burndownShowsAdded.value);
   });
 
   const workload = computed<WorkloadRow[]>(() => {

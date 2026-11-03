@@ -220,11 +220,14 @@ export async function exportAnalysisPdf(scope: AnalysisScope): Promise<void> {
               ...(burndown.hasReview
                 ? [{ label: pdfText(t('Réel, « {column} » compris', { column: project.statusMeta('review').label })), data: burndown.withReview, borderColor: '#f97316', borderDash: [4, 3], borderWidth: 2, pointRadius: 0, stepped: 'before' as const, spanGaps: false }]
                 : []),
+              ...(burndown.tracksAdded
+                ? [{ type: 'bar' as const, label: pdfText(t('Tickets ajoutés')), data: burndown.added, backgroundColor: '#e11d48b3', borderRadius: 2, maxBarThickness: 12 }]
+                : []),
             ],
           },
           options: {
             plugins: { legend: legend('bottom') },
-            scales: { x: { ...axis, ticks: { ...axis.ticks, maxTicksLimit: 7, autoSkip: true } }, y: { ...axis, beginAtZero: true, ticks: { ...axis.ticks, precision: 0 } } },
+            scales: { x: { ...axis, offset: burndown.tracksAdded, ticks: { ...axis.ticks, maxTicksLimit: 7, autoSkip: true } }, y: { ...axis, beginAtZero: true, ticks: { ...axis.ticks, precision: 0 } } },
           },
         },
         W,

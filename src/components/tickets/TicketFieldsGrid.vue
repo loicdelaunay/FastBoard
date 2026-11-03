@@ -4,6 +4,7 @@ import DatePicker from 'primevue/datepicker';
 import MultiSelect from 'primevue/multiselect';
 import Select from 'primevue/select';
 import type { TicketStatus } from '@shared/constants';
+import { formatDateShort } from '@shared/dates';
 import ColorChip from '@/components/common/ColorChip.vue';
 import StatusTag from '@/components/common/StatusTag.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
@@ -67,6 +68,19 @@ async function createComponent(): Promise<void> {
     creatingComponent.value = false;
   }
 }
+
+/** Sélection rapide : la version en cours (à défaut la prochaine) et la livraison qui la suit. */
+const deliveryPicks = computed(() => {
+  const current = project.currentDelivery;
+  if (props.disabled || !current) return [];
+  const picks = [{ delivery: current.delivery, label: current.upcoming ? t('prochaine') : t('en cours') }];
+  if (project.nextDelivery) picks.push({ delivery: project.nextDelivery, label: current.upcoming ? t('suivante') : t('prochaine') });
+  return picks.map((pick) => ({
+    ...pick,
+    active: props.values.deliveryId === pick.delivery.id,
+    dates: `${formatDateShort(pick.delivery.startDate)} → ${formatDateShort(pick.delivery.endDate)}`,
+  }));
+});
 
 function assignMe(): void {
   if (auth.user) emit('change', { assigneeIds: [...props.values.assigneeIds, auth.user.id] });
@@ -181,6 +195,21 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
 
     <div v-if="project.fieldOn('delivery')" class="field">
       <label>{{ $t('Livraison ciblée') }}</label>
+      <div v-if="deliveryPicks.length" class="quick-picks" role="group" :aria-label="$t('Sélection rapide de la livraison')">
+        <button
+          v-for="pick in deliveryPicks"
+          :key="pick.delivery.id"
+          v-tooltip.top="pick.dates"
+          type="button"
+          class="quick-pick"
+          :class="{ active: pick.active }"
+          :style="{ '--d': pick.delivery.color }"
+          :aria-pressed="pick.active"
+          @click="pick.active || emit('change', { deliveryId: pick.delivery.id })"
+        >
+          <span class="dot"></span><strong>{{ pick.delivery.name }}</strong><span class="muted">{{ pick.label }}</span>
+        </button>
+      </div>
       <Select
         :model-value="values.deliveryId"
         :options="project.deliveries"
@@ -208,8 +237,8 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
 
     <div v-if="project.fieldOn('assignees')" class="field">
       <div class="label-row">
-        <label>{{ $t('Assignés') }}</label>
-        <button v-if="canAssignMe" type="button" class="assign-me" @click="assignMe"><i class="pi pi-user-plus"></i> {{ $t('M’assigner') }}</button>
+        <label class="field-label">{{ $t('Assignés') }}</label>
+        <button v-if="canAssignMe" type="button" class="label-action" @click="assignMe"><i class="pi pi-user-plus"></i> {{ $t('M’assigner') }}</button>
       </div>
       <MultiSelect
         :model-value="values.assigneeIds"
@@ -276,16 +305,57 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
   padding: 0.5rem 0.9rem;
   border-top: 1px solid var(--fb-border);
 }
+.quick-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.quick-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.1rem 0.55rem;
+  border: 1px solid var(--fb-border);
+  border-radius: 999px;
+  background: var(--fb-panel);
+  color: var(--fb-text);
+  font: inherit;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.quick-pick strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quick-pick:hover {
+  border-color: var(--d);
+}
+.quick-pick.active {
+  border-color: var(--d);
+  background: color-mix(in srgb, var(--d) 14%, transparent);
+  cursor: default;
+}
+.quick-pick .dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--d);
+}
 .label-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 0.5rem;
 }
-.assign-me {
+.label-action {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+  min-width: 0;
   padding: 0;
   border: 0;
   background: none;
@@ -293,12 +363,15 @@ const maxStart = computed(() => isoToDate(props.values.endDate) ?? undefined);
   font: inherit;
   font-size: 0.8rem;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
-.assign-me:hover {
+.label-action:hover {
   text-decoration: underline;
 }
-.assign-me i {
+.label-action i {
   font-size: 0.75rem;
 }
 </style>

@@ -79,6 +79,7 @@ function toTicketDTO(row: TicketRow, extras: TicketExtras): TicketDTO {
     progressFromChildren: row.progress_from_children !== 0,
     deliveryId: row.delivery_id,
     initialDeliveryId: row.initial_delivery_id,
+    deliveryAddedAt: row.delivery_id === null ? null : (row.delivery_set_at ?? row.created_at),
     startDate: row.start_date,
     endDate: row.end_date,
     progress: row.progress,
@@ -564,8 +565,9 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
     const now = nowIso();
     const { lastInsertRowid } = db.run(
       `INSERT INTO tickets (project_id, number, title, description, status, category_id, priority_id, delivery_id, initial_delivery_id,
-                            start_date, end_date, progress, position, created_by, created_at, updated_at, completed_at, status_changed_at, parent_id, custom_fields, progress_from_children)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            start_date, end_date, progress, position, created_by, created_at, updated_at, completed_at, status_changed_at, parent_id, custom_fields, progress_from_children,
+                            delivery_set_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       projectId,
       sequence.ticket_seq,
       input.title,
@@ -587,6 +589,7 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
       input.parentId ?? null,
       JSON.stringify(custom),
       input.progressFromChildren === false ? 0 : 1,
+      input.deliveryId ? now : null,
     );
     if (input.componentIds?.length) {
       replaceComponents(db, lastInsertRowid, projectId, input.componentIds);
@@ -664,6 +667,7 @@ export function updateTicket(ctx: AppContext, actor: Actor, ticketId: number, in
     if (input.deliveryId !== undefined && input.deliveryId !== row.delivery_id) {
       assertDelivery(db, projectId, input.deliveryId);
       sets.delivery_id = input.deliveryId;
+      sets.delivery_set_at = input.deliveryId === null ? null : nowIso();
       if (row.initial_delivery_id === null && input.deliveryId !== null) {
         sets.initial_delivery_id = input.deliveryId;
       }
@@ -958,7 +962,7 @@ export function transferTicket(ctx: AppContext, actor: Actor, ticketId: number, 
     db.run('UPDATE tickets SET custom_fields = ? WHERE id = ?', JSON.stringify(mapped), ticketId);
     const delivery = sameName(db, 'deliveries', row.delivery_id, destination.id);
     db.run(
-      `UPDATE tickets SET project_id = ?, number = ?, status = ?, category_id = ?, priority_id = ?, delivery_id = ?, initial_delivery_id = ?,
+      `UPDATE tickets SET project_id = ?, number = ?, status = ?, category_id = ?, priority_id = ?, delivery_id = ?, initial_delivery_id = ?, delivery_set_at = ?,
               position = ?, completed_at = ?, status_changed_at = ?, updated_at = ?, parent_id = NULL WHERE id = ?`,
       destination.id,
       sequence.ticket_seq,
@@ -967,6 +971,7 @@ export function transferTicket(ctx: AppContext, actor: Actor, ticketId: number, 
       sameName(db, 'priorities', row.priority_id, destination.id),
       delivery,
       delivery,
+      delivery === null ? null : nowIso(),
       endPosition(db, destination.id, target.status, ticketId),
       target.status === 'done' ? (row.completed_at ?? nowIso()) : null,
       target.status !== row.status ? nowIso() : (row.status_changed_at ?? nowIso()),

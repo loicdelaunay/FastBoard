@@ -205,6 +205,8 @@ export interface TicketDTO {
   createdAt: string;
   updatedAt: string;
   completedAt: string | null;
+  /** Rattachement à la livraison actuelle (`null` sans livraison) : tickets ajoutés en cours de sprint. */
+  deliveryAddedAt: string | null;
 }
 
 export interface AttachmentDTO {

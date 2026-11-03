@@ -223,6 +223,7 @@ export const componentSchemas: Record<string, Schema> = {
     createdAt: dateTime(),
     updatedAt: dateTime(),
     completedAt: nullable(dateTime()),
+    deliveryAddedAt: nullable(dateTime('Rattachement à la livraison actuelle (`null` sans livraison) : sert au burn-down des tickets ajoutés en cours de sprint.')),
   }),
   Attachment: obj({
     id: int(),

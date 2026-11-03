@@ -73,7 +73,7 @@ Les corps de requête sont en JSON **encodé en UTF-8** (`-H "Content-Type: appl
 
 **Projet** : porte une *clé* (`APP`) ; ses tickets s'appellent `APP-1`, `APP-2`… (`ticket.number` + clé du projet). Chaque projet a ses **catégories**, ses **priorités** (ordonnées de la plus haute à la plus basse), ses **composants** (nom, icône, couleur) et ses **livraisons** (nom, `startDate`, `endDate`).
 
-**Ticket** : `title`, `description`, `status`, `categoryId`, `priorityId`, `componentIds` (plusieurs), `deliveryId` (livraison ciblée), `startDate`/`endDate` (sinon ils suivent la livraison), plusieurs **assignés**, un **ticket parent** (`parentId` : c'est alors un sous-ticket), des **sous-tâches** (`subtasks`, cases à cocher) et des **dépendances** vers d'autres tickets du projet (`links` : `targetId` + `reason`). `statusChangedAt` date le dernier changement de colonne (indicateur d'inactivité).
+**Ticket** : `title`, `description`, `status`, `categoryId`, `priorityId`, `componentIds` (plusieurs), `deliveryId` (livraison ciblée), `startDate`/`endDate` (sinon ils suivent la livraison), plusieurs **assignés**, un **ticket parent** (`parentId` : c'est alors un sous-ticket), des **sous-tâches** (`subtasks`, cases à cocher) et des **dépendances** vers d'autres tickets du projet (`links` : `targetId` + `reason`). `statusChangedAt` date le dernier changement de colonne (indicateur d'inactivité) ; `deliveryAddedAt` date le rattachement à la livraison actuelle (`null` sans livraison : burn-down des tickets ajoutés en cours de sprint).
 
 **Description en Markdown** (GitHub Flavored Markdown : titres, listes, listes de tâches, tableaux, code) avec formules KaTeX (`$…$`, `$$…$$`) et diagrammes Mermaid (bloc ```` ```mermaid ````).
 

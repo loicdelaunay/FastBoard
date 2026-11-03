@@ -2,14 +2,15 @@
 import { computed, ref, watch } from 'vue';
 import Select from 'primevue/select';
 import Button from 'primevue/button';
-import { formatDateShort, todayISO } from '@shared/dates';
+import ToggleSwitch from 'primevue/toggleswitch';
+import { formatDateShort } from '@shared/dates';
 import AlertList from '@/components/analyzer/AlertList.vue';
 import ChartCard from '@/components/analyzer/ChartCard.vue';
 import DeliveryTable from '@/components/analyzer/DeliveryTable.vue';
 import KpiCards from '@/components/analyzer/KpiCards.vue';
 import PriorityList from '@/components/analyzer/PriorityList.vue';
 import ScheduleCard from '@/components/analyzer/ScheduleCard.vue';
-import { useAnalysis, type AnalysisScope } from '@/composables/useAnalysis';
+import { burndownShowsAdded, useAnalysis, type AnalysisScope } from '@/composables/useAnalysis';
 import { usePdfExport } from '@/composables/usePdfExport';
 import { useChartColors } from '@/composables/useChartColors';
 import { useTicketRoute } from '@/composables/useTicketRoute';
@@ -46,17 +47,8 @@ const scopeOptions = computed(() => [
   })),
 ]);
 
-/**
- * Livraison en cours (aujourd'hui dans sa période ; la première à finir s'il y en a plusieurs), à défaut la prochaine :
- * raccourci à côté du choix de la version analysée.
- */
-const currentDelivery = computed(() => {
-  const today = todayISO();
-  const running = project.deliveries.filter((delivery) => delivery.startDate <= today && today <= delivery.endDate).sort((a, b) => a.endDate.localeCompare(b.endDate))[0];
-  if (running) return { delivery: running, upcoming: false };
-  const next = project.deliveries.filter((delivery) => delivery.startDate > today).sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
-  return next ? { delivery: next, upcoming: true } : null;
-});
+/** Raccourci à côté du choix de la version analysée. */
+const currentDelivery = computed(() => project.currentDelivery);
 
 const scopeTitle = computed(() => (analysis.delivery.value ? t('Livraison « {name} »', { name: analysis.delivery.value.name }) : t('Ensemble du projet')));
 const hasTickets = computed(() => analysis.tickets.value.length > 0);
@@ -85,14 +77,23 @@ const burndownData = computed(() => {
       ...(series.hasReview
         ? [{ label: t('Réel, « {column} » compris', { column: project.statusMeta('review').label }), data: series.withReview, borderColor: '#f97316', backgroundColor: '#f9731618', fill: false, borderWidth: 2, borderDash: [4, 3], pointRadius: 0, stepped: 'before', spanGaps: false }]
         : []),
+      // Tickets ajoutés en cours de période : barres au pied du graphique, la courbe réelle remonte d'autant.
+      ...(series.tracksAdded
+        ? [{ type: 'bar', label: t('Tickets ajoutés'), data: series.added, backgroundColor: '#e11d48b3', borderRadius: 3, maxBarThickness: 14 }]
+        : []),
     ],
   };
 });
+const addedHint = computed(() =>
+  burndownShowsAdded.value
+    ? t('Les tickets ajoutés en cours de période font remonter les courbes réelle et idéale le jour de leur ajout ; les barres les comptent.')
+    : t('Tous les tickets du périmètre sont comptés dès le premier jour.'),
+);
 const burndownOptions = computed(() => ({
   interaction: { mode: 'index', intersect: false },
   plugins: { legend: { position: 'bottom' } },
   scales: {
-    x: { ticks: { maxTicksLimit: 8, autoSkip: true, callback: (_value: unknown, index: number) => formatDateShort(analysis.burndown.value.labels[index]) } },
+    x: { offset: analysis.burndown.value.tracksAdded, ticks: { maxTicksLimit: 8, autoSkip: true, callback: (_value: unknown, index: number) => formatDateShort(analysis.burndown.value.labels[index]) } },
     y: { beginAtZero: true, title: { display: true, text: t('Tickets restants'), color: colors.value.muted }, ticks: { precision: 0 } },
   },
 }));
@@ -187,7 +188,14 @@ const categoryOptions = {
 
           <div v-if="hasTickets" class="charts">
             <ChartCard :title="$t('Répartition par statut')" type="doughnut" :data="statusData" :options="statusOptions" :height="240" />
-            <ChartCard :title="$t('Reste à faire')" :subtitle="$t('burn-down en nombre de tickets')" type="line" :data="burndownData" :options="burndownOptions" :height="240" />
+            <ChartCard :title="$t('Reste à faire')" :subtitle="$t('burn-down en nombre de tickets')" type="line" :data="burndownData" :options="burndownOptions" :height="240">
+              <template #actions>
+                <label v-tooltip.top="addedHint" class="added-toggle muted">
+                  <ToggleSwitch v-model="burndownShowsAdded" class="mini-switch" :aria-label="$t('Tickets ajoutés')" />
+                  <span>{{ $t('Tickets ajoutés') }}</span>
+                </label>
+              </template>
+            </ChartCard>
             <ChartCard :title="$t('Charge par personne')" type="bar" :data="workloadData" :options="workloadOptions" :height="workloadHeight" />
             <ChartCard :title="$t('Tickets par catégorie')" type="bar" :data="categoryData" :options="categoryOptions" :height="workloadHeight" :empty="!analysis.byCategory.value.length" />
           </div>
@@ -206,6 +214,18 @@ const categoryOptions = {
 </template>
 
 <style scoped>
+.added-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.mini-switch {
+  --p-toggleswitch-width: 1.75rem;
+  --p-toggleswitch-height: 1rem;
+  --p-toggleswitch-handle-size: 0.7rem;
+}
 .analyzer {
   flex: 1;
   min-height: 0;

@@ -479,6 +479,20 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
   (db) => {
     db.exec('ALTER TABLE tickets ADD COLUMN progress_from_children INTEGER NOT NULL DEFAULT 1');
   },
+
+  // v15 : date d'ajout d'un ticket à sa livraison (burn-down : tickets ajoutés en cours de sprint). Reprise : dernier
+  // changement de livraison de l'historique, à défaut la création du ticket.
+  (db) => {
+    db.exec(`
+      ALTER TABLE tickets ADD COLUMN delivery_set_at TEXT;
+      UPDATE tickets SET delivery_set_at = COALESCE(
+        (SELECT MAX(h.created_at)
+           FROM ticket_history h, json_each(CASE WHEN json_valid(h.data) THEN h.data ELSE '{}' END, '$.changes') c
+          WHERE h.ticket_id = tickets.id AND json_extract(c.value, '$.field') = 'delivery'),
+        created_at)
+      WHERE delivery_id IS NOT NULL;
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

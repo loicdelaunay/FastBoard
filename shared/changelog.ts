@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '1.8.0';
+export const APP_VERSION = '1.9.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '1.9.0',
+    date: '2026-11-03',
+    changes: [
+      { category: 'Nouveauté', text: 'Analyseur : dans « Reste à faire », les tickets ajoutés en cours de sprint font remonter les courbes réelle et idéale le jour de leur ajout, avec des barres qui comptent les ajouts (interrupteur « Tickets ajoutés », aussi dans le rapport PDF).' },
+      { category: 'Amélioration', text: 'Fenêtre d’un ticket : sous « Livraison ciblée », une sélection rapide propose la version en cours et la prochaine livraison.' },
+    ],
+  },
   {
     version: '1.8.0',
     date: '2026-11-02',

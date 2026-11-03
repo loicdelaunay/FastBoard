@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { STATUS_META, type TicketStatus } from '@shared/constants';
+import { todayISO } from '@shared/dates';
 import { defaultSettings, type ColumnConfig, type ProjectSettingsDTO } from '@shared/settings';
 import type { PresenceUser, ProjectEvent } from '@shared/realtime';
 import type { TicketFieldKey } from '@shared/ticketFields';
@@ -86,6 +87,24 @@ export const useProjectStore = defineStore('project', () => {
   const usersById = computed(() => new Map(users.value.map((user) => [user.id, user])));
   const categoriesById = computed(() => new Map(categories.value.map((category) => [category.id, category])));
   const deliveriesById = computed(() => new Map(deliveries.value.map((delivery) => [delivery.id, delivery])));
+  /**
+   * Livraison en cours (aujourd'hui dans sa période ; la première à finir s'il y en a plusieurs), à défaut la prochaine :
+   * raccourcis de l'analyseur et du ticket.
+   */
+  const currentDelivery = computed<{ delivery: DeliveryDTO; upcoming: boolean } | null>(() => {
+    const today = todayISO();
+    const running = deliveries.value.filter((delivery) => delivery.startDate <= today && today <= delivery.endDate).sort((a, b) => a.endDate.localeCompare(b.endDate))[0];
+    if (running) return { delivery: running, upcoming: false };
+    const next = upcomingDeliveries.value[0];
+    return next ? { delivery: next, upcoming: true } : null;
+  });
+  /** Livraisons à venir (début après aujourd'hui), de la plus proche à la plus lointaine. */
+  const upcomingDeliveries = computed(() => {
+    const today = todayISO();
+    return deliveries.value.filter((delivery) => delivery.startDate > today).sort((a, b) => a.startDate.localeCompare(b.startDate));
+  });
+  /** Livraison qui suit la « version en cours » (raccourci du ticket). */
+  const nextDelivery = computed(() => upcomingDeliveries.value.find((delivery) => delivery.id !== currentDelivery.value?.delivery.id) ?? null);
   const prioritiesById = computed(() => new Map(priorities.value.map((priority) => [priority.id, priority])));
   const componentsById = computed(() => new Map(components.value.map((component) => [component.id, component])));
   /** Rang d'une priorité (0 = la plus haute) ; les tickets sans priorité passent en dernier. */
@@ -734,7 +753,7 @@ export const useProjectStore = defineStore('project', () => {
     projectId, project, settings, columns, visibleColumns, statusOrder, statusMeta, members, users, categories, priorities, rawPriorities, components, deliveries, tickets, permissions, presence, status, error, flashes, comments, history, attachments,
     unseenActivity, setActivityViewOpen,
     // index
-    ticketsById, usersById, categoriesById, deliveriesById, prioritiesById, componentsById, priorityRank,
+    ticketsById, usersById, categoriesById, deliveriesById, prioritiesById, componentsById, priorityRank, currentDelivery, nextDelivery,
     // droits
     can, readOnly, archived,
     // cycle de vie
