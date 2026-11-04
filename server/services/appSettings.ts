@@ -59,7 +59,16 @@ export function appInfo(db: Db): AppInfoDTO {
   const maintenance = getMaintenance(db);
   const visible = maintenance.enabled && (maintenance.endsAt === null || Date.parse(maintenance.endsAt) > Date.now());
   const ai = readSetting<{ enabled?: boolean; model?: string }>(db, 'ai');
-  return { name: branding.name, logoVersion: branding.logo ? branding.logoVersion : 0, version: APP_VERSION, maintenance: visible ? maintenance : null, ai: ai?.enabled === true };
+  const ldap = readSetting<{ enabled?: boolean; loginLabel?: string }>(db, 'ldap');
+  return {
+    name: branding.name,
+    logoVersion: branding.logo ? branding.logoVersion : 0,
+    version: APP_VERSION,
+    maintenance: visible ? maintenance : null,
+    ai: ai?.enabled === true,
+    ldap: ldap?.enabled === true ? { loginLabel: ldap.loginLabel ?? '' } : null,
+    docs: readSetting<{ enabled?: boolean }>(db, 'docs')?.enabled === true,
+  };
 }
 
 function broadcast(ctx: AppContext): AppInfoDTO {

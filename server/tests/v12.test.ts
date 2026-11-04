@@ -10,7 +10,7 @@ type Booted = Awaited<ReturnType<typeof bootServer>>;
 
 describe('réglages 1.2 (unitaires)', () => {
   it('compte à 100 % les colonnes choisies, « Terminé » toujours inclus', () => {
-    const ticket = { status: 'review' as const, progress: 20, assignees: [] };
+    const ticket = { status: 'review' as const, progress: 20, parts: [] };
     assert.equal(ticketProgress(ticket), 20);
     assert.equal(ticketProgress(ticket, ['review']), 100);
     const settings = normalizeSettings({ completeStatuses: ['review', 'bogus'], columnSort: { todo: { field: 'priority', direction: 'desc' }, done: { field: 'x' } }, deliveryWarnDays: 3, deliveryDangerDays: 9 });

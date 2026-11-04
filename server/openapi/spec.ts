@@ -7,7 +7,7 @@ import { LINK_REASONS, TICKET_STATUSES } from '../../shared/constants.ts';
 import { APP_VERSION } from '../../shared/changelog.ts';
 import { z } from '../http/validate.ts';
 import * as S from '../http/schemas.ts';
-import { arr, bool, componentSchemas, int, obj, ref, str, type Schema } from './components.ts';
+import { arr, bool, componentSchemas, dateTime, int, nullable, obj, ref, str, type Schema } from './components.ts';
 
 type Method = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -69,6 +69,8 @@ const errorResponse = (description: string): Schema => ({ description, content: 
 
 const ID = { id: 'Identifiant numérique.' };
 const PROJECT_ID = { id: 'Identifiant du projet.' };
+const DOC_SPACE_ID = { id: 'Identifiant de l’espace.' };
+const DOC_NODE_ID = { id: 'Identifiant du fichier ou du dossier.' };
 const TICKET_ID = { id: 'Identifiant du ticket (champ `id`, pas la clé `APP-12`).' };
 
 const OPERATIONS: Operation[] = [
@@ -532,6 +534,15 @@ const OPERATIONS: Operation[] = [
     ok: obj({ ticket: ref('Ticket'), key: str('Clé lisible, ex. `APP-12`.') }),
   },
   {
+    method: 'get',
+    path: '/tickets/{id}/preview',
+    tag: 'Tickets',
+    summary: 'Résumé d’un ticket',
+    description: 'Ce qu’affiche le survol d’une mention : les noms y sont déjà résolus, et il se lit hors du contexte du projet.',
+    params: TICKET_ID,
+    ok: obj({ preview: ref('TicketPreview') }),
+  },
+  {
     method: 'patch',
     path: '/tickets/{id}',
     tag: 'Tickets',
@@ -575,18 +586,6 @@ const OPERATIONS: Operation[] = [
     ok: obj({ ticket: ref('Ticket'), key: str('Nouvelle clé, ex. `OPS-4`.') }),
   },
   {
-    method: 'patch',
-    path: '/tickets/{id}/assignees/{userId}',
-    tag: 'Tickets',
-    permission: 'ticket.update_own_part (sa propre part) ou ticket.edit (celle d\'un autre)',
-    summary: "Déclarer l'avancement, la fin ou la mission de la part d'un assigné",
-    description:
-      "Quand toutes les parts sont terminées, le ticket passe automatiquement à `done` ; rouvrir une part d'un ticket `done` le repasse en `in_progress`. `note` décrit ce que la personne doit faire sur ce ticket (facultatif, visible de tous les membres).",
-    params: { ...TICKET_ID, userId: "Identifiant de l'assigné." },
-    body: S.partSchema,
-    ok: obj({ ticket: ref('Ticket') }),
-  },
-  {
     method: 'get',
     path: '/tickets/{id}/history',
     tag: 'Tickets',
@@ -595,29 +594,95 @@ const OPERATIONS: Operation[] = [
     ok: obj({ history: arr(ref('HistoryEntry')) }),
   },
 
-  // --- Sous-tâches et dépendances --------------------------------------------------------------------------------------
+  // --- Documentation des équipes -----------------------------------------------------------------------------------------
+  { method: 'get', path: '/documentation/spaces', tag: 'Espaces de documentation', summary: 'Espaces de documentation accessibles', ok: obj({ spaces: arr(ref('DocSpace')) }) },
+  { method: 'post', path: '/documentation/spaces', tag: 'Espaces de documentation', permission: 'docs.create', summary: 'Créer un espace', body: S.docSpaceSchema, status: 201, ok: obj({ space: ref('DocSpace') }) },
+  { method: 'get', path: '/documentation/spaces/{id}', tag: 'Espaces de documentation', summary: 'Espace, arbre et membres', params: DOC_SPACE_ID, ok: obj({ space: ref('DocSpace'), nodes: arr(ref('DocNode')), members: arr(ref('DocMember')) }) },
+  { method: 'patch', path: '/documentation/spaces/{id}', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Renommer un espace', params: DOC_SPACE_ID, body: S.docSpaceUpdateSchema, ok: obj({ space: ref('DocSpace') }) },
+  { method: 'delete', path: '/documentation/spaces/{id}', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Supprimer un espace et ses fichiers', params: DOC_SPACE_ID, ok: obj({ ok: bool() }) },
+  { method: 'post', path: '/documentation/spaces/{id}/members', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Ajouter un membre', params: DOC_SPACE_ID, body: S.docMemberSchema, status: 201, ok: obj({ members: arr(ref('DocMember')) }) },
+  { method: 'patch', path: '/documentation/spaces/{id}/members/{userId}', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Changer le rôle d’un membre', params: { ...DOC_SPACE_ID, userId: 'Identifiant du membre.' }, body: S.docMemberRoleSchema, ok: obj({ members: arr(ref('DocMember')) }) },
+  { method: 'delete', path: '/documentation/spaces/{id}/members/{userId}', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Retirer un membre', params: { ...DOC_SPACE_ID, userId: 'Identifiant du membre.' }, ok: obj({ members: arr(ref('DocMember')) }) },
+  { method: 'get', path: '/documentation/spaces/{id}/trash', tag: 'Espaces de documentation', summary: 'Corbeille (15 jours)', params: DOC_SPACE_ID, ok: obj({ nodes: arr(ref('DocNode')) }) },
+  { method: 'get', path: '/documentation/spaces/{id}/export', tag: 'Espaces de documentation', summary: 'Exporter un espace en ZIP', description: 'L’archive reproduit exactement l’arbre de l’espace, dossiers vides compris, et se lit comme un coffre Obsidian. Le texte exporté reste sur le serveur pour fusionner au retour.', params: DOC_SPACE_ID, okRaw: { contentType: 'application/zip', description: 'Archive de l’espace.' } },
   {
     method: 'post',
-    path: '/tickets/{id}/subtasks',
-    tag: 'Sous-tâches',
+    path: '/documentation/spaces/{id}/import',
+    tag: 'Espaces de documentation',
+    permission: 'éditeur de l’espace',
+    summary: 'Analyser un ZIP avant import',
+    description: "**Le corps de la requête est l'archive** (octets bruts). `?folder=` la place dans un dossier de l'espace. Rien n'est écrit : la réponse indique le sort de chaque fichier (`new`, `same`, `updated`, `kept`, `merged`, `conflict`, `removed`), à confirmer avec `POST …/import/{importId}/apply` sous 30 minutes.",
+    params: DOC_SPACE_ID,
+    rawBody: { contentType: 'application/zip', description: 'Archive ZIP (100 Mo maximum).' },
+    ok: obj({ importId: str(), entries: arr({ type: 'object', description: 'path, kind, status, merged' }), ignored: arr(str()) }),
+  },
+  {
+    method: 'post',
+    path: '/documentation/nodes/{id}/import',
+    tag: 'Espaces de documentation',
+    permission: 'éditeur de l’espace',
+    summary: 'Analyser le réimport d’un fichier',
+    description: 'Le corps est le fichier lui-même. Il est comparé à ce fichier-ci, quel que soit son nom, puis s’applique comme un import de ZIP.',
+    params: DOC_NODE_ID,
+    rawBody: { contentType: 'application/octet-stream', description: 'Note ou image (10 Mo maximum).' },
+    ok: obj({ importId: str(), entries: arr({ type: 'object', description: 'path, kind, status, merged' }), ignored: arr(str()) }),
+  },
+  { method: 'get', path: '/documentation/nodes/{id}/export', tag: 'Espaces de documentation', summary: 'Exporter un fichier ou un dossier', description: 'Un dossier donne un ZIP aux chemins de l’espace ; une note ou une image est renvoyée telle quelle.', params: DOC_NODE_ID, okRaw: { contentType: 'application/octet-stream', description: 'Fichier, ou archive ZIP.' } },
+  { method: 'get', path: '/documentation/nodes/{id}/links', tag: 'Espaces de documentation', summary: 'Liens et rétroliens d’une note', description: 'Ce que la note cite, et les notes et tickets qui la citent, limités à ce que la personne peut voir.', params: DOC_NODE_ID, ok: ref('DocLinks') },
+  { method: 'get', path: '/documentation/nodes/{id}/comments', tag: 'Espaces de documentation', summary: 'Commentaires d’une note', params: DOC_NODE_ID, ok: obj({ comments: arr(ref('DocComment')) }) },
+  { method: 'post', path: '/documentation/nodes/{id}/comments', tag: 'Espaces de documentation', summary: 'Commenter un passage', description: 'Ouvert à tous les membres, lecteurs compris. Les personnes mentionnées qui ont accès à l’espace sont prévenues.', params: DOC_NODE_ID, body: S.docCommentSchema, status: 201, ok: obj({ comment: ref('DocComment') }) },
+  { method: 'patch', path: '/documentation/comments/{id}', tag: 'Espaces de documentation', summary: 'Résoudre ou rouvrir un fil', params: { id: 'Identifiant du commentaire.' }, body: S.docCommentResolveSchema, ok: obj({ comment: ref('DocComment') }) },
+  { method: 'delete', path: '/documentation/comments/{id}', tag: 'Espaces de documentation', permission: 'auteur ou propriétaire de l’espace', summary: 'Supprimer un commentaire', description: 'Ses réponses disparaissent avec lui.', params: { id: 'Identifiant du commentaire.' }, ok: obj({ ok: bool() }) },
+  { method: 'post', path: '/documentation/spaces/{id}/import/{importId}/apply', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Appliquer un import', params: { ...DOC_SPACE_ID, importId: 'Identifiant renvoyé par l’analyse.' }, body: S.docImportApplySchema, ok: obj({ written: int(), deleted: int() }) },
+  {
+    method: 'post',
+    path: '/documentation/spaces/{id}/images',
+    tag: 'Espaces de documentation',
+    permission: 'éditeur de l’espace',
+    summary: 'Ajouter une image',
+    description: "**Le corps de la requête est l'image** (PNG, JPEG, WebP ou GIF, 10 Mo maximum) ; son nom passe par l'en-tête `X-File-Name` et le dossier de la note par `?folder=`. Elle est rangée dans un sous-dossier `images`.",
+    params: DOC_SPACE_ID,
+    rawBody: { contentType: 'image/*', description: "Contenu binaire de l'image." },
+    status: 201,
+    ok: obj({ node: ref('DocNode') }),
+  },
+  { method: 'post', path: '/documentation/spaces/{id}/nodes', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Créer une note ou un dossier', params: DOC_SPACE_ID, body: S.docNodeSchema, status: 201, ok: obj({ node: ref('DocNode') }) },
+  { method: 'get', path: '/documentation/nodes/{id}', tag: 'Espaces de documentation', summary: 'Lire un fichier', description: 'Le texte d’une note reflète l’édition en cours.', params: DOC_NODE_ID, ok: obj({ node: ref('DocNode'), role: str(), content: nullable(str()) }) },
+  { method: 'patch', path: '/documentation/nodes/{id}', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Renommer ou déplacer', params: DOC_NODE_ID, body: S.docMoveSchema, ok: obj({ node: ref('DocNode') }) },
+  { method: 'delete', path: '/documentation/nodes/{id}', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Mettre à la corbeille', description: 'Un dossier y part avec son contenu. La corbeille est vidée après 15 jours.', params: DOC_NODE_ID, ok: obj({ ok: bool() }) },
+  { method: 'put', path: '/documentation/nodes/{id}/content', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Remplacer le texte d’une note', description: 'Diffusé en direct aux personnes qui éditent la note.', params: DOC_NODE_ID, body: S.docContentSchema, ok: obj({ ok: bool() }) },
+  { method: 'get', path: '/documentation/nodes/{id}/raw', tag: 'Espaces de documentation', summary: 'Contenu d’une image', params: DOC_NODE_ID, okRaw: { contentType: 'image/*', description: 'Image.' } },
+  { method: 'post', path: '/documentation/nodes/{id}/restore', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Sortir un fichier de la corbeille', params: DOC_NODE_ID, ok: obj({ node: ref('DocNode') }) },
+  { method: 'get', path: '/documentation/nodes/{id}/versions', tag: 'Espaces de documentation', summary: 'Historique d’une note (15 jours)', params: DOC_NODE_ID, ok: obj({ versions: arr(ref('DocVersion')), retentionDays: int() }) },
+  { method: 'get', path: '/documentation/versions/{id}', tag: 'Espaces de documentation', summary: 'Texte d’une version', params: { id: 'Identifiant de la version.' }, ok: obj({ content: str(), createdAt: dateTime() }) },
+  { method: 'post', path: '/documentation/versions/{id}/restore', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Restaurer une version', params: { id: 'Identifiant de la version.' }, ok: obj({ ok: bool() }) },
+  { method: 'get', path: '/documentation/search', tag: 'Espaces de documentation', summary: 'Chercher une note par son chemin', query: S.docSearchSchema, ok: obj({ files: arr({ type: 'object', description: 'id, spaceId, spaceName, path, title' }) }) },
+
+  // --- Lignes d'avancement et dépendances -------------------------------------------------------------------------------
+  {
+    method: 'post',
+    path: '/tickets/{id}/parts',
+    tag: 'Avancement',
     permission: 'ticket.edit',
-    summary: 'Ajouter une sous-tâche',
+    summary: "Ajouter une ligne d'avancement",
+    description: "Il faut un texte (`note`), une personne (`userId`) ou les deux. Une même personne peut avoir plusieurs lignes.",
     params: TICKET_ID,
-    body: S.subtaskSchema,
+    body: S.partCreateSchema,
     status: 201,
     ok: obj({ ticket: ref('Ticket') }),
   },
   {
     method: 'patch',
-    path: '/subtasks/{id}',
-    tag: 'Sous-tâches',
-    permission: 'ticket.edit (ou ticket.update_own_part pour cocher une sous-tâche dont on est responsable)',
-    summary: 'Modifier, cocher ou déplacer une sous-tâche',
-    params: { id: 'Identifiant de la sous-tâche.' },
-    body: S.subtaskPatchSchema,
+    path: '/parts/{id}',
+    tag: 'Avancement',
+    permission: 'ticket.edit (ou ticket.update_own_part pour le texte, l\'avancement et la fin de ses propres lignes)',
+    summary: "Modifier, terminer, confier ou déplacer une ligne d'avancement",
+    description: "Quand toutes les lignes sont terminées, le ticket passe automatiquement à `done` ; rouvrir une ligne d'un ticket `done` le repasse en `in_progress`.",
+    params: { id: 'Identifiant de la ligne.' },
+    body: S.partPatchSchema,
     ok: obj({ ticket: ref('Ticket') }),
   },
-  { method: 'delete', path: '/subtasks/{id}', tag: 'Sous-tâches', permission: 'ticket.edit', summary: 'Supprimer une sous-tâche', params: { id: 'Identifiant de la sous-tâche.' }, ok: obj({ ticket: ref('Ticket') }) },
+  { method: 'delete', path: '/parts/{id}', tag: 'Avancement', permission: 'ticket.edit', summary: "Supprimer une ligne d'avancement", params: { id: 'Identifiant de la ligne.' }, ok: obj({ ticket: ref('Ticket') }) },
   {
     method: 'post',
     path: '/tickets/{id}/links',
@@ -782,6 +847,31 @@ const OPERATIONS: Operation[] = [
     query: S.logQuerySchema,
     okRaw: { contentType: 'application/x-ndjson', description: 'Fichier NDJSON.' },
   },
+  { method: 'get', path: '/admin/auth', tag: 'Administration', access: 'session', permission: 'auth.manage', summary: 'Réglages de la connexion LDAP (le mot de passe du compte de service n’est jamais renvoyé)', ok: obj({ ldap: { type: 'object', description: 'enabled, profile, host, port, security, verifyCertificate, caPath, timeoutSeconds, bindDn, hasBindPassword, searchBase, userFilter, emailAttribute, nameAttribute, loginLabel, defaultRoleId, linkExisting, updatedAt' } }) },
+  {
+    method: 'put',
+    path: '/admin/auth',
+    tag: 'Administration',
+    access: 'session',
+    permission: 'auth.manage',
+    summary: 'Configurer la connexion par annuaire LDAP',
+    description: "`bindPassword` absent garde le mot de passe enregistré, chaîne vide l'efface ; il est stocké chiffré. À la connexion, un compte local garde son mot de passe ; sinon la personne est cherchée dans l'annuaire, son mot de passe y est vérifié, et son compte est créé à la première connexion. Les mots de passe des personnes ne sont jamais enregistrés.",
+    body: S.ldapSettingsSchema,
+    ok: obj({ ldap: { type: 'object' }, app: ref('AppInfo') }),
+  },
+  {
+    method: 'post',
+    path: '/admin/auth/ldap/test',
+    tag: 'Administration',
+    access: 'session',
+    permission: 'auth.manage',
+    summary: 'Tester la connexion LDAP (valeurs du formulaire)',
+    description: "Essaie la connexion, le compte de service puis, si `login` est fourni, la recherche et le mot de passe de ce compte. S'arrête à la première étape qui échoue ; rien n'est enregistré.",
+    body: S.ldapTestSchema,
+    ok: obj({ ok: bool(), step: str('Étape atteinte.', { enum: ['connection', 'bind', 'search', 'account', 'done'] }), message: str(), detail: nullable(str()), entry: nullable({ type: 'object', description: 'dn, email, name, attributes' }) }),
+  },
+  { method: 'get', path: '/admin/documentation', tag: 'Administration', access: 'session', permission: 'docs.manage', summary: 'État de la documentation', ok: obj({ enabled: bool(), spaces: int(), files: int(), bytes: int(), retentionDays: int() }) },
+  { method: 'put', path: '/admin/documentation', tag: 'Administration', access: 'session', permission: 'docs.manage', summary: 'Activer ou désactiver la documentation', description: 'Désactiver ferme les salles d’édition ; les fichiers restent sur le serveur.', body: S.docSettingsSchema, ok: obj({ enabled: bool(), app: ref('AppInfo') }) },
   { method: 'get', path: '/admin/ai', tag: 'Administration', access: 'session', permission: 'ai.manage', summary: "Réglages de l'assistant IA (les clés ne sont jamais renvoyées)", ok: obj({ settings: { type: 'object', description: 'enabled, providers (id, name, baseUrl, timeoutSeconds, models, hasKey, keyHint), defaultModel, maxSteps, maxTurns, updatedAt' } }) },
   {
     method: 'put',
@@ -1001,6 +1091,7 @@ export function buildOpenApiDocument(): Schema {
       { name: 'Profil' },
       { name: 'Projets' },
       { name: 'Tickets' },
+      { name: 'Espaces de documentation' },
       { name: 'Pièces jointes' },
       { name: 'Commentaires' },
       { name: 'Activité' },

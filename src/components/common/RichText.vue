@@ -27,11 +27,14 @@ function ticketOf(id: number) {
       <RouterLink v-else-if="segment.kind === 'user'" :to="{ name: 'user', params: { id: segment.id } }" class="mention user" @click.stop>
         <UserAvatar :user="project.usersById.get(segment.id)" size="small" class="mini" />@{{ project.usersById.get(segment.id)?.name ?? segment.label }}
       </RouterLink>
+      <RouterLink v-else-if="segment.kind === 'doc'" :to="{ name: 'doc-file', params: { nodeId: segment.id } }" class="mention ticket" @click.stop>
+        <i class="pi pi-file"></i>{{ segment.label }}
+      </RouterLink>
       <button
         v-else-if="ticketOf(segment.id)"
-        v-tooltip.top="ticketOf(segment.id)!.title"
         type="button"
         class="mention ticket"
+        :data-ticket="segment.id"
         @click.stop="openTicket(segment.id)"
       >
         <i class="pi pi-ticket"></i>{{ ticketKey(project.project, ticketOf(segment.id)!) }}

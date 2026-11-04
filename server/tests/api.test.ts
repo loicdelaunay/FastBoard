@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { bootServer, TestClient } from './helpers.ts';
+import { bootServer, TestClient, patchPart } from './helpers.ts';
 
 type Booted = Awaited<ReturnType<typeof bootServer>>;
 
@@ -256,16 +256,16 @@ describe('FastBoard API', () => {
     });
 
     it('chaque assigné déclare sa part ; le ticket se termine quand toutes le sont', async () => {
-      assert.equal((await carol.patch(`/api/tickets/${ids.ticket}/assignees/${ids.bob}`, { done: true })).status, 403);
+      assert.equal((await patchPart(carol, ids.ticket, ids.bob, { done: true })).status, 403);
       // alice (éditeur) ne peut pas modifier la part de bob en tant que simple assignée… mais ticket.edit le permet.
-      const own = await alice.patch(`/api/tickets/${ids.ticket}/assignees/${ids.alice}`, { done: true });
+      const own = await patchPart(alice, ids.ticket, ids.alice, { done: true });
       assert.equal(own.status, 200);
       assert.equal(own.body.ticket.status, 'todo');
-      const last = await bob.patch(`/api/tickets/${ids.ticket}/assignees/${ids.bob}`, { done: true });
+      const last = await patchPart(bob, ids.ticket, ids.bob, { done: true });
       assert.equal(last.body.ticket.status, 'done', 'passage automatique à Terminé');
       assert.ok(last.body.ticket.completedAt);
 
-      const reopen = await alice.patch(`/api/tickets/${ids.ticket}/assignees/${ids.alice}`, { done: false, progress: 40 });
+      const reopen = await patchPart(alice, ids.ticket, ids.alice, { done: false, progress: 40 });
       assert.equal(reopen.body.ticket.status, 'in_progress', 'une part rouverte relance le ticket');
       assert.equal(reopen.body.ticket.completedAt, null);
     });
@@ -273,54 +273,56 @@ describe('FastBoard API', () => {
     it('un contributeur met à jour sa part mais ne modifie pas le ticket', async () => {
       await bob.patch(`/api/projects/${projectId}/members/${ids.alice}`, { roleId: ids.contributor });
       assert.equal((await alice.patch(`/api/tickets/${ids.ticket}`, { title: 'Interdit' })).status, 403);
-      assert.equal((await alice.patch(`/api/tickets/${ids.ticket}/assignees/${ids.alice}`, { progress: 60 })).status, 200);
-      assert.equal((await alice.patch(`/api/tickets/${ids.ticket}/assignees/${ids.bob}`, { done: false })).status, 403);
+      assert.equal((await patchPart(alice, ids.ticket, ids.alice, { progress: 60 })).status, 200);
+      assert.equal((await patchPart(alice, ids.ticket, ids.bob, { done: false })).status, 403);
       await bob.patch(`/api/projects/${projectId}/members/${ids.alice}`, { roleId: ids.editor });
     });
 
     it("chaque assigné peut avoir une mission facultative, historisée et protégée par les permissions", async () => {
       const ticket = (await bob.get(`/api/projects/${projectId}`)).body.tickets.find((t: any) => t.id === ids.ticket);
-      assert.ok(ticket.assignees.every((a: any) => a.note === ''), 'vide par défaut');
+      assert.ok(ticket.parts.every((a: any) => a.note === ''), 'vide par défaut');
 
       // Un éditeur (ticket.edit) décrit la mission de n'importe quel assigné.
-      const set = await bob.patch(`/api/tickets/${ids.ticket}/assignees/${ids.alice}`, { note: '  Écrire les tests d\'intégration  ' });
+      const set = await patchPart(bob, ids.ticket, ids.alice, { note: '  Écrire les tests d\'intégration  ' });
       assert.equal(set.status, 200, JSON.stringify(set.body));
-      const alicePart = set.body.ticket.assignees.find((a: any) => a.userId === ids.alice);
+      const alicePart = set.body.ticket.parts.find((a: any) => a.userId === ids.alice);
       assert.equal(alicePart.note, 'Écrire les tests d\'intégration', 'espaces superflus retirés');
-      assert.equal(set.body.ticket.assignees.find((a: any) => a.userId === ids.bob).note, '', 'les autres parts sont intactes');
+      assert.equal(set.body.ticket.parts.find((a: any) => a.userId === ids.bob).note, '', 'les autres parts sont intactes');
 
       // Un contributeur ne modifie que sa propre mission.
       await bob.patch(`/api/projects/${projectId}/members/${ids.alice}`, { roleId: ids.contributor });
-      assert.equal((await alice.patch(`/api/tickets/${ids.ticket}/assignees/${ids.alice}`, { note: 'Précisé par moi' })).status, 200);
-      assert.equal((await alice.patch(`/api/tickets/${ids.ticket}/assignees/${ids.bob}`, { note: 'Non' })).status, 403);
+      assert.equal((await patchPart(alice, ids.ticket, ids.alice, { note: 'Précisé par moi' })).status, 200);
+      assert.equal((await patchPart(alice, ids.ticket, ids.bob, { note: 'Non' })).status, 403);
       await bob.patch(`/api/projects/${projectId}/members/${ids.alice}`, { roleId: ids.editor });
 
       // Rien ne change : pas d'entrée d'historique en double ; une valeur trop longue est refusée.
       const history = async () => ((await bob.get(`/api/tickets/${ids.ticket}/history`)).body.history as Array<{ data: any }>).filter((h) => h.data.kind === 'part' && h.data.note !== undefined);
       const before = (await history()).length;
-      await bob.patch(`/api/tickets/${ids.ticket}/assignees/${ids.alice}`, { note: 'Précisé par moi' });
+      await patchPart(bob, ids.ticket, ids.alice, { note: 'Précisé par moi' });
       assert.equal((await history()).length, before);
-      assert.equal((await bob.patch(`/api/tickets/${ids.ticket}/assignees/${ids.alice}`, { note: 'x'.repeat(2001) })).status, 400);
+      assert.equal((await patchPart(bob, ids.ticket, ids.alice, { note: 'x'.repeat(2001) })).status, 400);
 
       // Effacer la mission est possible et historisé.
-      const cleared = await bob.patch(`/api/tickets/${ids.ticket}/assignees/${ids.alice}`, { note: '' });
-      assert.equal(cleared.body.ticket.assignees.find((a: any) => a.userId === ids.alice).note, '');
+      const cleared = await patchPart(bob, ids.ticket, ids.alice, { note: '' });
+      assert.equal(cleared.body.ticket.parts.find((a: any) => a.userId === ids.alice).note, '');
       const entries = await history();
-      assert.deepEqual(entries[0]!.data, { kind: 'part', user: { id: ids.alice, name: 'alice' }, note: '' });
+      assert.deepEqual(entries[0]!.data, { kind: 'part', user: { id: ids.alice, name: 'alice' }, line: '', note: '' });
       assert.equal(entries[1]!.data.note, 'Précisé par moi');
     });
 
-    it("conserve la mission quand d'autres assignés changent, et la perd si la personne est retirée", async () => {
-      await bob.patch(`/api/tickets/${ids.ticket}/assignees/${ids.bob}`, { note: 'Relire la maquette' });
+    it("conserve la mission quand d'autres assignés changent, et la garde sans personne si la personne est retirée", async () => {
+      await patchPart(bob, ids.ticket, ids.bob, { note: 'Relire la maquette' });
+      await patchPart(bob, ids.ticket, ids.alice, { note: 'Écrire les tests' });
       const current = (await bob.get(`/api/projects/${projectId}`)).body.tickets.find((t: any) => t.id === ids.ticket);
       const ids2 = current.assignees.map((a: any) => a.userId);
       // On retire alice : la mission de bob reste.
       const without = await bob.patch(`/api/tickets/${ids.ticket}`, { assigneeIds: ids2.filter((id: number) => id !== ids.alice) });
       assert.equal(without.body.ticket.assignees.length, 1);
-      assert.equal(without.body.ticket.assignees[0].note, 'Relire la maquette');
-      // On la réassigne : sa mission repart de zéro.
+      assert.equal(without.body.ticket.parts.find((a: any) => a.userId === ids.bob).note, 'Relire la maquette');
+      assert.equal(without.body.ticket.parts.find((a: any) => a.userId === null).note, 'Écrire les tests', 'le texte de la ligne reste');
+      // On la réassigne : elle repart d'une nouvelle ligne.
       const again = await bob.patch(`/api/tickets/${ids.ticket}`, { assigneeIds: ids2 });
-      assert.equal(again.body.ticket.assignees.find((a: any) => a.userId === ids.alice).note, '');
+      assert.equal(again.body.ticket.parts.find((a: any) => a.userId === ids.alice).note, '');
     });
 
     it('déplace et ordonne les tickets dans les colonnes', async () => {

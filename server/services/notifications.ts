@@ -13,7 +13,7 @@ export function mentionedUserIds(text: string): Set<number> {
 
 /** Extrait autour de la première mention, sans le balisage des mentions. */
 function excerptAround(text: string, userId: number): string {
-  const plain = text.replace(/@\[([^\]\n]{1,80})\]\((?:user|ticket):\d+\)/g, '@$1').replace(/\s+/g, ' ').trim();
+  const plain = text.replace(/@\[([^\]\n]{1,80})\]\((?:user|ticket|doc):\d+\)/g, '@$1').replace(/\s+/g, ' ').trim();
   const marker = text.match(new RegExp(`@\\[([^\\]\\n]{1,80})\\]\\(user:${userId}\\)`))?.[1];
   const index = marker ? plain.indexOf(`@${marker}`) : 0;
   const start = Math.max(0, index - 60);
@@ -66,7 +66,7 @@ interface NotificationRow {
 }
 
 function toDTO(row: NotificationRow): NotificationDTO {
-  const data = JSON.parse(row.data) as { activity: ActivityData | null; excerpt: string | null };
+  const data = JSON.parse(row.data) as { activity: ActivityData | null; excerpt: string | null; doc?: { nodeId: number; title: string } };
   const activity = data.activity;
   const ticket = activity && (activity.kind === 'ticket' || activity.kind === 'comment') ? activity : null;
   return {
@@ -83,6 +83,7 @@ function toDTO(row: NotificationRow): NotificationDTO {
     via: row.via,
     activity,
     excerpt: data.excerpt,
+    doc: data.doc ?? null,
     createdAt: row.created_at,
     readAt: row.read_at,
   };
@@ -112,6 +113,20 @@ function insert(ctx: AppContext, userId: number, type: NotificationType, project
     actor.userId,
     actor.via ?? null,
     JSON.stringify({ activity, excerpt }),
+    nowIso(),
+  );
+  const row = ctx.db.get<NotificationRow>(`${SELECT} WHERE n.id = ?`, lastInsertRowid);
+  if (row) ctx.hub.sendToUser(userId, { t: 'notification', notification: toDTO(row), unread: unreadCount(ctx.db, userId) });
+}
+
+/** Prévient une personne qu'elle vient d'être mentionnée dans un fichier de documentation. */
+export function notifyDocMention(ctx: AppContext, actor: Actor, userId: number, nodeId: number, title: string, content: string): void {
+  const { lastInsertRowid } = ctx.db.run(
+    "INSERT INTO notifications (user_id, type, actor_id, via, data, created_at) VALUES (?, 'mention', ?, ?, ?, ?)",
+    userId,
+    actor.userId,
+    actor.via ?? null,
+    JSON.stringify({ activity: null, excerpt: excerptAround(content, userId), doc: { nodeId, title } }),
     nowIso(),
   );
   const row = ctx.db.get<NotificationRow>(`${SELECT} WHERE n.id = ?`, lastInsertRowid);

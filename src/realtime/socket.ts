@@ -2,6 +2,9 @@ import { ref } from 'vue';
 import type { ClientMessage, PresenceUser, ProjectEvent, ServerMessage } from '@shared/realtime';
 import type { AppInfoDTO, NotificationDTO } from '@shared/types';
 
+/** Messages de la documentation, traités par les écrans qui les attendent. */
+export type DocServerMessage = Extract<ServerMessage, { t: `doc${string}` }>;
+
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting';
 
 export interface EventMeta {
@@ -19,9 +22,12 @@ interface Handlers {
   revoked: Array<(projectId: number) => void>;
   /** Reconnexion réussie : l'état local a pu manquer des évènements. */
   resync: Array<() => void>;
+  /** Connexion ouverte, la première comme les suivantes : ce qui a été envoyé avant est perdu. */
+  open: Array<() => void>;
   app: Array<(info: AppInfoDTO) => void>;
   notification: Array<(notification: NotificationDTO, unread: number) => void>;
   notificationsRead: Array<(unread: number) => void>;
+  doc: Array<(message: DocServerMessage) => void>;
 }
 
 const BACKOFF = [500, 1000, 2000, 4000, 8000, 15000];
@@ -38,7 +44,7 @@ class RealtimeClient {
   #projectId: number | null = null;
   #presence: { ticketId: number | null; view: string } = { ticketId: null, view: '' };
   #hasConnectedOnce = false;
-  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], revoked: [], resync: [], app: [], notification: [], notificationsRead: [] };
+  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], doc: [] };
 
   on<K extends keyof Handlers>(type: K, handler: Handlers[K][number]): () => void {
     (this.#handlers[type] as Array<typeof handler>).push(handler);
@@ -87,6 +93,11 @@ class RealtimeClient {
     }
   }
 
+  /** Envoie un message de documentation (perdu hors connexion : l'évènement `open` relance les écrans concernés). */
+  sendDoc(message: Extract<ClientMessage, { t: `doc${string}` }>): void {
+    this.#send(message);
+  }
+
   #open(): void {
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
     this.state.value = this.#hasConnectedOnce ? 'reconnecting' : 'connecting';
@@ -102,6 +113,7 @@ class RealtimeClient {
         this.#handlers.resync.forEach((handler) => handler());
       }
       this.#hasConnectedOnce = true;
+      this.#handlers.open.forEach((handler) => handler());
     };
     socket.onmessage = (message) => this.#onMessage(message.data);
     socket.onclose = () => {
@@ -156,6 +168,17 @@ class RealtimeClient {
           this.#projectId = null;
         }
         this.#handlers.revoked.forEach((handler) => handler(message.projectId));
+        break;
+      case 'docs.tree':
+      case 'docs.access':
+      case 'docs.revoked':
+      case 'docs.comments':
+      case 'doc.sync':
+      case 'doc.update':
+      case 'doc.awareness':
+      case 'doc.saved':
+      case 'doc.closed':
+        this.#handlers.doc.forEach((handler) => handler(message));
         break;
       default:
         break;

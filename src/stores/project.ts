@@ -379,6 +379,7 @@ export const useProjectStore = defineStore('project', () => {
         for (const ticket of tickets.value) {
           if (ticket.assignees.some((assignee) => !memberIds.has(assignee.userId))) {
             ticket.assignees = ticket.assignees.filter((assignee) => memberIds.has(assignee.userId));
+            ticket.parts = ticket.parts.map((part) => (part.userId !== null && !memberIds.has(part.userId) ? { ...part, userId: null } : part));
           }
         }
         // Mes propres permissions ont pu changer.
@@ -543,32 +544,27 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
-  async function updatePart(ticketId: number, userId: number, patch: { done?: boolean; progress?: number; note?: string }): Promise<void> {
-    const { ticket } = await api.updatePart(ticketId, userId, patch);
-    upsertTicket(ticket);
+  // --- Lignes d'avancement et dépendances ---
+
+  async function addPart(ticketId: number, input: { note?: string; userId?: number | null }): Promise<void> {
+    upsertTicket((await api.addPart(ticketId, input)).ticket);
   }
 
-  // --- Sous-tâches et dépendances ---
-
-  async function addSubtask(ticketId: number, title: string, assigneeId: number | null = null): Promise<void> {
-    upsertTicket((await api.addSubtask(ticketId, title, assigneeId)).ticket);
-  }
-
-  async function updateSubtask(ticketId: number, subtaskId: number, patch: { title?: string; done?: boolean; assigneeId?: number | null; position?: number }): Promise<void> {
-    const subtask = requireTicket(ticketId).subtasks.find((entry) => entry.id === subtaskId);
-    const previous = subtask ? { ...subtask } : null;
-    if (subtask && patch.done !== undefined) subtask.done = patch.done;
-    if (subtask && patch.title !== undefined) subtask.title = patch.title;
+  async function updatePart(ticketId: number, partId: number, patch: { note?: string; userId?: number | null; done?: boolean; progress?: number; position?: number }): Promise<void> {
+    const part = requireTicket(ticketId).parts.find((entry) => entry.id === partId);
+    const previous = part ? { ...part } : null;
+    if (part && patch.done !== undefined) part.done = patch.done;
+    if (part && patch.note !== undefined) part.note = patch.note;
     try {
-      upsertTicket((await api.updateSubtask(subtaskId, patch)).ticket);
+      upsertTicket((await api.updatePart(partId, patch)).ticket);
     } catch (cause) {
-      if (subtask && previous) Object.assign(subtask, previous);
+      if (part && previous) Object.assign(part, previous);
       throw cause;
     }
   }
 
-  async function deleteSubtask(subtaskId: number): Promise<void> {
-    upsertTicket((await api.deleteSubtask(subtaskId)).ticket);
+  async function deletePart(partId: number): Promise<void> {
+    upsertTicket((await api.deletePart(partId)).ticket);
   }
 
   async function addLink(ticketId: number, targetId: number, reason: string): Promise<void> {
@@ -759,8 +755,8 @@ export const useProjectStore = defineStore('project', () => {
     // cycle de vie
     load, reload, leave,
     // tickets
-    createTicket, updateTicket, moveTicket, updatePart, deleteTicket, forgetTicket, wasDeletedLocally,
-    setWatching, addSubtask, updateSubtask, deleteSubtask, addLink, deleteLink, linksOf, childrenOf, fieldOn,
+    createTicket, updateTicket, moveTicket, deleteTicket, forgetTicket, wasDeletedLocally,
+    setWatching, addPart, updatePart, deletePart, addLink, deleteLink, linksOf, childrenOf, fieldOn,
     loadComments, loadHistory, loadAttachments, addAttachment, addAttachmentLink, removeAttachment, addComment, editComment, removeComment,
     // configuration
     updateProjectInfo, saveCategory, deleteCategory, saveListItem, deleteListItem, saveDelivery, deleteDelivery,

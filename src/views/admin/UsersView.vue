@@ -130,7 +130,7 @@ async function toggleActive(user: AdminUserDTO): Promise<void> {
             <UserAvatar :user="data" :ring="online.has(data.id) ? 'online' : 'none'" />
             <div class="who">
               <RouterLink :to="{ name: 'user', params: { id: data.id } }" class="name-link"><strong>{{ data.name }}</strong></RouterLink>
-              <span class="muted small">{{ data.email }}</span>
+              <span class="muted small">{{ data.email }}<Tag v-if="data.authSource === 'ldap'" v-tooltip.top="$t('Se connecte avec l’annuaire')" value="LDAP" severity="info" class="source" /></span>
             </div>
           </div>
         </template>
@@ -184,6 +184,11 @@ async function toggleActive(user: AdminUserDTO): Promise<void> {
   border: 1px solid var(--fb-border);
   border-radius: var(--fb-radius);
   overflow: hidden;
+}
+.source {
+  margin-left: 0.4rem;
+  padding: 0 0.3rem;
+  font-size: 0.65rem;
 }
 .who {
   display: flex;

@@ -108,6 +108,7 @@ async function submit(): Promise<void> {
           <Button type="button" icon="pi pi-copy" severity="secondary" outlined :aria-label="$t('Copier le mot de passe')" :disabled="!form.password" @click="copyPassword" />
         </div>
         <small v-if="isEdit && form.password" class="muted">{{ $t('Les sessions ouvertes de cette personne seront fermées.') }}</small>
+        <small v-if="user?.authSource === 'ldap'" class="muted">{{ $t('Ce compte se connecte avec l’annuaire : définir un mot de passe le repasse en compte local.') }}</small>
       </div>
       <label v-if="isEdit" class="row toggle">
         <ToggleSwitch v-model="form.isActive" :disabled="isSelf" />

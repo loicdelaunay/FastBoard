@@ -3,26 +3,37 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useTicketRoute } from '@/composables/useTicketRoute';
 import { useProjectStore } from '@/stores/project';
-import { renderMarkdown, renderMermaid } from '@/utils/markdown';
+import { renderMarkdown, renderMermaid, type MentionResolver } from '@/utils/markdown';
 import { ticketKey } from '@/utils/tickets';
 
 /** Affichage d'un texte Markdown (mentions, formules, diagrammes Mermaid), assaini. */
-const props = defineProps<{ text: string }>();
+const props = defineProps<{
+  text: string;
+  /** Hors d'un projet : d'où viennent les noms des personnes et des tickets. */
+  resolver?: MentionResolver;
+  /** Transforme le texte avant le rendu, et le HTML après (liens internes de la documentation). */
+  prepare?: (text: string) => string;
+  finish?: (html: string) => string;
+  openTicketWith?: (ticketId: number) => void;
+}>();
 
 const project = useProjectStore();
 const router = useRouter();
 const { openTicket } = useTicketRoute();
 const root = ref<HTMLElement | null>(null);
 
-const html = computed(() =>
-  renderMarkdown(props.text, {
-    userName: (id) => project.usersById.get(id)?.name,
-    ticketLabel: (id) => {
-      const ticket = project.ticketsById.get(id);
-      return ticket ? { key: ticketKey(project.project, ticket), title: ticket.title } : undefined;
-    },
-  }),
-);
+const projectResolver: MentionResolver = {
+  userName: (id) => project.usersById.get(id)?.name,
+  ticketLabel: (id) => {
+    const ticket = project.ticketsById.get(id);
+    return ticket ? { key: ticketKey(project.project, ticket), title: ticket.title } : undefined;
+  },
+};
+
+const html = computed(() => {
+  const rendered = renderMarkdown(props.prepare ? props.prepare(props.text) : props.text, props.resolver ?? projectResolver);
+  return props.finish ? props.finish(rendered) : rendered;
+});
 
 async function drawDiagrams(): Promise<void> {
   await nextTick();
@@ -38,7 +49,8 @@ function onClick(event: MouseEvent): void {
   event.preventDefault();
   event.stopPropagation();
   if (target.dataset.user) void router.push({ name: 'user', params: { id: target.dataset.user } });
-  else if (target.dataset.ticket) openTicket(Number(target.dataset.ticket));
+  else if (target.dataset.doc) void router.push({ name: 'doc-file', params: { nodeId: target.dataset.doc } });
+  else if (target.dataset.ticket) (props.openTicketWith ?? openTicket)(Number(target.dataset.ticket));
 }
 </script>
 
@@ -47,123 +59,124 @@ function onClick(event: MouseEvent): void {
   <div ref="root" class="markdown" @click="onClick" v-html="html"></div>
 </template>
 
-<style scoped>
+<style>
+/* Sans portée : les blocs rendus de l’éditeur de documentation partagent ces styles. */
 .markdown {
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
-.markdown :deep(> :first-child) {
+.markdown > :first-child {
   margin-top: 0;
 }
-.markdown :deep(> :last-child) {
+.markdown > :last-child {
   margin-bottom: 0;
 }
-.markdown :deep(p),
-.markdown :deep(ul),
-.markdown :deep(ol),
-.markdown :deep(blockquote),
-.markdown :deep(table),
-.markdown :deep(pre) {
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote,
+.markdown table,
+.markdown pre {
   margin: 0 0 0.75rem;
 }
-.markdown :deep(h1),
-.markdown :deep(h2),
-.markdown :deep(h3),
-.markdown :deep(h4) {
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
   margin: 1rem 0 0.5rem;
   line-height: 1.3;
 }
-.markdown :deep(h1) {
+.markdown h1 {
   font-size: 1.35rem;
 }
-.markdown :deep(h2) {
+.markdown h2 {
   font-size: 1.15rem;
 }
-.markdown :deep(h3) {
+.markdown h3 {
   font-size: 1rem;
 }
-.markdown :deep(ul),
-.markdown :deep(ol) {
+.markdown ul,
+.markdown ol {
   padding-left: 1.4rem;
 }
-.markdown :deep(li > input[type='checkbox']) {
+.markdown li > input[type='checkbox'] {
   margin: 0 0.4rem 0 -1.2rem;
   vertical-align: middle;
 }
-.markdown :deep(li:has(> input[type='checkbox'])) {
+.markdown li:has(> input[type='checkbox']) {
   list-style: none;
 }
-.markdown :deep(a) {
+.markdown a {
   color: var(--fb-accent);
   text-decoration: underline;
 }
-.markdown :deep(blockquote) {
+.markdown blockquote {
   padding: 0.25rem 0.9rem;
   border-left: 3px solid var(--fb-accent);
   background: var(--fb-panel-alt);
   color: var(--fb-muted);
 }
-.markdown :deep(code) {
+.markdown code {
   padding: 0.1rem 0.35rem;
   border-radius: 5px;
   background: var(--fb-panel-alt);
   font-family: var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
   font-size: 0.85em;
 }
-.markdown :deep(pre) {
+.markdown pre {
   padding: 0.75rem 0.9rem;
   border-radius: 8px;
   background: var(--fb-panel-alt);
   overflow-x: auto;
 }
-.markdown :deep(pre code) {
+.markdown pre code {
   padding: 0;
   background: none;
 }
-.markdown :deep(table) {
+.markdown table {
   border-collapse: collapse;
   display: block;
   max-width: 100%;
   overflow-x: auto;
 }
-.markdown :deep(th),
-.markdown :deep(td) {
+.markdown th,
+.markdown td {
   padding: 0.35rem 0.6rem;
   border: 1px solid var(--fb-border);
 }
-.markdown :deep(th) {
+.markdown th {
   background: var(--fb-panel-alt);
 }
-.markdown :deep(hr) {
+.markdown hr {
   border: 0;
   border-top: 1px solid var(--fb-border);
   margin: 1rem 0;
 }
-.markdown :deep(img) {
+.markdown img {
   max-width: 100%;
   border-radius: 6px;
 }
-.markdown :deep(.md-math) {
+.markdown .md-math {
   margin: 0 0 0.75rem;
   overflow-x: auto;
 }
-.markdown :deep(.md-mermaid) {
+.markdown .md-mermaid {
   margin: 0 0 0.75rem;
   overflow-x: auto;
   text-align: center;
 }
-.markdown :deep(.md-mermaid.rendered svg) {
+.markdown .md-mermaid.rendered svg {
   max-width: 100%;
   height: auto;
 }
-.markdown :deep(.md-mermaid:not(.rendered) .md-mermaid-source) {
+.markdown .md-mermaid:not(.rendered) .md-mermaid-source {
   opacity: 0.6;
 }
-.markdown :deep(.md-mermaid.failed .md-mermaid-source) {
+.markdown .md-mermaid.failed .md-mermaid-source {
   border-left: 3px solid var(--fb-danger);
   opacity: 1;
 }
-.markdown :deep(.md-mention) {
+.markdown .md-mention {
   display: inline-block;
   padding: 0 0.4rem;
   border-radius: 999px;
@@ -172,11 +185,20 @@ function onClick(event: MouseEvent): void {
   font-weight: 600;
   text-decoration: none;
 }
-.markdown :deep(.md-mention.ticket) {
+.markdown .md-mention.ticket {
   font-size: 0.9em;
 }
-.markdown :deep(.md-mention.gone) {
+.markdown .md-mention.gone {
   opacity: 0.6;
   text-decoration: line-through;
+}
+.doc-mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, #f59e0b 28%, transparent);
+  color: inherit;
+  cursor: pointer;
+}
+.doc-mark.active {
+  background: color-mix(in srgb, #f59e0b 55%, transparent);
 }
 </style>

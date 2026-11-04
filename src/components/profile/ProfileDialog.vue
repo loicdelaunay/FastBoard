@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
+import Message from 'primevue/message';
 import Password from 'primevue/password';
 import Tab from 'primevue/tab';
 import TabList from 'primevue/tablist';
@@ -187,7 +188,8 @@ async function changePassword(): Promise<void> {
         </TabPanel>
 
         <TabPanel value="security">
-          <form class="stack security" @submit.prevent="changePassword">
+          <Message v-if="auth.user?.authSource === 'ldap'" severity="info" :closable="false">{{ $t('Ce compte se connecte avec l’annuaire : changez votre mot de passe dans celui-ci.') }}</Message>
+          <form v-else class="stack security" @submit.prevent="changePassword">
             <div class="field">
               <label for="pw-current">{{ $t('Mot de passe actuel') }}</label>
               <Password id="pw-current" v-model="currentPassword" :feedback="false" toggle-mask autocomplete="current-password" fluid />

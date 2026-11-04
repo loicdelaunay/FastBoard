@@ -8,6 +8,9 @@ import { SecretBox } from './auth/secretBox.ts';
 import { startBackupScheduler } from './backup/service.ts';
 import { purgeNotifications } from './services/notifications.ts';
 import { purgeExpiredSessions } from './auth/sessions.ts';
+import { DocRooms } from './docs/collab.ts';
+import { purgeDocs, reindexDocs } from './docs/store.ts';
+import { documentationRouter, documentationUploadRouter } from './routes/documentation.ts';
 import { loadConfig, type AppConfig } from './config.ts';
 import type { AppContext } from './context.ts';
 import { Db } from './db/database.ts';
@@ -100,11 +103,15 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   const ephemeralUploads = config.uploadsDir === null;
   const uploadsDir = config.uploadsDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'fastboard-uploads-'));
   fs.mkdirSync(uploadsDir, { recursive: true });
+  const ephemeralDocs = config.docsDir === null;
+  const docsDir = config.docsDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'fastboard-docs-'));
+  fs.mkdirSync(docsDir, { recursive: true });
 
   const hub = new Hub();
   const logger = new Logger(db, { minLevel: config.logLevel, toConsole: config.logToConsole });
   const metrics = new Metrics(db, { wsClients: () => hub.clientCount });
-  const ctx: AppContext = { config, db, hub, logger, metrics, uploadsDir, secrets: new SecretBox(config.dbPath) };
+  const ctx = { config, db, hub, logger, metrics, uploadsDir, docsDir, secrets: new SecretBox(config.dbPath) } as AppContext;
+  ctx.docRooms = new DocRooms(ctx);
   db.onSlowQuery = (sql, ms) => logger.warn('db', `Requête SQL lente (${Math.round(ms)} ms)`, { sql: sql.replace(/\s+/g, ' ').slice(0, 300), ms: Math.round(ms) });
   logger.start();
   metrics.start();
@@ -126,10 +133,11 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   api.use(requestMonitor(ctx));
   // Envoi de fichiers : corps brut, donc avant l'analyse JSON.
   api.use(attachmentUploadRouter(ctx));
+  api.use(documentationUploadRouter(ctx));
   const json = express.json({ limit: '1mb' });
   const largeJson = express.json({ limit: '16mb' });
-  // Assistant IA : images jointes et conversations enregistrées.
-  api.use((req, res, next) => (req.path === '/ai/chat' || req.path.startsWith('/ai/conversations/') ? largeJson : json)(req, res, next));
+  // Assistant IA : images jointes et conversations enregistrées. Documentation : texte d'un fichier, décisions d'import.
+  api.use((req, res, next) => (req.path === '/ai/chat' || req.path.startsWith('/ai/conversations/') || req.path.startsWith('/documentation/') ? largeJson : json)(req, res, next));
   api.use(csrfGuard(ctx));
   api.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
@@ -143,6 +151,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   api.use(ticketsRouter(ctx));
   api.use(aiRouter(ctx));
   api.use(attachmentsRouter(ctx));
+  api.use(documentationRouter(ctx));
   api.use((_req, _res, next) => next(notFound('Route inconnue.')));
   app.use('/api', api);
 
@@ -181,9 +190,12 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   await httpsManager.apply();
 
   purgeNotifications(db);
+  purgeDocs(ctx);
+  reindexDocs(ctx);
   const purge = setInterval(() => {
     purgeExpiredSessions(ctx);
     purgeNotifications(db);
+    purgeDocs(ctx);
   }, 60 * 60 * 1000);
   purge.unref();
   const stopBackups = startBackupScheduler(ctx);
@@ -196,6 +208,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
     close: async () => {
       clearInterval(purge);
       stopBackups();
+      ctx.docRooms.close();
       hub.close();
       await httpsManager.close();
       server.closeAllConnections();
@@ -206,6 +219,9 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
       db.close();
       if (ephemeralUploads) {
         fs.rmSync(uploadsDir, { recursive: true, force: true });
+      }
+      if (ephemeralDocs) {
+        fs.rmSync(docsDir, { recursive: true, force: true });
       }
     },
   };

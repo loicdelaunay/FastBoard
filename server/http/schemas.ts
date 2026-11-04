@@ -6,6 +6,9 @@ import { AI_LIMITS, REASONING_LEVELS } from '../../shared/ai.ts';
 import { parseRetentionRules } from '../../shared/backup.ts';
 import { LIMITS, TICKET_STATUSES } from '../../shared/constants.ts';
 import { isISODate } from '../../shared/dates.ts';
+import { DOC_COMMENT_LIMITS } from '../../shared/docComments.ts';
+import { DOC_LIMITS, DOC_ROLES } from '../../shared/docs.ts';
+import { LDAP_LIMITS, LDAP_PROFILES, LDAP_SECURITY, LDAP_USER_TOKEN } from '../../shared/ldap.ts';
 import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
@@ -30,7 +33,7 @@ const projectKey = z
 // --- Authentification et profil -------------------------------------------------------------------------------------
 
 export const loginSchema = z.object({
-  email: z.string().trim().min(1).max(200),
+  email: z.string().trim().min(1).max(200).describe('Adresse e-mail, ou identifiant de l’annuaire quand la connexion LDAP est activée.'),
   password: z.string().min(1).max(200),
 });
 
@@ -293,14 +296,6 @@ export const moveTicketSchema = z.object({
   beforeId: id.nullable().default(null).describe('Insère le ticket juste avant celui-ci (même colonne cible) ; `null` = en fin de colonne.'),
 });
 
-export const subtaskSchema = z.object({
-  title: z.string().trim().min(1).max(LIMITS.subtaskTitleMax),
-  assigneeId: nullableId.optional().describe('Membre du projet chargé de la sous-tâche.'),
-});
-export const subtaskPatchSchema = subtaskSchema.partial().extend({
-  done: z.boolean().optional(),
-  position: z.number().int().min(0).max(1000).optional().describe('Nouveau rang (0 = première).'),
-});
 export const linkSchema = z.object({
   targetId: id.describe('Ticket lié (même projet).'),
   reason: z
@@ -312,14 +307,14 @@ export const linkSchema = z.object({
     .meta({ example: 'Bloqué par' }),
 });
 
-export const partSchema = z.object({
-  done: z.boolean().optional().describe("La personne a terminé sa part."),
-  progress: percent.optional().describe('Avancement personnel (%).'),
-  note: z
-    .string()
-    .max(LIMITS.partNoteMax)
-    .optional()
-    .describe("Mission de la personne : ce qu'elle doit faire sur ce ticket (texte libre). Chaîne vide pour l'effacer."),
+export const partCreateSchema = z.object({
+  note: z.string().max(LIMITS.partNoteMax).optional().describe("Ce qu'il y a à faire (texte libre)."),
+  userId: nullableId.optional().describe('Membre du projet chargé de la ligne (facultatif).'),
+});
+export const partPatchSchema = partCreateSchema.extend({
+  done: z.boolean().optional().describe('Ligne terminée.'),
+  progress: percent.optional().describe('Avancement de la ligne (%).'),
+  position: z.number().int().min(0).max(1000).optional().describe('Nouveau rang (0 = première).'),
 });
 
 export const transferTicketSchema = z.object({
@@ -449,6 +444,84 @@ export const aiConversationSchema = z.object({
   turns: z.array(z.unknown()).max(AI_LIMITS.messages * 2).describe('Tours affichés dans le panneau (format de l’interface).'),
 });
 
+const ldapFields = {
+  profile: z.enum(LDAP_PROFILES).default('classic').describe('`classic` : nom lu tel quel ; `specific` : compte de service obligatoire, nom écrit « NOM, Prénom (Société) ».'),
+  host: z.string().trim().max(255).regex(/^[A-Za-z0-9._:-]*$/, 'Nom d’hôte ou adresse IP invalide.'),
+  port: z.number().int().min(1).max(65_535),
+  security: z.enum(LDAP_SECURITY).default('none').describe('`none` : en clair ; `ldaps` : TLS dès la connexion ; `starttls` : passage en TLS après la connexion.'),
+  verifyCertificate: z.boolean().default(true),
+  caPath: z.string().trim().max(LDAP_LIMITS.textMax).default('').describe('Autorité de certification interne (PEM). Chemin absolu, ou relatif au dossier de FastBoard.'),
+  timeoutSeconds: z.number().int().min(LDAP_LIMITS.timeoutMin).max(LDAP_LIMITS.timeoutMax).default(30),
+  bindDn: z.string().trim().max(LDAP_LIMITS.textMax).default('').describe('Compte de service qui cherche la personne (vide : recherche anonyme).'),
+  bindPassword: z.string().max(LDAP_LIMITS.textMax).optional().describe('Absent : garder le mot de passe enregistré ; chaîne vide : l’effacer.'),
+  searchBase: z.string().trim().max(LDAP_LIMITS.textMax),
+  userFilter: z.string().trim().max(LDAP_LIMITS.filterMax).refine((value) => value.includes(LDAP_USER_TOKEN), 'Le filtre doit contenir {user}.').describe('Filtre LDAP ; `{user}` est remplacé par l’identifiant saisi.'),
+  emailAttribute: z.string().trim().min(1).max(LDAP_LIMITS.attributeMax),
+  nameAttribute: z.string().trim().min(1).max(LDAP_LIMITS.attributeMax),
+};
+
+export const ldapSettingsSchema = z
+  .object({
+    enabled: z.boolean(),
+    ...ldapFields,
+    loginLabel: z.string().trim().max(LDAP_LIMITS.labelMax).default('').describe('Libellé du champ d’identifiant sur la page de connexion.'),
+    defaultRoleId: id.nullable().default(null).describe('Rôle global des comptes créés à la première connexion (`null` : Membre).'),
+    linkExisting: z.boolean().default(true).describe('Rattache à l’annuaire un compte local de même adresse e-mail (jamais un super administrateur).'),
+  })
+  .superRefine((value, issue) => {
+    if (!value.enabled) return;
+    if (!value.host) issue.addIssue({ code: 'custom', path: ['host'], message: 'Indiquez le serveur de l’annuaire.' });
+    if (!value.searchBase) issue.addIssue({ code: 'custom', path: ['searchBase'], message: 'Indiquez la base de recherche.' });
+    if (value.profile === 'specific' && !value.bindDn) issue.addIssue({ code: 'custom', path: ['bindDn'], message: 'Le profil spécifique demande un compte de service.' });
+  });
+
+/** Essai avec les valeurs du formulaire (pas encore enregistrées), éventuellement sur un compte. */
+export const ldapTestSchema = z.object({
+  ...ldapFields,
+  host: ldapFields.host.min(1, 'Indiquez le serveur de l’annuaire.'),
+  login: z.string().trim().max(200).default('').describe('Identifiant à chercher (facultatif).'),
+  password: z.string().max(200).default('').describe('Mot de passe de ce compte (facultatif, jamais enregistré).'),
+});
+
+export const docSettingsSchema = z.object({ enabled: z.boolean() });
+
+export const docSpaceSchema = z.object({
+  name: z.string().trim().min(1, 'Donnez un nom à l’espace.').max(DOC_LIMITS.nameMax),
+  description: z.string().trim().max(DOC_LIMITS.descriptionMax).default(''),
+});
+export const docSpaceUpdateSchema = docSpaceSchema.partial();
+
+export const docMemberRoleSchema = z.object({ role: z.enum(DOC_ROLES).describe('`reader` : lecture ; `editor` : écriture ; `owner` : membres et réglages.') });
+export const docMemberSchema = docMemberRoleSchema.extend({ userId: id });
+
+export const docNodeSchema = z.object({
+  path: z.string().min(1).max(1000).describe('Chemin relatif à l’espace, ex. `Guides/Installation` ; l’extension `.md` est ajoutée aux notes et les dossiers manquants sont créés.'),
+  kind: z.enum(['folder', 'markdown']).default('markdown'),
+  content: z.string().max(DOC_LIMITS.fileChars).optional().describe('Texte initial d’une note.'),
+});
+export const docMoveSchema = z.object({ path: z.string().min(1).max(1000).describe('Nouveau chemin (renommage ou déplacement).') });
+export const docContentSchema = z.object({ content: z.string().max(DOC_LIMITS.fileChars) });
+export const docCommentSchema = z.object({
+  body: z.string().trim().min(1).max(DOC_COMMENT_LIMITS.body).describe('Texte du commentaire ; `@[Nom](user:12)` mentionne une personne.'),
+  quote: z.string().max(DOC_COMMENT_LIMITS.quote).default('').describe('Passage commenté, sans sa syntaxe Markdown (vide pour une réponse).'),
+  before: z.string().max(DOC_COMMENT_LIMITS.context).default('').describe('Texte juste avant le passage.'),
+  after: z.string().max(DOC_COMMENT_LIMITS.context).default('').describe('Texte juste après le passage.'),
+  parentId: id.optional().describe('Commentaire auquel celui-ci répond.'),
+});
+export const docCommentResolveSchema = z.object({ resolved: z.boolean() });
+export const docSearchSchema = z.object({ q: z.string().trim().max(100).default('') });
+export const docImportApplySchema = z.object({
+  decisions: z
+    .array(
+      z.object({
+        path: z.string().min(1).max(1000),
+        action: z.enum(['auto', 'keep', 'incoming', 'both', 'delete']).describe('`auto` : résultat proposé ; `keep` : garder le serveur ; `incoming` : prendre l’import ; `both` : garder les deux ; `delete` : supprimer du serveur.'),
+        content: z.string().max(DOC_LIMITS.fileChars).optional().describe('Texte final d’un conflit résolu à la main.'),
+      }),
+    )
+    .max(DOC_LIMITS.zipFiles),
+});
+
 const certificateFiles = {
   format: z.enum(['pem', 'pfx']).default('pem').describe('`pem` : certificat + clé privée ; `pfx` : fichier PKCS#12.'),
   certPath: z.string().trim().max(1000).default('').describe('Certificat PEM (chaîne complète conseillée). Chemin absolu, ou relatif au dossier de FastBoard.'),
@@ -505,7 +578,7 @@ export const exportQuerySchema = z.object({
 
 export const searchQuerySchema = z.object({
   q: z.string().trim().min(1, 'Saisissez un texte à rechercher.').max(200).describe('Texte recherché (accents et casse ignorés), ou une clé de ticket « APP-12 ».'),
-  type: csv(['projects', 'tickets', 'users'] as const).optional().describe('Types de résultats, séparés par des virgules (tous par défaut).'),
+  type: csv(['projects', 'tickets', 'users', 'docs'] as const).optional().describe('Types de résultats, séparés par des virgules (tous par défaut).'),
   limit: z.coerce.number().int().min(1).max(100).default(8).describe('Nombre de résultats par type.'),
 });
 

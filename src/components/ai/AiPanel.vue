@@ -170,7 +170,7 @@ const hasProject = computed(() => Boolean(context.value.projectId));
 
 const suggestions = computed(() =>
   hasTicket.value
-    ? [t('Résume ce ticket et son historique'), t('Quels sont les risques ou les blocages de ce ticket ?'), t('Propose des sous-tâches pour ce ticket'), t('Rédige un commentaire de point d’avancement')]
+    ? [t('Résume ce ticket et son historique'), t('Quels sont les risques ou les blocages de ce ticket ?'), t('Propose des lignes d’avancement pour ce ticket'), t('Rédige un commentaire de point d’avancement')]
     : hasProject.value
       ? [t('Où en est le projet ? Fais un point rapide'), t('Quels tickets sont en retard ou bloqués ?'), t('Qui est le plus chargé en ce moment ?'), t('Quels tickets parlent de paiement ?')]
       : [t('Sur quels projets ai-je des tickets en cours ?'), t('Cherche les tickets qui parlent de sécurité'), t('Quels tickets sont bloqués, tous projets confondus ?')],

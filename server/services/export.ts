@@ -58,7 +58,7 @@ export function exportProjectCsv(db: Db, access: ProjectAccess): string {
   const column = (status: keyof typeof STATUS_META): string => settings.columns.find((entry) => entry.status === status)?.label ?? STATUS_META[status].label;
   const custom = settings.customFields;
   const children = childrenByParent(snapshot.tickets);
-  const header = ['Clé', 'Titre', 'Description', 'Statut', 'Priorité', 'Composants', 'Catégorie', 'Livraison', 'Début', 'Fin', 'Avancement (%)', 'Assignés', 'Ticket parent', 'Sous-tâches', 'Dépendances', 'Commentaires', 'Pièces jointes', 'Créé le', 'Modifié le', 'Terminé le', ...custom.map((field) => field.label)];
+  const header = ['Clé', 'Titre', 'Description', 'Statut', 'Priorité', 'Composants', 'Catégorie', 'Livraison', 'Début', 'Fin', 'Avancement (%)', 'Assignés', 'Ticket parent', 'Lignes terminées', 'Dépendances', 'Commentaires', 'Pièces jointes', 'Créé le', 'Modifié le', 'Terminé le', ...custom.map((field) => field.label)];
   const rows = snapshot.tickets
     .sort((a, b) => a.number - b.number)
     .map((ticket) => [
@@ -75,7 +75,7 @@ export function exportProjectCsv(db: Db, access: ProjectAccess): string {
       ticketProgress(ticket, settings.completeStatuses, children.get(ticket.id)),
       ticket.assignees.map((assignee) => user(assignee.userId)).join(', '),
       ticket.parentId ? `${snapshot.project.key}-${snapshot.tickets.find((entry) => entry.id === ticket.parentId)?.number ?? '?'}` : '',
-      ticket.subtasks.length ? `${ticket.subtasks.filter((subtask) => subtask.done).length}/${ticket.subtasks.length}` : '',
+      ticket.parts.length ? `${ticket.parts.filter((part) => part.done).length}/${ticket.parts.length}` : '',
       ticket.links.map((link) => {
         const target = snapshot.tickets.find((entry) => entry.id === link.targetId);
         return `${link.reason} ${target ? `${snapshot.project.key}-${target.number}` : '?'}`;

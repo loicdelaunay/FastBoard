@@ -283,9 +283,9 @@ function exportCsv(): void {
         </Column>
         <Column header="" style="width: 6rem">
           <template #body="{ data }">
-            <span v-if="data.ticket.subtasks.length" class="comments muted small" :title="$t('Sous-tâches')"><i class="pi pi-list-check"></i> {{ data.ticket.subtasks.filter((s: { done: boolean }) => s.done).length }}/{{ data.ticket.subtasks.length }}</span>
+            <span v-if="data.ticket.parts.length > data.ticket.assignees.length" class="comments muted small" :title="$t('Lignes d’avancement')"><i class="pi pi-list-check"></i> {{ data.ticket.parts.filter((part: { done: boolean }) => part.done).length }}/{{ data.ticket.parts.length }}</span>
             <span v-if="data.ticket.attachmentCount" class="comments muted small" :title="$t('Pièces jointes')"><i class="pi pi-paperclip"></i> {{ data.ticket.attachmentCount }}</span>
-            <span v-if="data.ticket.commentCount" class="comments muted small"><i class="pi pi-comment"></i> {{ data.ticket.commentCount }}</span>
+            <span v-if="data.ticket.commentCount" class="comments muted small" :data-comments-of="data.ticket.id"><i class="pi pi-comment"></i> {{ data.ticket.commentCount }}</span>
           </template>
         </Column>
       </DataTable>

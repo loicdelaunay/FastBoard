@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useAppStore } from '@/stores/app';
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
@@ -10,6 +10,7 @@ import LanguageSwitch from '@/components/common/LanguageSwitch.vue';
 import { errorMessage } from '@/api/http';
 import { useAuthStore } from '@/stores/auth';
 
+import { t } from '@/i18n';
 const auth = useAuthStore();
 const app = useAppStore();
 const route = useRoute();
@@ -19,6 +20,9 @@ const email = ref('');
 const password = ref('');
 const loading = ref(false);
 const error = ref('');
+/** Avec l'annuaire, on se connecte aussi avec un identifiant qui n'est pas une adresse e-mail. */
+const ldap = computed(() => app.info.ldap);
+const loginLabel = computed(() => (ldap.value ? ldap.value.loginLabel || t('Identifiant') : t('Adresse e-mail')));
 
 async function submit(): Promise<void> {
   error.value = '';
@@ -50,8 +54,8 @@ async function submit(): Promise<void> {
       <Message v-if="error" severity="error" :closable="false">{{ error }}</Message>
 
       <div class="field">
-        <label for="email">{{ $t('Adresse e-mail') }}</label>
-        <InputText id="email" v-model="email" type="email" autocomplete="username" autofocus required :placeholder="$t('vous@exemple.fr')" />
+        <label for="email">{{ loginLabel }}</label>
+        <InputText id="email" v-model="email" :type="ldap ? 'text' : 'email'" autocomplete="username" autofocus required :placeholder="ldap ? undefined : $t('vous@exemple.fr')" />
       </div>
       <div class="field">
         <label for="password">{{ $t('Mot de passe') }}</label>
@@ -59,7 +63,7 @@ async function submit(): Promise<void> {
       </div>
 
       <Button type="submit" :label="$t('Se connecter')" icon="pi pi-sign-in" :loading="loading" fluid />
-      <p class="muted small hint">{{ $t('Les comptes sont créés par un administrateur.') }}</p>
+      <p class="muted small hint">{{ ldap ? $t('Connectez-vous avec votre compte d’entreprise.') : $t('Les comptes sont créés par un administrateur.') }}</p>
       <div class="lang-row"><LanguageSwitch compact /></div>
     </form>
   </div>

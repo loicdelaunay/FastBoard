@@ -3,7 +3,7 @@ import type { ApiTokenDTO, ApiTokenScope } from '../../shared/types.ts';
 import type { AppContext } from '../context.ts';
 import { nowIso, type Db } from '../db/database.ts';
 import { badRequest, notFound } from '../http/errors.ts';
-import { verifyPassword } from './password.ts';
+import { verifyAccountPassword } from './ldapAccounts.ts';
 import { getAuthUser, type AuthUser } from '../services/access.ts';
 
 /** Tous les jetons commencent par ce préfixe : facile à repérer (et à détecter dans un dépôt par un scanner de secrets). */
@@ -153,8 +153,7 @@ export function updateApiToken(ctx: AppContext, tokenId: number, actor: { userId
 /** Réaffiche le secret d'un jeton à son propriétaire, après vérification de son mot de passe. */
 export async function revealApiToken(ctx: AppContext, tokenId: number, userId: number, password: string): Promise<string> {
   const row = requireOwnedToken(ctx.db, tokenId, { userId, canManageAll: false });
-  const account = ctx.db.get<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = ?', userId);
-  if (!account || !(await verifyPassword(password, account.password_hash))) {
+  if (!(await verifyAccountPassword(ctx, userId, password))) {
     throw badRequest('Mot de passe incorrect.');
   }
   if (row.revoked_at !== null) {

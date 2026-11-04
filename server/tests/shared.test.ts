@@ -3,29 +3,29 @@ import { describe, it } from 'node:test';
 import { addDays, diffDays, formatDateFr, isISODate, isoWeekNumber, isoWeekday, toDayNumber } from '../../shared/dates.ts';
 import { hasPermission, isSubsetOfPermissions, SYSTEM_ROLES, ALL_PROJECT_PERMISSION_KEYS } from '../../shared/permissions.ts';
 import { suggestProjectKey } from '../../shared/projectKey.ts';
-import { assigneeProgress, partsSummary, ticketProgress } from '../../shared/progress.ts';
+import { partProgress, partsSummary, ticketProgress } from '../../shared/progress.ts';
 import { resolveRange } from '../../shared/schedule.ts';
 
 describe('progression des tickets', () => {
   it("vaut toujours 100 % pour un ticket terminé", () => {
-    assert.equal(ticketProgress({ status: 'done', progress: 10, assignees: [{ done: false, progress: 0 }] }), 100);
+    assert.equal(ticketProgress({ status: 'done', progress: 10, parts: [{ done: false, progress: 0 }] }), 100);
   });
 
   it("fait la moyenne des parts des assignés (une part terminée compte pour 100 %)", () => {
-    const assignees = [
+    const parts = [
       { done: true, progress: 0 },
       { done: false, progress: 40 },
       { done: false, progress: 10 },
     ];
-    assert.equal(ticketProgress({ status: 'in_progress', progress: 0, assignees }), 50);
-    assert.deepEqual(partsSummary({ assignees }), { done: 1, total: 3 });
-    assert.equal(assigneeProgress({ done: true, progress: 12 }), 100);
+    assert.equal(ticketProgress({ status: 'in_progress', progress: 0, parts }), 50);
+    assert.deepEqual(partsSummary({ parts }), { done: 1, total: 3 });
+    assert.equal(partProgress({ done: true, progress: 12 }), 100);
   });
 
   it("utilise l'avancement manuel sans assigné et borne les valeurs", () => {
-    assert.equal(ticketProgress({ status: 'todo', progress: 35, assignees: [] }), 35);
-    assert.equal(ticketProgress({ status: 'todo', progress: 250, assignees: [] }), 100);
-    assert.equal(ticketProgress({ status: 'todo', progress: -4, assignees: [] }), 0);
+    assert.equal(ticketProgress({ status: 'todo', progress: 35, parts: [] }), 35);
+    assert.equal(ticketProgress({ status: 'todo', progress: 250, parts: [] }), 100);
+    assert.equal(ticketProgress({ status: 'todo', progress: -4, parts: [] }), 0);
   });
 });
 

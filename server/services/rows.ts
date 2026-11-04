@@ -12,7 +12,7 @@ import type {
   ProjectDTO,
   ProjectListItemDTO,
   RoleDTO,
-  SubtaskDTO,
+  PartDTO,
   TicketLinkDTO,
   UserSummaryDTO,
 } from '../../shared/types.ts';
@@ -28,6 +28,7 @@ export interface UserRow {
   created_at: string;
   last_login_at: string | null;
   last_seen_at?: string | null;
+  auth_source: string;
 }
 
 export interface RoleRow {
@@ -103,13 +104,19 @@ export interface TicketRow {
   completed_at: string | null;
 }
 
-export interface AssigneeRow {
+export interface PartRow {
+  id: number;
   ticket_id: number;
-  user_id: number;
+  user_id: number | null;
+  note: string;
   done: number;
   progress: number;
   done_at: string | null;
-  note: string;
+  position: number;
+}
+
+export function toPartDTO(row: PartRow): PartDTO {
+  return { id: row.id, userId: row.user_id, note: row.note, done: row.done === 1, progress: row.progress, doneAt: row.done_at, position: row.position };
 }
 
 export interface CommentRow {
@@ -150,7 +157,7 @@ export interface HistoryRow {
 }
 
 export const USER_COLUMNS =
-  'u.id, u.email, u.name, u.role_id, u.is_active, u.theme, u.avatar_version, u.created_at, u.last_login_at';
+  'u.id, u.email, u.name, u.role_id, u.is_active, u.theme, u.avatar_version, u.created_at, u.last_login_at, u.auth_source';
 
 export function parsePermissions(raw: string): string[] {
   try {
@@ -260,22 +267,6 @@ export interface ListItemRow {
 
 export function toListItemDTO(row: ListItemRow): ProjectListItemDTO {
   return { id: row.id, projectId: row.project_id, name: row.name, color: row.color, icon: row.icon, position: row.position };
-}
-
-export interface SubtaskRow {
-  id: number;
-  ticket_id: number;
-  title: string;
-  done: number;
-  position: number;
-  assignee_id: number | null;
-  created_by: number | null;
-  created_at: string;
-  done_at: string | null;
-}
-
-export function toSubtaskDTO(row: SubtaskRow): SubtaskDTO {
-  return { id: row.id, ticketId: row.ticket_id, title: row.title, done: row.done === 1, assigneeId: row.assignee_id, position: row.position, createdAt: row.created_at, doneAt: row.done_at };
 }
 
 export interface LinkRow {

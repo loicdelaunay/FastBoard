@@ -5,7 +5,7 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useProjectStore } from '@/stores/project';
 import { formatBytes } from '@/utils/files';
 import { formatDateTime, formatRelative } from '@/utils/format';
-import { fieldLabel, SUBTASK_ACTIONS, formatChangeValue, historyIcon, linkReasonLabel } from '@/utils/historyFormat';
+import { fieldLabel, SUBTASK_ACTIONS, formatChangeValue, historyIcon, linkReasonLabel, partLineText } from '@/utils/historyFormat';
 import { notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
@@ -82,11 +82,12 @@ function icon(entry: HistoryEntryDTO): string {
           </p>
 
           <p v-else-if="entry.data.kind === 'part'" class="text">
-            <template v-if="entry.data.note === ''">{{ $t('a effacé la mission de') }} <strong>{{ entry.data.user.name }}</strong>.</template>
-            <template v-else-if="entry.data.note !== undefined">{{ $t('a défini la mission de') }} <strong>{{ entry.data.user.name }}</strong> : <q class="quote">{{ entry.data.note }}</q></template>
-            <template v-else-if="entry.data.done === true">{{ $t('a déclaré que') }} <strong>{{ entry.data.user.name }}</strong> {{ $t('a terminé sa part.') }}</template>
-            <template v-else-if="entry.data.done === false">{{ $t('a rouvert la part de') }} <strong>{{ entry.data.user.name }}</strong>.</template>
-            <template v-else>{{ $t('a réglé l\'avancement de') }} <strong>{{ entry.data.user.name }}</strong> à {{ entry.data.progress }} %.</template>
+            <template v-if="partLineText(entry.data)">{{ partLineText(entry.data) }}<template v-if="entry.data.user"> · <strong>{{ entry.data.user.name }}</strong></template><template v-if="entry.data.line"> : <q class="quote">{{ entry.data.line }}</q></template></template>
+            <template v-else-if="entry.data.note === ''">{{ $t('a effacé la mission de') }} <strong>{{ entry.data.user?.name }}</strong>.</template>
+            <template v-else-if="entry.data.note !== undefined">{{ $t('a défini la mission de') }} <strong>{{ entry.data.user?.name }}</strong> : <q class="quote">{{ entry.data.note }}</q></template>
+            <template v-else-if="entry.data.done === true">{{ $t('a déclaré que') }} <strong>{{ entry.data.user?.name }}</strong> {{ $t('a terminé sa part.') }}</template>
+            <template v-else-if="entry.data.done === false">{{ $t('a rouvert la part de') }} <strong>{{ entry.data.user?.name }}</strong>.</template>
+            <template v-else>{{ $t('a réglé l\'avancement de') }} <strong>{{ entry.data.user?.name }}</strong> à {{ entry.data.progress }} %.</template>
           </p>
         </div>
       </li>

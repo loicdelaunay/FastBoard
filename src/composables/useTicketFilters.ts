@@ -67,7 +67,7 @@ export function useTicketFilters() {
         delivery?.name,
         project.statusMeta(ticket.status).label,
         ...ticket.assignees.map((assignee) => project.usersById.get(assignee.userId)?.name),
-        ...ticket.assignees.map((assignee) => assignee.note),
+        ...ticket.parts.map((part) => part.note),
       ]);
     }
     return true;

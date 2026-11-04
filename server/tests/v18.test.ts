@@ -7,10 +7,10 @@ type Booted = Awaited<ReturnType<typeof bootServer>>;
 
 describe('version 1.8 : avancement d’après les sous-tickets', () => {
   it('fait la moyenne des sous-tickets, sauf si le ticket le désactive', () => {
-    const parent = { status: 'in_progress' as const, progress: 10, assignees: [] };
+    const parent = { status: 'in_progress' as const, progress: 10, parts: [] };
     const children = [
-      { status: 'done' as const, progress: 0, assignees: [] },
-      { status: 'todo' as const, progress: 0, assignees: [{ done: false, progress: 50 }] },
+      { status: 'done' as const, progress: 0, parts: [] },
+      { status: 'todo' as const, progress: 0, parts: [{ done: false, progress: 50 }] },
     ];
     assert.equal(ticketProgress(parent, ['done'], children), 75, 'par défaut : moyenne des sous-tickets');
     assert.equal(ticketProgress({ ...parent, progressFromChildren: false }, ['done'], children), 10, 'désactivé : avancement propre');

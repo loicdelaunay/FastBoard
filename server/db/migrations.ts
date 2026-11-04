@@ -493,6 +493,142 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       WHERE delivery_id IS NOT NULL;
     `);
   },
+
+  // v16 : comptes de l'annuaire LDAP (origine du compte, DN) et permission de configurer l'authentification.
+  (db) => {
+    db.exec(`
+      ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local';
+      ALTER TABLE users ADD COLUMN ldap_dn TEXT;
+      CREATE UNIQUE INDEX idx_users_ldap_dn ON users (ldap_dn COLLATE NOCASE) WHERE ldap_dn IS NOT NULL;
+    `);
+    grantSystemRoles(db, 'global', { admin: ['auth.manage'] });
+  },
+
+  // v17 : parts et sous-tâches ne font plus qu'une liste de lignes d'avancement, avec une personne facultative et
+  // plusieurs lignes possibles par personne. Une part vide reçoit la première sous-tâche de sa personne.
+  (db) => {
+    db.exec(`
+      CREATE TABLE ticket_parts (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        note       TEXT NOT NULL DEFAULT '',
+        done       INTEGER NOT NULL DEFAULT 0,
+        progress   INTEGER NOT NULL DEFAULT 0,
+        done_at    TEXT,
+        position   REAL NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_ticket_parts_ticket ON ticket_parts (ticket_id, position);
+      CREATE INDEX idx_ticket_parts_user ON ticket_parts (user_id);
+    `);
+    const parts = db.all<{ ticket_id: number; user_id: number; done: number; progress: number; done_at: string | null; note: string; assigned_at: string }>(
+      'SELECT ticket_id, user_id, done, progress, done_at, note, assigned_at FROM ticket_assignees ORDER BY ticket_id, assigned_at, user_id',
+    );
+    const subtasks = db.all<{ ticket_id: number; title: string; done: number; assignee_id: number | null; done_at: string | null; created_at: string }>(
+      'SELECT ticket_id, title, done, assignee_id, done_at, created_at FROM ticket_subtasks ORDER BY ticket_id, position, id',
+    );
+    const positions = new Map<number, number>();
+    const insert = (ticketId: number, userId: number | null, note: string, done: number, progress: number, doneAt: string | null, createdAt: string): void => {
+      const position = (positions.get(ticketId) ?? 0) + 1024;
+      positions.set(ticketId, position);
+      db.run('INSERT INTO ticket_parts (ticket_id, user_id, note, done, progress, done_at, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', ticketId, userId, note, done, progress, doneAt, position, createdAt);
+    };
+    for (const part of parts) insert(part.ticket_id, part.user_id, part.note, part.done, part.progress, part.done_at, part.assigned_at);
+    for (const subtask of subtasks) {
+      const empty = subtask.assignee_id === null ? undefined : db.get<{ id: number }>("SELECT id FROM ticket_parts WHERE ticket_id = ? AND user_id = ? AND note = '' AND done = 0 AND progress = 0 LIMIT 1", subtask.ticket_id, subtask.assignee_id);
+      const progress = subtask.done ? 100 : 0;
+      if (empty) db.run('UPDATE ticket_parts SET note = ?, done = ?, progress = ?, done_at = ? WHERE id = ?', subtask.title, subtask.done, progress, subtask.done_at, empty.id);
+      else insert(subtask.ticket_id, subtask.assignee_id, subtask.title, subtask.done, progress, subtask.done_at, subtask.created_at);
+    }
+    db.exec('DROP TABLE ticket_subtasks; DROP TABLE ticket_assignees;');
+
+    // Un projet qui affichait seulement les sous-tâches garde ses lignes visibles.
+    for (const project of db.all<{ id: number; settings: string }>('SELECT id, settings FROM projects')) {
+      const settings = JSON.parse(project.settings || '{}') as { ticketFields?: Record<string, boolean> };
+      const fields = settings.ticketFields;
+      if (!fields || fields.subtasks === false || fields.assignees !== false || fields.progress !== false) continue;
+      db.run('UPDATE projects SET settings = ? WHERE id = ?', JSON.stringify({ ...settings, ticketFields: { ...fields, progress: true } }), project.id);
+    }
+  },
+
+  // v18 : documentation. Les fichiers sont sur le disque (docs/<id>/…) ; la base garde les droits, l'arbre et l'historique.
+  (db) => {
+    db.exec(`
+      CREATE TABLE doc_spaces (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      );
+      CREATE TABLE doc_members (
+        space_id   INTEGER NOT NULL REFERENCES doc_spaces(id) ON DELETE CASCADE,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role       TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (space_id, user_id)
+      );
+      CREATE INDEX idx_doc_members_user ON doc_members (user_id);
+      CREATE TABLE doc_nodes (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        space_id   INTEGER NOT NULL REFERENCES doc_spaces(id) ON DELETE CASCADE,
+        path       TEXT NOT NULL,
+        kind       TEXT NOT NULL,
+        size       INTEGER NOT NULL DEFAULT 0,
+        updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        deleted_at TEXT
+      );
+      CREATE UNIQUE INDEX idx_doc_nodes_path ON doc_nodes (space_id, path COLLATE NOCASE) WHERE deleted_at IS NULL;
+      CREATE TABLE doc_versions (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        node_id    INTEGER NOT NULL REFERENCES doc_nodes(id) ON DELETE CASCADE,
+        content    TEXT NOT NULL,
+        authors    TEXT NOT NULL DEFAULT '[]',
+        origin     TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_doc_versions_node ON doc_versions (node_id, id);
+      CREATE TABLE doc_states (
+        node_id INTEGER PRIMARY KEY REFERENCES doc_nodes(id) ON DELETE CASCADE,
+        state   BLOB NOT NULL
+      );
+    `);
+    grantSystemRoles(db, 'global', { admin: ['docs.create', 'docs.manage'], member: ['docs.create'] });
+  },
+  // 19 — Documentation : texte cherchable et liens de chaque note (remplis au démarrage, seul moment où le disque est
+  // accessible), commentaires posés sur un passage, textes exportés qui servent d'origine à la fusion d'un réimport.
+  (db) => {
+    db.exec(`
+      ALTER TABLE doc_nodes ADD COLUMN search_text TEXT;
+      ALTER TABLE doc_nodes ADD COLUMN links TEXT;
+      CREATE TABLE doc_comments (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        node_id     INTEGER NOT NULL REFERENCES doc_nodes(id) ON DELETE CASCADE,
+        parent_id   INTEGER REFERENCES doc_comments(id) ON DELETE CASCADE,
+        user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        body        TEXT NOT NULL,
+        quote       TEXT NOT NULL DEFAULT '',
+        before_text TEXT NOT NULL DEFAULT '',
+        after_text  TEXT NOT NULL DEFAULT '',
+        resolved_at TEXT,
+        resolved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at  TEXT NOT NULL
+      );
+      CREATE INDEX idx_doc_comments_node ON doc_comments (node_id, id);
+      CREATE TABLE doc_exports (
+        id         TEXT PRIMARY KEY,
+        space_id   INTEGER NOT NULL REFERENCES doc_spaces(id) ON DELETE CASCADE,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        texts      BLOB NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_doc_exports_user ON doc_exports (space_id, user_id, created_at);
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

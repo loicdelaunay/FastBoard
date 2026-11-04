@@ -34,7 +34,7 @@ function searchableText(activity: ActivityDTO, authorName: string | undefined): 
     case 'ticket':
       parts.push(data.ticketKey, data.ticketTitle);
       if (data.entry.kind === 'assignees') parts.push(...data.entry.added.map((u) => u.name), ...data.entry.removed.map((u) => u.name));
-      if (data.entry.kind === 'part') parts.push(data.entry.user.name);
+      if (data.entry.kind === 'part') parts.push(data.entry.user?.name);
       if (data.entry.kind === 'subtask') parts.push(data.entry.title, data.entry.previousTitle);
       if (data.entry.kind === 'link') parts.push(data.entry.reason, data.entry.target.key, data.entry.target.title);
       if (data.entry.kind === 'created') parts.push(...(data.entry.assignees ?? []).map((u) => u.name));

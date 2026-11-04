@@ -9,7 +9,7 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useProjectStore } from '@/stores/project';
 import { formatBytes } from '@/utils/files';
 import { formatDateTime, formatRelative } from '@/utils/format';
-import { fieldLabel, SUBTASK_ACTIONS, formatChangeValue, linkReasonLabel } from '@/utils/historyFormat';
+import { fieldLabel, SUBTASK_ACTIONS, formatChangeValue, linkReasonLabel, partLineText } from '@/utils/historyFormat';
 
 import { t } from '@/i18n';
 const props = defineProps<{ activity: ActivityDTO; fresh?: boolean }>();
@@ -146,11 +146,12 @@ const CONFIG_ACTIONS = { created: t('a créé'), updated: t('a modifié'), delet
           </template>
 
           <template v-else-if="entry.kind === 'part'">
-            <template v-if="entry.note === ''">{{ $t('a effacé la mission de') }} <strong>{{ entry.user.name }}</strong> {{ $t('sur') }}</template>
-            <template v-else-if="entry.note !== undefined">{{ $t('a défini la mission de') }} <strong>{{ entry.user.name }}</strong> {{ $t('sur') }}</template>
-            <template v-else-if="entry.done === true">{{ $t('a marqué la part de') }} <strong>{{ entry.user.name }}</strong> {{ $t('comme terminée sur') }}</template>
-            <template v-else-if="entry.done === false">{{ $t('a rouvert la part de') }} <strong>{{ entry.user.name }}</strong> {{ $t('sur') }}</template>
-            <template v-else>{{ $t('a réglé l\'avancement de') }} <strong>{{ entry.user.name }}</strong> {{ $t('à {progress} % sur', { progress: entry.progress }) }}</template>
+            <template v-if="partLineText(entry)">{{ partLineText(entry) }}<template v-if="entry.user"> · <strong>{{ entry.user.name }}</strong></template> {{ $t('sur') }}</template>
+            <template v-else-if="entry.note === ''">{{ $t('a effacé la mission de') }} <strong>{{ entry.user?.name }}</strong> {{ $t('sur') }}</template>
+            <template v-else-if="entry.note !== undefined">{{ $t('a défini la mission de') }} <strong>{{ entry.user?.name }}</strong> {{ $t('sur') }}</template>
+            <template v-else-if="entry.done === true">{{ $t('a marqué la part de') }} <strong>{{ entry.user?.name }}</strong> {{ $t('comme terminée sur') }}</template>
+            <template v-else-if="entry.done === false">{{ $t('a rouvert la part de') }} <strong>{{ entry.user?.name }}</strong> {{ $t('sur') }}</template>
+            <template v-else>{{ $t('a réglé l\'avancement de') }} <strong>{{ entry.user?.name }}</strong> {{ $t('à {progress} % sur', { progress: entry.progress }) }}</template>
             <button v-if="canOpen(ticketData.ticketId)" type="button" class="key" @click="emit('open', ticketData.ticketId)">{{ ticketData.ticketKey }}</button>
             <span v-else class="key gone">{{ ticketData.ticketKey }}</span>
           </template>

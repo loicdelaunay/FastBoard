@@ -79,6 +79,18 @@ export function historyIcon(data: HistoryData): string {
   }
 }
 
+/** Phrase des lignes d'avancement ajoutées, retirées, confiées ou sans personne ; `null` : la phrase habituelle d'une part. */
+export function partLineText(entry: { user: unknown; action?: 'added' | 'removed' | 'assigned'; done?: boolean; progress?: number; note?: string }): string | null {
+  if (entry.action === 'added') return t('a ajouté une ligne d’avancement');
+  if (entry.action === 'removed') return t('a retiré une ligne d’avancement');
+  if (entry.action === 'assigned') return entry.user ? t('a confié une ligne d’avancement') : t('a retiré la personne d’une ligne d’avancement');
+  if (entry.user) return null;
+  if (entry.note !== undefined) return t('a modifié une ligne d’avancement');
+  if (entry.done === true) return t('a terminé une ligne d’avancement');
+  if (entry.done === false) return t('a rouvert une ligne d’avancement');
+  return t('a réglé à {progress} % une ligne d’avancement', { progress: entry.progress ?? 0 });
+}
+
 /** Verbes des actions sur les sous-tâches (historique et activité). */
 export const SUBTASK_ACTIONS: Record<'added' | 'done' | 'reopened' | 'renamed' | 'removed', string> = {
   added: t('a ajouté la sous-tâche'),

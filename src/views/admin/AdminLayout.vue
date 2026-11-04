@@ -14,6 +14,8 @@ const links = computed(() =>
     { name: 'admin-logs', label: t('Journaux'), icon: 'pi pi-list', allowed: auth.can('logs.view') },
     { name: 'admin-branding', label: t('Personnalisation'), icon: 'pi pi-palette', allowed: auth.can('settings.manage') },
     { name: 'admin-maintenance', label: t('Maintenance'), icon: 'pi pi-megaphone', allowed: auth.can('settings.manage') },
+    { name: 'admin-docs', label: t('Documentation'), icon: 'pi pi-book', allowed: auth.can('docs.manage') },
+    { name: 'admin-auth', label: t('Authentification'), icon: 'pi pi-id-card', allowed: auth.can('auth.manage') },
     { name: 'admin-ai', label: t('IA'), icon: 'pi pi-sparkles', allowed: auth.can('ai.manage') },
     { name: 'admin-backups', label: t('Sauvegardes'), icon: 'pi pi-database', allowed: auth.can('backups.manage') },
     { name: 'admin-https', label: t('HTTP / HTTPS'), icon: 'pi pi-lock', allowed: auth.can('system.manage') },

@@ -292,12 +292,10 @@ export function removeMember(ctx: AppContext, actor: Actor, projectId: number, u
   const removed = personRef(db, userId);
   db.transaction(() => {
     db.run('DELETE FROM project_members WHERE project_id = ? AND user_id = ?', projectId, userId);
-    // Les parts de l'ancien membre disparaissent des tickets du projet.
-    db.run(
-      'DELETE FROM ticket_assignees WHERE user_id = ? AND ticket_id IN (SELECT id FROM tickets WHERE project_id = ?)',
-      userId,
-      projectId,
-    );
+    // Ses lignes vides disparaissent des tickets du projet, celles qui ont un texte restent, sans personne.
+    const ticketsOfProject = 'ticket_id IN (SELECT id FROM tickets WHERE project_id = ?)';
+    db.run(`DELETE FROM ticket_parts WHERE user_id = ? AND note = '' AND ${ticketsOfProject}`, userId, projectId);
+    db.run(`UPDATE ticket_parts SET user_id = NULL WHERE user_id = ? AND ${ticketsOfProject}`, userId, projectId);
   });
   broadcastMembers(ctx, actor, projectId);
   // Rafraîchit les tickets pour tout le monde (assignations retirées) via un instantané côté client.

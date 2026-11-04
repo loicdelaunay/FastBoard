@@ -135,8 +135,8 @@ export type AiChangeAction =
   | { kind: 'ticket.create'; projectId: number; fields: AiTicketFields & { title: string }; ticketId: number | null }
   | { kind: 'ticket.update'; ticketId: number; before: AiTicketFields; after: AiTicketFields }
   | { kind: 'comment.create'; ticketId: number; body: string; commentId: number | null }
-  | { kind: 'subtask.create'; ticketId: number; title: string; assigneeId: number | null; subtaskId: number | null }
-  | { kind: 'subtask.update'; ticketId: number; subtaskId: number; before: { done?: boolean; title?: string }; after: { done?: boolean; title?: string } }
+  | { kind: 'part.create'; ticketId: number; note: string; userId: number | null; partId: number | null }
+  | { kind: 'part.update'; ticketId: number; partId: number; before: { done?: boolean; note?: string }; after: { done?: boolean; note?: string } }
   | { kind: 'link.create'; ticketId: number; targetId: number; reason: string; linkId: number | null };
 
 /** Une modification faite (ou proposée) par l'assistant, telle qu'affichée dans le panneau. */

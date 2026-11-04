@@ -1,21 +1,31 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import Textarea from 'primevue/textarea';
+import type { DocSearchHitDTO } from '@shared/docs';
+import type { SearchTicketHit, UserSummaryDTO } from '@shared/types';
+import { api } from '@/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import { useAppStore } from '@/stores/app';
 import { useProjectStore } from '@/stores/project';
 import { activeMentionQuery, mentionToken, type MentionKind } from '@/utils/mentions';
 import { matchesQuery } from '@/utils/search';
 import { ticketKey } from '@/utils/tickets';
 
 /**
- * Zone de texte avec mentions : taper `@` propose les membres du projet et ses tickets ;
+ * Zone de texte avec mentions : taper `@` propose les membres du projet, ses tickets et les fichiers de documentation ;
  * ↑ ↓ pour choisir, Entrée ou Tab pour insérer, Échap pour fermer.
  */
 defineOptions({ inheritAttrs: false });
 const model = defineModel<string>({ required: true });
+/** Hors d'un projet : personnes proposées ; les tickets viennent alors de la recherche. */
+const props = defineProps<{ people?: UserSummaryDTO[] }>();
 const emit = defineEmits<{ blur: [event: FocusEvent]; focus: [event: FocusEvent]; keydown: [event: KeyboardEvent] }>();
 
 const project = useProjectStore();
+const app = useAppStore();
+const docFiles = ref<DocSearchHitDTO[]>([]);
+const foundTickets = ref<SearchTicketHit[]>([]);
+const peopleList = computed(() => props.people ?? project.users);
 const textarea = ref<{ $el: HTMLTextAreaElement } | null>(null);
 const mention = ref<{ start: number; query: string } | null>(null);
 const highlighted = ref(0);
@@ -30,17 +40,45 @@ interface Suggestion {
 const suggestions = computed<Suggestion[]>(() => {
   if (!mention.value) return [];
   const query = mention.value.query;
-  const users = project.users
+  const users = peopleList.value
     .filter((user) => user.isActive && (!query || matchesQuery(query, [user.name, user.email])))
     .slice(0, 5)
     .map((user): Suggestion => ({ kind: 'user', id: user.id, label: user.name, hint: user.email }));
-  const tickets = project.tickets
-    .filter((ticket) => query && matchesQuery(query, [ticketKey(project.project, ticket), ticket.title]))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .slice(0, 5)
-    .map((ticket): Suggestion => ({ kind: 'ticket', id: ticket.id, label: ticketKey(project.project, ticket), hint: ticket.title }));
-  return [...users, ...tickets];
+  const tickets = props.people
+    ? foundTickets.value.map((ticket): Suggestion => ({ kind: 'ticket', id: ticket.id, label: ticket.key, hint: ticket.title }))
+    : project.tickets
+        .filter((ticket) => query && matchesQuery(query, [ticketKey(project.project, ticket), ticket.title]))
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 5)
+        .map((ticket): Suggestion => ({ kind: 'ticket', id: ticket.id, label: ticketKey(project.project, ticket), hint: ticket.title }));
+  const docs = docFiles.value.slice(0, 4).map((file): Suggestion => ({ kind: 'doc', id: file.id, label: file.title, hint: `${file.spaceName} · ${file.path}` }));
+  return [...users, ...tickets, ...docs];
 });
+
+// Les fichiers de documentation viennent du serveur, après une courte pause dans la frappe.
+let searchTimer: number | undefined;
+watch(
+  () => mention.value?.query,
+  (query) => {
+    window.clearTimeout(searchTimer);
+    if (!query) {
+      docFiles.value = [];
+      foundTickets.value = [];
+      return;
+    }
+    searchTimer = window.setTimeout(() => {
+      if (props.people) {
+        api.search(query, { type: ['tickets'], limit: 5 }).then((result) => {
+          if (mention.value?.query === query) foundTickets.value = result.tickets.items;
+        }, () => undefined);
+      }
+      if (!app.info.docs) return;
+      api.docSearch(query).then((result) => {
+        if (mention.value?.query === query) docFiles.value = result.files;
+      }, () => undefined);
+    }, 200);
+  },
+);
 
 function element(): HTMLTextAreaElement | null {
   return textarea.value?.$el ?? null;
@@ -49,7 +87,7 @@ function element(): HTMLTextAreaElement | null {
 function refresh(): void {
   const el = element();
   if (!el) return;
-  mention.value = activeMentionQuery(model.value, el.selectionStart ?? model.value.length);
+  mention.value = activeMentionQuery(el.value, el.selectionStart ?? el.value.length);
   highlighted.value = 0;
 }
 
@@ -124,8 +162,8 @@ defineExpose({ focus: () => element()?.focus(), element });
         @mousedown.prevent="insert(suggestion)"
         @mouseenter="highlighted = index"
       >
-        <UserAvatar v-if="suggestion.kind === 'user'" :user="project.usersById.get(suggestion.id)" size="small" />
-        <i v-else class="pi pi-ticket ticket-icon"></i>
+        <UserAvatar v-if="suggestion.kind === 'user'" :user="peopleList.find((user) => user.id === suggestion.id)" size="small" />
+        <i v-else :class="suggestion.kind === 'doc' ? 'pi pi-file' : 'pi pi-ticket'" class="ticket-icon"></i>
         <strong class="truncate">{{ suggestion.label }}</strong>
         <span class="muted small truncate">{{ suggestion.hint }}</span>
       </li>

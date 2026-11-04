@@ -7,7 +7,7 @@ import { nextScheduledRun, parseRetentionRules, selectRetained } from '../../sha
 import { APP_VERSION, CHANGELOG } from '../../shared/changelog.ts';
 import type { ActivityDTO, HistoryEntryDTO, TicketDTO } from '../../shared/types.ts';
 import { readZip } from '../backup/zip.ts';
-import { bootServer, TestClient } from './helpers.ts';
+import { bootServer, TestClient, patchPart } from './helpers.ts';
 
 type Booted = Awaited<ReturnType<typeof bootServer>>;
 const DAY = 86_400_000;
@@ -157,29 +157,6 @@ describe('version 1.1 : priorités, composants, sous-tâches, dépendances, jeto
     assert.equal((await bob.patch(`/api/tickets/${ids.ticket}`, { priorityId: foreign })).status, 400);
   });
 
-  it('gère les sous-tâches (ajout, cochage par le responsable, ordre, suppression)', async () => {
-    let fresh = (await bob.post(`/api/tickets/${ids.ticket}/subtasks`, { title: 'Écrire les tests', assigneeId: ids.alice })).body.ticket as TicketDTO;
-    fresh = (await bob.post(`/api/tickets/${ids.ticket}/subtasks`, { title: 'Corriger les arrondis' })).body.ticket;
-    assert.deepEqual(fresh.subtasks.map((s) => s.title), ['Écrire les tests', 'Corriger les arrondis']);
-    const [first, second] = fresh.subtasks;
-
-    // Alice (contributrice) coche la sienne, pas celle d'un autre, et ne renomme pas.
-    assert.equal((await alice.patch(`/api/subtasks/${first!.id}`, { done: true })).status, 200);
-    assert.equal((await alice.patch(`/api/subtasks/${second!.id}`, { done: true })).status, 403);
-    assert.equal((await alice.patch(`/api/subtasks/${first!.id}`, { title: 'Autre' })).status, 403);
-
-    fresh = (await bob.patch(`/api/subtasks/${second!.id}`, { position: 0, title: 'Corriger les arrondis (TVA)' })).body.ticket;
-    assert.deepEqual(fresh.subtasks.map((s) => s.title), ['Corriger les arrondis (TVA)', 'Écrire les tests']);
-    assert.equal(fresh.subtasks[1]!.done, true);
-    assert.ok(fresh.subtasks[1]!.doneAt);
-
-    fresh = (await bob.del(`/api/subtasks/${second!.id}`)).body.ticket;
-    assert.equal(fresh.subtasks.length, 1);
-    const history = (await bob.get(`/api/tickets/${ids.ticket}/history`)).body.history as HistoryEntryDTO[];
-    const actions = history.filter((entry) => entry.data.kind === 'subtask').map((entry) => (entry.data.kind === 'subtask' ? entry.data.action : ''));
-    assert.deepEqual(actions, ['removed', 'renamed', 'done', 'added', 'added']);
-    assert.equal((await bob.post(`/api/tickets/${ids.ticket}/subtasks`, { assigneeId: ids.alice })).status, 400, 'titre obligatoire');
-  });
 
   it('relie des tickets du même projet avec une raison (liste ou texte libre)', async () => {
     ids.other = (await bob.post(`/api/projects/${ids.project}/tickets`, { title: 'API de paiement' })).body.ticket.id;
@@ -208,11 +185,11 @@ describe('version 1.1 : priorités, composants, sous-tâches, dépendances, jeto
     await agent.patch(`/api/tickets/${ids.ticket}`, { title: 'Paiement (agent)' });
     await agent.post(`/api/tickets/${ids.ticket}/move`, { status: 'in_progress', beforeId: null });
     await agent.post(`/api/tickets/${ids.ticket}/comments`, { body: 'Analyse faite.' });
-    await agent.post(`/api/tickets/${ids.ticket}/subtasks`, { title: 'Sous-tâche de l\'agent' });
+    await agent.post(`/api/tickets/${ids.ticket}/parts`, { note: 'Ligne de l\'agent' });
     await agent.post(`/api/tickets/${ids.ticket}/links`, { targetId: ids.other, reason: 'Dépend de' });
     const upload = await agent.raw('POST', `/api/tickets/${ids.ticket}/attachments`, Buffer.from('bonjour'), { 'Content-Type': 'text/plain', 'X-File-Name': 'note.txt' });
     assert.equal(upload.status, 201);
-    await agent.patch(`/api/tickets/${ids.ticket}/assignees/${ids.alice}`, { progress: 40 }).then((r) => assert.equal(r.status, 200));
+    await patchPart(agent, ids.ticket, ids.alice, { progress: 40 }).then((r) => assert.equal(r.status, 200));
     await agent.post(`/api/projects/${ids.project}/components`, { name: 'Agent', color: '#111111', icon: 'pi pi-box' });
 
     const history = (await bob.get(`/api/tickets/${ids.ticket}/history`)).body.history as HistoryEntryDTO[];
@@ -223,7 +200,7 @@ describe('version 1.1 : priorités, composants, sous-tâches, dépendances, jeto
 
     const api = (await bob.get(`/api/projects/${ids.project}/activity?source=api&limit=100`)).body.activities as ActivityDTO[];
     const kinds = new Set(api.map((a) => (a.data.kind === 'ticket' ? a.data.entry.kind : a.data.kind)));
-    for (const kind of ['updated', 'subtask', 'link', 'attachment', 'part', 'comment', 'component']) {
+    for (const kind of ['updated', 'link', 'attachment', 'part', 'comment', 'component']) {
       assert.ok(kinds.has(kind as never), `action « ${kind} » via le jeton présente dans le filtre API`);
     }
     assert.ok(api.every((a) => a.via === 'Claude'));

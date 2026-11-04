@@ -17,6 +17,7 @@ interface AdminUserRow extends UserRow {
 function toAdminUser(row: AdminUserRow): AdminUserDTO {
   return {
     ...toUserSummary(row),
+    authSource: row.auth_source === 'ldap' ? 'ldap' : 'local',
     theme: row.theme,
     roleId: row.role_id,
     roleName: row.role_name,
@@ -156,7 +157,8 @@ export async function updateUserByAdmin(ctx: AppContext, actor: AuthUser, target
     params.push(patch.isActive ? 1 : 0);
   }
   if (patch.password !== undefined) {
-    sets.push('password_hash = ?');
+    // Un mot de passe défini ici redevient la référence : le compte quitte l'annuaire.
+    sets.push('password_hash = ?', "auth_source = 'local'", 'ldap_dn = NULL');
     params.push(await hashPassword(patch.password));
   }
 
@@ -192,6 +194,8 @@ export function deleteUserByAdmin(ctx: AppContext, actor: AuthUser, targetId: nu
     .all<{ project_id: number }>('SELECT project_id FROM project_members WHERE user_id = ?', targetId)
     .map((row) => row.project_id);
   ctx.hub.disconnectUser(targetId);
+  // Ses lignes qui ont un texte restent sur les tickets, sans personne (clé étrangère).
+  db.run("DELETE FROM ticket_parts WHERE user_id = ? AND note = ''", targetId);
   db.run('DELETE FROM users WHERE id = ?', targetId);
   for (const projectId of projectIds) {
     notifyMembersOfProject(ctx, projectId);

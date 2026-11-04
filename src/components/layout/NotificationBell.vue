@@ -25,6 +25,7 @@ const visible = computed(() => (onlyUnread.value ? store.items.filter((item) => 
 const badge = computed(() => (store.unread > 99 ? '99+' : String(store.unread)));
 
 function sentence(item: NotificationDTO): string {
+  if (item.doc) return t('vous a mentionné dans');
   if (item.type === 'mention') return item.ticketKey ? t('vous a mentionné sur') : t('vous a mentionné dans l’activité du projet');
   if (item.type === 'assigned') return t('vous a assigné');
   return item.activity ? describeActivity(item.activity).text : t('a modifié');
@@ -39,7 +40,9 @@ function icon(item: NotificationDTO): string {
 async function open(item: NotificationDTO): Promise<void> {
   panel.value?.hide();
   if (!item.readAt) void store.markRead([item.id]).catch(() => undefined);
-  if (item.projectId && item.ticketId) {
+  if (item.doc) {
+    await router.push({ name: 'doc-file', params: { nodeId: item.doc.nodeId } });
+  } else if (item.projectId && item.ticketId) {
     await router.push({ name: 'project', params: { projectId: item.projectId }, query: { ticket: String(item.ticketId) } });
   } else if (item.projectId && item.type === 'mention') {
     // Mention dans un commentaire du journal d'activité.
@@ -79,6 +82,7 @@ async function readAll(): Promise<void> {
               <span class="text">
                 <strong>{{ item.actorName ?? $t('Quelqu’un') }}</strong>
                 {{ sentence(item) }}
+                <span v-if="item.doc" class="key">{{ item.doc.title }}</span>
                 <span v-if="item.ticketKey" class="key">{{ item.ticketKey }}</span>
                 <span v-if="item.ticketTitle" class="muted"> « {{ item.ticketTitle }} »</span>
               </span>

@@ -3,6 +3,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMessage, PresenceUser, ProjectEvent, ServerMessage } from '../../shared/realtime.ts';
 import type { TokenInfoDTO } from '../../shared/types.ts';
 import { authenticate } from '../auth/authenticate.ts';
+import type { DocPeer } from '../docs/collab.ts';
 import { markSeen } from '../auth/sessions.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { isAllowedOrigin } from '../http/origin.ts';
@@ -17,14 +18,18 @@ interface Client {
   ticketId: number | null;
   view: string;
   alive: boolean;
+  /** Le même client, vu des salles de documentation. */
+  peer: DocPeer;
 }
 
 const HEARTBEAT_MS = 30_000;
+/** Assez pour resynchroniser un fichier de documentation entier. */
+const MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
 
 /** Salles de collaboration : un client WebSocket suit au plus un projet à la fois. */
 export class Hub {
   #ctx: AppContext | null = null;
-  readonly #wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
+  readonly #wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
   readonly #clients = new Set<Client>();
   #heartbeat: NodeJS.Timeout | null = null;
   /** Messages échangés depuis le démarrage (supervision). */
@@ -77,7 +82,16 @@ export class Hub {
   }
 
   #onConnection(ws: WebSocket, userId: number, token: TokenInfoDTO | null): void {
-    const client: Client = { ws, userId, token, projectId: null, ticketId: null, view: '', alive: true };
+    const client: Client = {
+      ws,
+      userId,
+      token,
+      projectId: null,
+      ticketId: null,
+      view: '',
+      alive: true,
+      peer: { userId, readOnly: token?.scope === 'read', send: (message) => this.#send(client, message) },
+    };
     this.#clients.add(client);
     this.#ctx?.logger.debug('realtime', 'WebSocket connecté', { clients: this.#clients.size, via: token?.name ?? null }, userId);
     this.#send(client, { t: 'hello', userId });
@@ -88,6 +102,7 @@ export class Hub {
     ws.on('message', (raw) => this.#onMessage(client, raw.toString()));
     ws.on('close', () => {
       this.#clients.delete(client);
+      this.#ctx?.docRooms.drop(client.peer);
       // Fin de présence en direct : c'est la dernière activité connue de la personne.
       if (this.#ctx && !token) markSeen(this.#ctx, userId, true);
       this.#ctx?.logger.debug('realtime', 'WebSocket déconnecté', { clients: this.#clients.size }, userId);
@@ -127,6 +142,13 @@ export class Hub {
         this.#broadcastPresence(client.projectId);
         break;
       }
+      case 'docs.watch':
+      case 'doc.join':
+      case 'doc.update':
+      case 'doc.awareness':
+      case 'doc.leave':
+        this.#ctx?.docRooms.onMessage(client.peer, message);
+        break;
       default:
         break;
     }
@@ -303,6 +325,8 @@ export class Hub {
       clearInterval(this.#heartbeat);
     }
     for (const client of this.#clients) {
+      // La base va être fermée : plus rien à noter quand ces connexions se couperont.
+      client.ws.removeAllListeners('close');
       client.ws.terminate();
     }
     this.#clients.clear();

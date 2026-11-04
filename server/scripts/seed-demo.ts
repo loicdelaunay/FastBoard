@@ -18,7 +18,9 @@ import { getAuthUser } from '../services/access.ts';
 import { createComment } from '../services/comments.ts';
 import { addMember, createProject } from '../services/projects.ts';
 import { createCategory, createDelivery } from '../services/projectConfig.ts';
-import { createTicket, updatePart } from '../services/tickets.ts';
+import { DocRooms } from '../docs/collab.ts';
+import { updatePart } from '../services/parts.ts';
+import { createTicket, getTicketDTO } from '../services/tickets.ts';
 import { createUserByAdmin } from '../services/users.ts';
 
 const PROJECT_NAME = 'Lancement application mobile';
@@ -26,7 +28,7 @@ const config = loadConfig();
 const db = new Db(config.dbPath);
 migrate(db);
 await seedSystem(db, config);
-const ctx: AppContext = {
+const ctx = {
   config,
   db,
   hub: new Hub(),
@@ -34,7 +36,9 @@ const ctx: AppContext = {
   metrics: new Metrics(db, { wsClients: () => 0 }),
   uploadsDir: config.uploadsDir ?? '',
   secrets: new SecretBox(config.dbPath),
-};
+  docsDir: config.docsDir ?? '',
+} as AppContext;
+ctx.docRooms = new DocRooms(ctx);
 
 if (db.get('SELECT 1 FROM projects WHERE name = ?', PROJECT_NAME)) {
   console.log('Le projet de démonstration existe déjà : rien à faire.');
@@ -60,6 +64,8 @@ const [camille, hugo, ines, theo] = [people['Camille Durand']!, people['Hugo Mar
 
 const owner = getAuthUser(db, camille)!;
 const actor = (userId: number): Actor => ({ userId, origin: null });
+/** Première ligne d'avancement d'une personne sur un ticket. */
+const partOf = (ticketId: number, userId: number): number => getTicketDTO(ctx.db, ticketId).parts.find((part) => part.userId === userId)!.id;
 const project = createProject(ctx, owner, { name: PROJECT_NAME, key: 'APP', description: "Application mobile de suivi de commandes : de la maquette à la mise en production." });
 
 addMember(ctx, actor(camille), project.id, hugo, roleId('project', 'editor'));
@@ -128,15 +134,15 @@ for (const spec of specs) {
   });
   ticketIds.push(ticket.id);
   for (const userId of spec.done ?? []) {
-    updatePart(ctx, actor(userId), ticket.id, userId, { done: true });
+    updatePart(ctx, actor(userId), partOf(ticket.id, userId), { done: true });
   }
   for (const [userId, progress] of spec.progress ?? []) {
-    updatePart(ctx, actor(userId), ticket.id, userId, { progress });
+    updatePart(ctx, actor(userId), partOf(ticket.id, userId), { progress });
   }
   if (spec.status === 'done' && !(spec.done && spec.done.length === (spec.assignees ?? []).length && spec.done.length > 0)) {
     // Ticket terminé sans parts déclarées : on clôture via les assignés.
     for (const userId of spec.assignees ?? []) {
-      updatePart(ctx, actor(userId), ticket.id, userId, { done: true });
+      updatePart(ctx, actor(userId), partOf(ticket.id, userId), { done: true });
     }
   }
 }

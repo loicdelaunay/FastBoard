@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { useAppStore } from '@/stores/app';
 import { useAuthStore } from '@/stores/auth';
 
 export const PROJECT_VIEWS = ['analyzer', 'list', 'kanban', 'gantt', 'activity'] as const;
@@ -31,6 +32,9 @@ const router = createRouter({
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
     { path: '/', name: 'projects', component: () => import('@/views/ProjectsView.vue') },
+    { path: '/documentation', name: 'docs', component: () => import('@/views/docs/DocSpacesView.vue'), meta: { docs: true } },
+    { path: '/documentation/f/:nodeId(\\d+)', name: 'doc-file', component: () => import('@/views/docs/DocFileRedirect.vue'), meta: { docs: true } },
+    { path: '/documentation/:spaceId(\\d+)', name: 'doc-space', component: () => import('@/views/docs/DocSpaceView.vue'), meta: { docs: true } },
     { path: '/search', name: 'search', component: () => import('@/views/SearchView.vue') },
     { path: '/users/:id(\\d+)', name: 'user', component: () => import('@/views/UserView.vue') },
     { path: '/assistant', name: 'assistant', component: () => import('@/views/AssistantView.vue'), meta: { permission: 'ai.use' } },
@@ -66,6 +70,8 @@ const router = createRouter({
             if (auth.can('backups.manage')) return { name: 'admin-backups' };
             if (auth.can('settings.manage')) return { name: 'admin-branding' };
             if (auth.can('ai.manage')) return { name: 'admin-ai' };
+            if (auth.can('auth.manage')) return { name: 'admin-auth' };
+            if (auth.can('docs.manage')) return { name: 'admin-docs' };
             if (auth.can('system.manage')) return { name: 'admin-https' };
             return { name: 'admin-service' };
           },
@@ -78,6 +84,8 @@ const router = createRouter({
         { path: 'backups', name: 'admin-backups', component: () => import('@/views/admin/BackupsView.vue'), meta: { permission: 'backups.manage' } },
         { path: 'branding', name: 'admin-branding', component: () => import('@/views/admin/BrandingView.vue'), meta: { permission: 'settings.manage' } },
         { path: 'maintenance', name: 'admin-maintenance', component: () => import('@/views/admin/MaintenanceView.vue'), meta: { permission: 'settings.manage' } },
+        { path: 'documentation', name: 'admin-docs', component: () => import('@/views/admin/DocumentationView.vue'), meta: { permission: 'docs.manage' } },
+        { path: 'auth', name: 'admin-auth', component: () => import('@/views/admin/AuthView.vue'), meta: { permission: 'auth.manage' } },
         { path: 'ai', name: 'admin-ai', component: () => import('@/views/admin/AiView.vue'), meta: { permission: 'ai.manage' } },
         { path: 'https', name: 'admin-https', component: () => import('@/views/admin/HttpsView.vue'), meta: { permission: 'system.manage' } },
         { path: 'service', name: 'admin-service', component: () => import('@/views/admin/ServiceView.vue'), meta: { permission: 'system.manage' } },
@@ -100,6 +108,9 @@ router.beforeEach((to) => {
     return { path: '/' };
   }
   if (typeof to.meta.permission === 'string' && !auth.can(to.meta.permission)) {
+    return { name: 'projects' };
+  }
+  if (to.meta.docs && !useAppStore().info.docs) {
     return { name: 'projects' };
   }
   return true;

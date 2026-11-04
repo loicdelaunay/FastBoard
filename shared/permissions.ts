@@ -26,9 +26,12 @@ export const GLOBAL_PERMISSIONS: readonly PermissionDef[] = [
   { key: 'logs.view', group: 'Supervision', label: 'Consulter les journaux', description: "Lire les journaux du serveur (erreurs, connexions, actions d'administration)." },
   { key: 'backups.manage', group: 'Système', label: 'Gérer les sauvegardes', description: 'Configurer les destinations, la fréquence et la conservation des sauvegardes, et en lancer.' },
   { key: 'settings.manage', group: 'Système', label: "Personnaliser l'application", description: "Changer le nom et le logo de l'application et afficher des messages de maintenance." },
+  { key: 'auth.manage', group: 'Système', label: "Configurer l'authentification", description: "Activer la connexion par annuaire LDAP et régler ses paramètres." },
   { key: 'system.manage', group: 'Système', label: 'Installer en tant que service', description: "Installer ou retirer FastBoard comme service démarré automatiquement sur la machine." },
   { key: 'ai.use', group: 'Intelligence artificielle', label: "Utiliser l'assistant IA", description: "Ouvrir le panneau de l'assistant IA (selon les droits de chaque projet)." },
   { key: 'ai.manage', group: 'Intelligence artificielle', label: "Configurer l'IA", description: "Renseigner le fournisseur (URL compatible OpenAI, clé d'API, modèle) et activer l'IA sur le site." },
+  { key: 'docs.create', group: 'Documentation', label: 'Créer des espaces de documentation', description: 'Créer ses propres espaces de documentation et y inviter des personnes.' },
+  { key: 'docs.manage', group: 'Documentation', label: 'Administrer la documentation', description: 'Activer la fonctionnalité sur le site et accéder à tous les espaces.' },
   { key: 'projects.create', group: 'Projets', label: 'Créer des projets', description: 'Créer ses propres projets.' },
   { key: 'projects.view_all', group: 'Projets', label: 'Voir tous les projets', description: 'Accéder en lecture à tous les projets, même sans en être membre.' },
   { key: 'projects.manage_all', group: 'Projets', label: 'Gérer tous les projets', description: 'Toutes les permissions de projet sur tous les projets.' },
@@ -103,7 +106,7 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
     description: 'Gère les comptes, les rôles et tous les projets.',
     permissions: [
       'admin.access', 'users.view', 'users.create', 'users.edit', 'users.delete', 'roles.manage',
-      'tokens.create', 'tokens.manage', 'monitoring.view', 'logs.view', 'backups.manage', 'system.manage', 'settings.manage', 'ai.use', 'ai.manage', 'projects.create', 'projects.view_all', 'projects.manage_all',
+      'tokens.create', 'tokens.manage', 'monitoring.view', 'logs.view', 'backups.manage', 'system.manage', 'settings.manage', 'auth.manage', 'docs.create', 'docs.manage', 'ai.use', 'ai.manage', 'projects.create', 'projects.view_all', 'projects.manage_all',
     ],
   },
   {
@@ -111,7 +114,7 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
     scope: 'global',
     name: 'Membre',
     description: 'Peut créer ses projets et collaborer sur ceux auxquels il est invité.',
-    permissions: ['projects.create', 'tokens.create', 'ai.use'],
+    permissions: ['projects.create', 'tokens.create', 'ai.use', 'docs.create'],
   },
   {
     key: 'guest',

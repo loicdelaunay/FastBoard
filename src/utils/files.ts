@@ -22,6 +22,16 @@ export function attachmentUrl(attachment: Pick<AttachmentDTO, 'id'>, inline = fa
   return `/api/attachments/${attachment.id}/download${inline ? '?inline=1' : ''}`;
 }
 
+/** Lance un téléchargement servi par l'API, sans quitter la page. */
+export function downloadFrom(url: string): void {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = '';
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
 export function isImageAttachment(attachment: Pick<AttachmentDTO, 'mime'>): boolean {
   return isInlineImage(attachment.mime);
 }

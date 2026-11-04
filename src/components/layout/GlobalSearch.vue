@@ -6,7 +6,7 @@ import { api } from '@/api';
 import StatusTag from '@/components/common/StatusTag.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 
-/** Recherche globale de l'en-tête : projets, tickets et utilisateurs, avec un aperçu rapide et un lien vers tous les résultats. */
+/** Recherche globale de l'en-tête : projets, tickets, documents et utilisateurs, avec un aperçu rapide et un lien vers tous les résultats. */
 const router = useRouter();
 const query = ref('');
 const open = ref(false);
@@ -29,10 +29,11 @@ const hits = computed<Hit[]>(() => {
   return [
     ...data.projects.items.map((project) => ({ key: `p${project.id}`, go: () => void router.push({ name: 'project', params: { projectId: project.id } }) })),
     ...data.tickets.items.map((ticket) => ({ key: `t${ticket.id}`, go: () => void router.push({ name: 'project', params: { projectId: ticket.projectId }, query: { ticket: String(ticket.id) } }) })),
+    ...data.docs.items.map((doc) => ({ key: `d${doc.id}`, go: () => void router.push({ name: 'doc-file', params: { nodeId: doc.id } }) })),
     ...data.users.items.map((user) => ({ key: `u${user.id}`, go: () => void router.push({ name: 'user', params: { id: user.id } }) })),
   ];
 });
-const total = computed(() => (result.value ? result.value.projects.total + result.value.tickets.total + result.value.users.total : 0));
+const total = computed(() => (result.value ? result.value.projects.total + result.value.tickets.total + result.value.docs.total + result.value.users.total : 0));
 
 function indexOf(key: string): number {
   return hits.value.findIndex((hit) => hit.key === key);
@@ -137,7 +138,7 @@ onBeforeUnmount(() => {
         v-model="query"
         type="search"
         :placeholder="$t('Rechercher…')"
-        :aria-label="$t('Rechercher dans les projets, tickets et utilisateurs')"
+        :aria-label="$t('Rechercher dans les projets, tickets, documents et utilisateurs')"
         autocomplete="off"
         role="combobox"
         :aria-expanded="open && Boolean(query.trim())"
@@ -185,6 +186,23 @@ onBeforeUnmount(() => {
         </button>
       </template>
 
+      <template v-if="result?.docs.items.length">
+        <h4 class="group">{{ $t('Documents') }} <span class="muted">{{ result.docs.total }}</span></h4>
+        <button
+          v-for="doc in result.docs.items"
+          :key="`d${doc.id}`"
+          type="button"
+          class="hit"
+          :class="{ active: hits[highlighted]?.key === `d${doc.id}` }"
+          @mouseenter="highlighted = indexOf(`d${doc.id}`)"
+          @click="choose(hits[indexOf(`d${doc.id}`)])"
+        >
+          <i class="pi pi-file muted"></i>
+          <span class="doc truncate"><strong>{{ doc.title }}</strong><small v-if="doc.excerpt" class="muted truncate">{{ doc.excerpt }}</small></span>
+          <span class="muted small truncate doc-space">{{ doc.spaceName }}</span>
+        </button>
+      </template>
+
       <template v-if="result?.users.items.length">
         <h4 class="group">{{ $t('Utilisateurs') }} <span class="muted">{{ result.users.total }}</span></h4>
         <button
@@ -210,6 +228,16 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.doc {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.doc-space {
+  flex-shrink: 0;
+  max-width: 35%;
+}
 .global-search {
   position: relative;
   width: min(22rem, 34vw);

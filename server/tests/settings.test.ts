@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import { defaultColumns, normalizeSettings } from '../../shared/settings.ts';
 import type { ProjectSettingsDTO } from '../../shared/settings.ts';
-import { bootServer, TestClient } from './helpers.ts';
+import { bootServer, TestClient, patchPart } from './helpers.ts';
 
 type Booted = Awaited<ReturnType<typeof bootServer>>;
 
@@ -45,21 +45,21 @@ describe('réglages du projet', () => {
   it('désactive le passage automatique à « Terminé » puis la réouverture automatique', async () => {
     const ticket = (await bob.post(`/api/projects/${ids.project}/tickets`, { title: 'Auto', status: 'in_progress', assigneeIds: [ids.bob] })).body.ticket;
     assert.equal((await patch({ autoMoveDone: false })).status, 200);
-    const done = (await bob.patch(`/api/tickets/${ticket.id}/assignees/${ids.bob}`, { done: true })).body.ticket;
+    const done = (await patchPart(bob, ticket.id, ids.bob, { done: true })).body.ticket;
     assert.equal(done.status, 'in_progress', 'la colonne ne change pas toute seule');
     assert.ok(done.assignees[0].done);
 
     // Le passage manuel reste possible, et la réouverture est réglée à part.
     await bob.post(`/api/tickets/${ticket.id}/move`, { status: 'done', beforeId: null });
     assert.equal((await patch({ autoReopen: false })).status, 200);
-    const reopened = (await bob.patch(`/api/tickets/${ticket.id}/assignees/${ids.bob}`, { done: false })).body.ticket;
+    const reopened = (await patchPart(bob, ticket.id, ids.bob, { done: false })).body.ticket;
     assert.equal(reopened.status, 'done', 'pas de réouverture automatique');
 
     await patch({ autoMoveDone: true, autoReopen: true });
-    await bob.patch(`/api/tickets/${ticket.id}/assignees/${ids.bob}`, { done: true });
-    await bob.patch(`/api/tickets/${ticket.id}/assignees/${ids.bob}`, { done: false });
+    await patchPart(bob, ticket.id, ids.bob, { done: true });
+    await patchPart(bob, ticket.id, ids.bob, { done: false });
     assert.equal((await bob.get(`/api/tickets/${ticket.id}`)).body.ticket.status, 'in_progress', 'réouverture automatique rétablie');
-    await bob.patch(`/api/tickets/${ticket.id}/assignees/${ids.bob}`, { done: true });
+    await patchPart(bob, ticket.id, ids.bob, { done: true });
     assert.equal((await bob.get(`/api/tickets/${ticket.id}`)).body.ticket.status, 'done');
     const history = (await bob.get(`/api/tickets/${ticket.id}/history`)).body.history as Array<{ data: { auto?: string } }>;
     assert.ok(history.some((entry) => entry.data.auto === 'all_parts_done'), 'le comportement historique est rétabli');

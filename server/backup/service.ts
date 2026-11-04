@@ -212,15 +212,15 @@ function parseManifest(raw: string | null): Manifest | null {
 const README = `Sauvegarde FastBoard
 ====================
 
-Chaque archive contient la base complète (fastboard.sqlite) et les pièces jointes ajoutées depuis l'archive précédente
-de la même chaîne (sauvegarde incrémentale) ou toutes les pièces jointes (sauvegarde complète).
+Chaque archive contient la base complète (fastboard.sqlite), et les pièces jointes et fichiers de documentation ajoutés
+depuis l'archive précédente de la même chaîne (sauvegarde incrémentale) ou tous ces fichiers (sauvegarde complète).
 manifest.json liste, pour cette version, tous les fichiers et l'archive qui contient chacun d'eux.
 
 Restaurer :
 1. Arrêtez FastBoard.
 2. Extrayez dans un dossier vide les archives listées dans manifest.json → "archives", dans l'ordre
    (la complète d'abord ; les fichiers des archives suivantes remplacent ceux des précédentes).
-3. Remplacez le contenu du dossier des données (fastboard.sqlite, uploads/, secret.key) par les fichiers extraits,
+3. Remplacez le contenu du dossier des données (fastboard.sqlite, uploads/, docs/, secret.key) par les fichiers extraits,
    en supprimant au préalable fastboard.sqlite-wal et fastboard.sqlite-shm.
 4. Redémarrez FastBoard.
 `;
@@ -287,6 +287,17 @@ export async function runBackup(ctx: AppContext, destinationId: string, trigger:
       }
       for (const file of walk(ctx.uploadsDir)) {
         const name = `uploads/${file.rel}`;
+        const known = kind === 'incremental' ? previousManifest!.files[name] : undefined;
+        if (known && known.size === file.size && known.mtime === file.mtime) {
+          manifest.files[name] = known;
+          continue;
+        }
+        await zip.add(name, fs.readFileSync(file.abs), new Date(file.mtime));
+        manifest.files[name] = { size: file.size, mtime: file.mtime, archive: fileName };
+        added += 1;
+      }
+      for (const file of walk(ctx.docsDir)) {
+        const name = `docs/${file.rel}`;
         const known = kind === 'incremental' ? previousManifest!.files[name] : undefined;
         if (known && known.size === file.size && known.mtime === file.mtime) {
           manifest.files[name] = known;

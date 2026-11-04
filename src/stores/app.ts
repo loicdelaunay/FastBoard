@@ -6,7 +6,7 @@ import { realtime } from '@/realtime/socket';
 
 /** Nom, logo et message de maintenance de l'application (publics, rafraîchis en direct). */
 export const useAppStore = defineStore('app', () => {
-  const info = ref<AppInfoDTO>({ name: 'FastBoard', logoVersion: 0, version: '', maintenance: null, ai: false });
+  const info = ref<AppInfoDTO>({ name: 'FastBoard', logoVersion: 0, version: '', maintenance: null, ai: false, ldap: null, docs: false });
 
   const name = computed(() => info.value.name);
   const logoUrl = computed(() => (info.value.logoVersion ? `/api/app/logo?v=${info.value.logoVersion}` : '/favicon.svg'));

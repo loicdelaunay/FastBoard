@@ -1,5 +1,7 @@
 /** Protocole WebSocket (JSON). */
 
+import type { DocNodeDTO } from './docs.ts';
+import type { DocCommentDTO } from './docComments.ts';
 import type {
   ActivityCommentDTO,
   ActivityDTO,
@@ -68,6 +70,23 @@ export type ServerMessage =
   | { t: 'notification'; notification: NotificationDTO; unread: number }
   /** Notifications lues (depuis un autre onglet). */
   | { t: 'notifications.read'; unread: number }
+  /** Arborescence d'un espace de documentation modifiée. */
+  | { t: 'docs.tree'; spaceId: number; nodes: DocNodeDTO[] }
+  /** Rôle changé dans un espace : relire ses droits. */
+  | { t: 'docs.access'; spaceId: number }
+  /** Accès à un espace retiré (ou espace supprimé). */
+  | { t: 'docs.revoked'; spaceId: number }
+  /** Commentaires d'une note de l'espace, après un ajout, une réponse ou une suppression. */
+  | { t: 'docs.comments'; spaceId: number; nodeId: number; comments: DocCommentDTO[] }
+  /** Réponse à `doc.join` : ce qui manque au client, et ce que le serveur connaît déjà. */
+  | { t: 'doc.sync'; nodeId: number; update: string; stateVector: string; canWrite: boolean; awareness: string | null }
+  /** Modification du texte (Yjs, base64). */
+  | { t: 'doc.update'; nodeId: number; update: string }
+  /** Curseurs et sélections des participants (Yjs, base64). */
+  | { t: 'doc.awareness'; nodeId: number; update: string }
+  | { t: 'doc.saved'; nodeId: number; at: string }
+  /** Fichier supprimé ou accès retiré pendant l'édition. */
+  | { t: 'doc.closed'; nodeId: number; reason: 'deleted' | 'revoked' }
   | { t: 'pong' }
   | { t: 'error'; message: string };
 
@@ -75,4 +94,10 @@ export type ClientMessage =
   | { t: 'subscribe'; projectId: number }
   | { t: 'unsubscribe' }
   | { t: 'presence'; ticketId: number | null; view: string }
-  | { t: 'ping' };
+  | { t: 'ping' }
+  /** Suit l'arborescence d'un espace (`null` : plus aucun). */
+  | { t: 'docs.watch'; spaceId: number | null }
+  | { t: 'doc.join'; nodeId: number; stateVector: string }
+  | { t: 'doc.update'; nodeId: number; update: string }
+  | { t: 'doc.awareness'; nodeId: number; update: string }
+  | { t: 'doc.leave'; nodeId: number };

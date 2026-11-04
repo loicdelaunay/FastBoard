@@ -4,7 +4,7 @@
  */
 
 /** Champs standard qu'un projet peut masquer (le titre et la colonne restent toujours visibles). */
-export const TICKET_FIELDS = ['description', 'priority', 'category', 'components', 'delivery', 'dates', 'assignees', 'progress', 'attachments', 'subtasks', 'children', 'links', 'comments'] as const;
+export const TICKET_FIELDS = ['description', 'priority', 'category', 'components', 'delivery', 'dates', 'assignees', 'progress', 'attachments', 'children', 'links', 'comments'] as const;
 export type TicketFieldKey = (typeof TICKET_FIELDS)[number];
 
 export const TICKET_FIELD_META: Record<TicketFieldKey, { label: string; icon: string }> = {
@@ -17,7 +17,6 @@ export const TICKET_FIELD_META: Record<TicketFieldKey, { label: string; icon: st
   assignees: { label: 'Assignés et parts', icon: 'pi pi-users' },
   progress: { label: 'Avancement', icon: 'pi pi-percentage' },
   attachments: { label: 'Pièces jointes', icon: 'pi pi-paperclip' },
-  subtasks: { label: 'Sous-tâches', icon: 'pi pi-list-check' },
   children: { label: 'Sous-tickets', icon: 'pi pi-sitemap' },
   links: { label: 'Dépendances', icon: 'pi pi-link' },
   comments: { label: 'Commentaires', icon: 'pi pi-comments' },

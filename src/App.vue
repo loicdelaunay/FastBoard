@@ -6,6 +6,8 @@ import { useAuthStore } from '@/stores/auth';
 import AppHeader from '@/components/layout/AppHeader.vue';
 import ProfileDialog from '@/components/profile/ProfileDialog.vue';
 import MaintenanceBanner from '@/components/layout/MaintenanceBanner.vue';
+import HoverPreviews from '@/components/layout/HoverPreviews.vue';
+import UpdatePrompt from '@/components/layout/UpdatePrompt.vue';
 import AiPanel from '@/components/ai/AiPanel.vue';
 import { useAppStore } from '@/stores/app';
 
@@ -24,6 +26,8 @@ const route = useRoute();
     <ProfileDialog v-if="auth.isAuthenticated" />
     <!-- La page dédiée de l'assistant affiche sa propre conversation : pas de panneau latéral en plus. -->
     <AiPanel v-if="auth.isAuthenticated && app.info.ai && auth.can('ai.use') && route.name !== 'assistant'" />
+    <UpdatePrompt />
+    <HoverPreviews v-if="auth.isAuthenticated" />
     <Toast position="bottom-right" :base-z-index="1250" />
     <ConfirmDialog />
   </div>

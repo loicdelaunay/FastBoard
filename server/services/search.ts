@@ -1,7 +1,10 @@
 import { addDays, todayISO } from '../../shared/dates.ts';
+import { plainText } from '../../shared/docComments.ts';
+import { docTitle } from '../../shared/docs.ts';
 import { hasPermission } from '../../shared/permissions.ts';
 import type {
   ActivityData,
+  SearchDocHit,
   SearchKind,
   SearchProjectHit,
   SearchResultDTO,
@@ -10,7 +13,9 @@ import type {
   UserSummaryPageDTO,
 } from '../../shared/types.ts';
 import type { TicketStatus } from '../../shared/constants.ts';
+import type { AppContext } from '../context.ts';
 import type { Db } from '../db/database.ts';
+import { docsEnabled, listSpaces, readText } from '../docs/store.ts';
 import { notFound } from '../http/errors.ts';
 import type { AuthUser } from './access.ts';
 import { toUserSummary, USER_COLUMNS, type ProjectRow, type UserRow } from './rows.ts';
@@ -51,10 +56,52 @@ interface TicketSearchRow {
   updated_at: string;
 }
 
-/** Recherche dans les projets, tickets et utilisateurs visibles ; `limit` résultats par type, avec le total. */
-export function globalSearch(db: Db, user: AuthUser, rawQuery: string, options: { limit: number; kinds?: SearchKind[] }): SearchResultDTO {
+/** Première ligne d'une note où figure la recherche, sans sa syntaxe Markdown. */
+function docExcerpt(content: string, query: string): string {
+  for (const line of content.split('\n')) {
+    const index = foldText(line).indexOf(query);
+    if (index < 0) continue;
+    const start = Math.max(0, index - 60);
+    const end = index + query.length + 100;
+    const part = plainText(line.slice(start, end)).trim();
+    return `${start > 0 ? '…' : ''}${part}${end < line.length ? '…' : ''}`;
+  }
+  return '';
+}
+
+/** Notes des espaces accessibles, par leur titre d'abord, puis par leur texte (index replié, comme la recherche). */
+function searchDocs(ctx: AppContext, user: AuthUser, query: string, limit: number): SearchResultDTO['docs'] {
+  if (!docsEnabled(ctx.db)) return { items: [], total: 0 };
+  const spaces = new Map(listSpaces(ctx, user).map((space) => [space.id, space.name]));
+  if (!spaces.size) return { items: [], total: 0 };
+  const rows = ctx.db.all<{ id: number; space_id: number; path: string; updated_at: string; in_text: number }>(
+    `SELECT id, space_id, path, updated_at, instr(COALESCE(search_text, ''), ?) > 0 AS in_text FROM doc_nodes
+      WHERE kind = 'markdown' AND deleted_at IS NULL AND space_id IN (${[...spaces.keys()].join(',')})`,
+    query,
+  );
+  const hits = rows
+    .map((row) => ({ row, score: bestRank(rank(docTitle(row.path), query), rank(row.path, query) === null ? null : 3, row.in_text ? 4 : null) }))
+    .filter((hit): hit is { row: (typeof rows)[number]; score: number } => hit.score !== null)
+    .sort((a, b) => a.score - b.score || b.row.updated_at.localeCompare(a.row.updated_at));
+  return {
+    total: hits.length,
+    items: hits.slice(0, limit).map(({ row }): SearchDocHit => ({
+      id: row.id,
+      spaceId: row.space_id,
+      spaceName: spaces.get(row.space_id) ?? '',
+      path: row.path,
+      title: docTitle(row.path),
+      excerpt: row.in_text ? docExcerpt(readText(ctx, { space_id: row.space_id, path: row.path }), query) : '',
+      updatedAt: row.updated_at,
+    })),
+  };
+}
+
+/** Recherche dans les projets, tickets, utilisateurs et documents visibles ; `limit` résultats par type, avec le total. */
+export function globalSearch(ctx: AppContext, user: AuthUser, rawQuery: string, options: { limit: number; kinds?: SearchKind[] }): SearchResultDTO {
+  const { db } = ctx;
   const query = foldText(rawQuery.trim());
-  const empty: SearchResultDTO = { query: rawQuery, projects: { items: [], total: 0 }, tickets: { items: [], total: 0 }, users: { items: [], total: 0 } };
+  const empty: SearchResultDTO = { query: rawQuery, projects: { items: [], total: 0 }, tickets: { items: [], total: 0 }, users: { items: [], total: 0 }, docs: { items: [], total: 0 } };
   if (!query) {
     return empty;
   }
@@ -105,6 +152,10 @@ export function globalSearch(db: Db, user: AuthUser, rawQuery: string, options: 
       .sort((a, b) => a.score - b.score || a.row.name.localeCompare(b.row.name));
     result.users = { total: hits.length, items: hits.slice(0, options.limit).map(({ row }) => toUserSummary(row)) };
   }
+
+  if (wants('docs')) {
+    result.docs = searchDocs(ctx, user, query, options.limit);
+  }
   return result;
 }
 
@@ -142,10 +193,11 @@ export function userSummary(db: Db, viewer: AuthUser, userId: number): UserSumma
 
   const assignedRows = db.all<TicketSearchRow & { end_date: string | null; part_progress: number; part_done: number; project_key: string; project_name: string }>(
     `SELECT t.id, t.project_id, t.number, t.title, t.description, t.status, t.updated_at, t.end_date,
-            a.progress AS part_progress, a.done AS part_done, p.key AS project_key, p.name AS project_name
-       FROM ticket_assignees a JOIN tickets t ON t.id = a.ticket_id JOIN projects p ON p.id = t.project_id
+            ROUND(AVG(CASE WHEN a.done = 1 THEN 100 ELSE a.progress END)) AS part_progress, MIN(a.done) AS part_done, p.key AS project_key, p.name AS project_name
+       FROM ticket_parts a JOIN tickets t ON t.id = a.ticket_id JOIN projects p ON p.id = t.project_id
       WHERE a.user_id = ? AND t.status != 'done' AND p.archived = 0 AND t.project_id IN ${inList}
-      ORDER BY a.done, CASE WHEN t.end_date IS NULL THEN 1 ELSE 0 END, t.end_date, t.updated_at DESC`,
+      GROUP BY t.id
+      ORDER BY part_done, CASE WHEN t.end_date IS NULL THEN 1 ELSE 0 END, t.end_date, t.updated_at DESC`,
     userId,
     ...visibleIds,
   );
@@ -199,7 +251,7 @@ export function userSummary(db: Db, viewer: AuthUser, userId: number): UserSumma
 
   const donePartsLast30 =
     db.get<{ n: number }>(
-      `SELECT COUNT(*) AS n FROM ticket_assignees a JOIN tickets t ON t.id = a.ticket_id WHERE a.user_id = ? AND a.done = 1 AND a.done_at >= ? AND t.project_id IN ${inList}`,
+      `SELECT COUNT(*) AS n FROM ticket_parts a JOIN tickets t ON t.id = a.ticket_id WHERE a.user_id = ? AND a.done = 1 AND a.done_at >= ? AND t.project_id IN ${inList}`,
       userId,
       since,
       ...visibleIds,

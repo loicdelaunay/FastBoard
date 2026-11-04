@@ -1,7 +1,7 @@
 import { isLocale, type Locale } from '../../shared/locales.ts';
 import { ALL_PROJECT_PERMISSION_KEYS, hasPermission } from '../../shared/permissions.ts';
 import { normalizeAppearance, type AppearanceDTO } from '../../shared/themes.ts';
-import type { MeDTO, TokenInfoDTO } from '../../shared/types.ts';
+import type { AuthSource, MeDTO, TokenInfoDTO } from '../../shared/types.ts';
 import type { AppContext } from '../context.ts';
 import type { Db } from '../db/database.ts';
 import { conflict, forbidden, notFound } from '../http/errors.ts';
@@ -21,6 +21,7 @@ export interface AuthUser {
   locale: Locale | null;
   avatarVersion: number;
   isActive: boolean;
+  authSource: AuthSource;
   /** Renseigné quand la requête est authentifiée par un jeton d'API (et non par une session). */
   token: TokenInfoDTO | null;
 }
@@ -35,6 +36,7 @@ interface AuthUserRow {
   appearance: string;
   locale: string | null;
   avatar_version: number;
+  auth_source: string;
   role_key: string | null;
   role_name: string;
   permissions: string;
@@ -50,7 +52,7 @@ function parseAppearance(raw: string | null | undefined): AppearanceDTO {
 
 export function getAuthUser(db: Db, userId: number): AuthUser | undefined {
   const row = db.get<AuthUserRow>(
-    `SELECT u.id, u.email, u.name, u.role_id, u.is_active, u.theme, u.appearance, u.locale, u.avatar_version,
+    `SELECT u.id, u.email, u.name, u.role_id, u.is_active, u.theme, u.appearance, u.locale, u.avatar_version, u.auth_source,
             r.key AS role_key, r.name AS role_name, r.permissions
        FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = ?`,
     userId,
@@ -71,6 +73,7 @@ export function getAuthUser(db: Db, userId: number): AuthUser | undefined {
     locale: isLocale(row.locale) ? row.locale : null,
     avatarVersion: row.avatar_version,
     isActive: row.is_active === 1,
+    authSource: row.auth_source === 'ldap' ? 'ldap' : 'local',
     token: null,
   };
 }
@@ -82,6 +85,7 @@ export function toMeDTO(user: AuthUser): MeDTO {
     email: user.email,
     avatarVersion: user.avatarVersion,
     isActive: user.isActive,
+    authSource: user.authSource,
     theme: user.theme,
     appearance: user.appearance,
     locale: user.locale,

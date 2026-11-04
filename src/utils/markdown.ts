@@ -6,12 +6,13 @@ import 'katex/dist/katex.min.css';
 /**
  * Rendu Markdown des descriptions : GitHub Flavored Markdown (tableaux, listes de tâches, barré), formules KaTeX
  * (`$…$`, `$$…$$` ou bloc ```math), diagrammes Mermaid (bloc ```mermaid, dessinés ensuite par `renderMermaid`) et
- * mentions `@[Nom](user:12)` / `@[APP-12](ticket:34)`. Le HTML produit est toujours assaini (DOMPurify).
+ * mentions `@[Nom](user:12)` / `@[APP-12](ticket:34)` / `@[Note](doc:56)`. Le HTML produit est toujours assaini (DOMPurify).
  */
 
 export interface MentionResolver {
   userName: (id: number) => string | undefined;
-  ticketLabel: (id: number) => { key: string; title: string } | undefined;
+  /** `label` : texte enregistré dans la mention, seule information hors du contexte d'un projet. */
+  ticketLabel: (id: number, label: string) => { key: string; title: string } | undefined;
 }
 
 function escapeHtml(text: string): string {
@@ -36,7 +37,7 @@ function createMarked(resolver: MentionResolver): Marked {
     level: 'inline',
     start: (src: string) => src.indexOf('@['),
     tokenizer(src: string) {
-      const match = /^@\[([^\]\n]{1,80})\]\((user|ticket):(\d+)\)/.exec(src);
+      const match = /^@\[([^\]\n]{1,80})\]\((user|ticket|doc):(\d+)\)/.exec(src);
       if (!match) return undefined;
       return { type: 'mention', raw: match[0], label: match[1], kind: match[2], id: Number(match[3]) };
     },
@@ -46,9 +47,12 @@ function createMarked(resolver: MentionResolver): Marked {
         const name = resolver.userName(id) ?? (token.label as string);
         return `<a class="md-mention user" href="/users/${id}" data-user="${id}">@${escapeHtml(name)}</a>`;
       }
-      const ticket = resolver.ticketLabel(id);
+      if (token.kind === 'doc') {
+        return `<a class="md-mention doc" href="/documentation/f/${id}" data-doc="${id}">${escapeHtml(token.label as string)}</a>`;
+      }
+      const ticket = resolver.ticketLabel(id, token.label as string);
       return ticket
-        ? `<a class="md-mention ticket" href="#" data-ticket="${id}" title="${escapeHtml(ticket.title)}">${escapeHtml(ticket.key)}</a>`
+        ? `<a class="md-mention ticket" href="#" data-ticket="${id}">${escapeHtml(ticket.key)}</a>`
         : `<span class="md-mention ticket gone">${escapeHtml(token.label as string)}</span>`;
     },
   };
@@ -93,6 +97,29 @@ function createMarked(resolver: MentionResolver): Marked {
   return marked;
 }
 
+export interface MarkdownBlock {
+  from: number;
+  to: number;
+  /** Nature du bloc pour marked : `heading`, `paragraph`, `list`, `table`, `code`… */
+  type: string;
+}
+
+let lexer: Marked | null = null;
+
+/** Blocs de premier niveau d'un texte et leur position ; vide si elle ne peut pas être établie. */
+export function markdownBlocks(text: string): MarkdownBlock[] {
+  lexer ??= createMarked({ userName: () => undefined, ticketLabel: () => undefined });
+  const blocks: MarkdownBlock[] = [];
+  let offset = 0;
+  for (const token of lexer.lexer(text)) {
+    const from = text.indexOf(token.raw, offset);
+    if (from < 0) return [];
+    offset = from + token.raw.length;
+    if (token.type !== 'space' && token.type !== 'def') blocks.push({ from, to: from + token.raw.replace(/\n+$/, '').length, type: token.type });
+  }
+  return blocks;
+}
+
 let hooked = false;
 
 /** Markdown → HTML assaini, prêt pour `v-html`. */
@@ -124,8 +151,9 @@ export async function renderMermaid(root: HTMLElement, dark: boolean): Promise<v
   mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: dark ? 'dark' : 'default', fontFamily: 'inherit', htmlLabels: false, flowchart: { htmlLabels: false } });
   for (const block of blocks) {
     const code = fromBase64(block.dataset.code ?? '');
+    const id = `fb-mermaid-${++diagramCount}`;
     try {
-      const { svg } = await mermaid.render(`fb-mermaid-${++diagramCount}`, code);
+      const { svg } = await mermaid.render(id, code);
       block.innerHTML = DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });
       block.classList.add('rendered');
     } catch (error) {
@@ -133,7 +161,7 @@ export async function renderMermaid(root: HTMLElement, dark: boolean): Promise<v
       block.title = error instanceof Error ? error.message : String(error);
     } finally {
       // Mermaid laisse parfois un élément temporaire dans la page en cas d'erreur.
-      document.getElementById(`dfb-mermaid-${diagramCount}`)?.remove();
+      document.getElementById(`d${id}`)?.remove();
     }
   }
 }

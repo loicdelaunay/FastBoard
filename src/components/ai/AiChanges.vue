@@ -42,6 +42,9 @@ const FIELD_LABELS = computed<Record<string, string>>(() => ({
   progress: t('Avancement'),
   parentId: t('Ticket parent'),
   comment: t('Commentaire'),
+  part: t('Ligne d’avancement'),
+  partDone: t('État'),
+  // Conversations enregistrées avant la version 2.
   subtask: t('Sous-tâche'),
   subtaskDone: t('État'),
   link: t('Dépendance'),

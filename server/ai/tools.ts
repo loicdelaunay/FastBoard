@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { AiChangeDTO, AiTicketFields } from '../../shared/ai.ts';
-import { STATUS_META, TICKET_STATUSES, isTicketStatus, type TicketStatus } from '../../shared/constants.ts';
+import { LIMITS, STATUS_META, TICKET_STATUSES, isTicketStatus, type TicketStatus } from '../../shared/constants.ts';
 import { childrenByParent, ticketProgress } from '../../shared/progress.ts';
 import type { TicketDTO } from '../../shared/types.ts';
 import type { Actor, AppContext } from '../context.ts';
@@ -11,7 +11,7 @@ import { listHistory } from '../services/history.ts';
 import { createLink } from '../services/links.ts';
 import { buildSnapshot } from '../services/projects.ts';
 import { visibleProjects } from '../services/search.ts';
-import { createSubtask, requireSubtask, updateSubtask } from '../services/subtasks.ts';
+import { createPart, requirePart, updatePart } from '../services/parts.ts';
 import { createTicket, foldText, getTicketDTO, listTicketDTOs, moveTicket, requireTicket, ticketKeyOf, updateTicket } from '../services/tickets.ts';
 
 /** Ce que l'agent sait de la personne et de la page ouverte ; les droits sont revérifiés à chaque appel d'outil. */
@@ -146,8 +146,7 @@ function ticketDetail(tool: ToolContext, ticket: TicketDTO, names: Names) {
     category: ticket.categoryId ? (names.categories.get(ticket.categoryId) ?? null) : null,
     components: ticket.componentIds.map((id) => names.components.get(id) ?? `#${id}`),
     startDate: ticket.startDate,
-    parts: ticket.assignees.map((assignee) => ({ userId: assignee.userId, name: names.users.get(assignee.userId), done: assignee.done, progress: assignee.progress, mission: assignee.note || undefined })),
-    subtasks: ticket.subtasks.map((subtask) => ({ id: subtask.id, title: subtask.title, done: subtask.done, assignee: subtask.assigneeId ? names.users.get(subtask.assigneeId) : undefined })),
+    parts: ticket.parts.map((part) => ({ id: part.id, assignee: part.userId ? names.users.get(part.userId) : undefined, done: part.done, progress: part.progress, note: part.note || undefined })),
     dependencies: ticket.links.map((link) => ({ reason: link.reason, target: keyOf(link.targetId) })),
     parent: ticket.parentId ? keyOf(ticket.parentId) : undefined,
     customFields: Object.fromEntries(
@@ -334,8 +333,8 @@ function searchTickets(tool: ToolContext, query: string, projectId: number | nul
         category: ticket.categoryId ? (names.categories.get(ticket.categoryId) ?? '') : '',
         components: ticket.componentIds.map((id) => names.components.get(id) ?? '').join(' '),
         delivery: ticket.deliveryId ? (names.deliveries.get(ticket.deliveryId) ?? '') : '',
-        assignees: ticket.assignees.map((assignee) => `${names.users.get(assignee.userId) ?? ''} ${assignee.note}`).join(' '),
-        subtasks: ticket.subtasks.map((subtask) => subtask.title).join(' · '),
+        assignees: ticket.assignees.map((assignee) => names.users.get(assignee.userId) ?? '').join(' '),
+        parts: ticket.parts.map((part) => part.note).join(' · '),
         dependencies: ticket.links.map((link) => link.reason).join(' '),
         comments: comments.join(' · '),
       };
@@ -531,61 +530,61 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: 'add_subtask',
-    description: 'Ajoute une sous-tâche (case à cocher) à un ticket. Pour un vrai ticket enfant, utilisez create_ticket avec `parent`.',
-    parameters: { type: 'object', properties: { ticket: TICKET_REF, title: { type: 'string' }, assignee: { type: 'string', description: 'Nom d’un membre (facultatif).' } }, required: ['ticket', 'title'] },
+    name: 'add_part',
+    description: 'Ajoute une ligne d’avancement à un ticket. Pour un vrai ticket enfant, utilisez create_ticket avec `parent`.',
+    parameters: { type: 'object', properties: { ticket: TICKET_REF, note: { type: 'string', description: 'Ce qu’il y a à faire.' }, assignee: { type: 'string', description: 'Nom d’un membre (facultatif).' } }, required: ['ticket', 'note'] },
     write: true,
-    label: (args) => `Sous-tâche sur ${String(args.ticket)}`,
+    label: (args) => `Ligne d’avancement sur ${String(args.ticket)}`,
     run: (tool, args) => {
       const row = resolveTicket(tool, args.ticket);
       const access = canWrite(tool, row.project_id, 'ticket.edit');
       const names = namesOf(tool, access);
-      const title = String(args.title ?? '').trim().slice(0, 300);
-      if (!title) throw badRequest('title est vide.');
-      const assigneeId = typeof args.assignee === 'string' ? pickByName(names.users, args.assignee, 'Personne') : null;
+      const note = String(args.note ?? '').trim().slice(0, LIMITS.partNoteMax);
+      if (!note) throw badRequest('note est vide.');
+      const userId = typeof args.assignee === 'string' ? pickByName(names.users, args.assignee, 'Personne') : null;
       const key = ticketKeyOf(tool.ctx.db, row);
-      const base = { label: `Sous-tâche sur ${key}`, projectId: row.project_id, ticketKey: key, diff: [{ field: 'subtask', from: null, to: assigneeId ? `${title} (${names.users.get(assigneeId)})` : title }] };
+      const base = { label: `Ligne d’avancement sur ${key}`, projectId: row.project_id, ticketKey: key, diff: [{ field: 'part', from: null, to: userId ? `${note} (${names.users.get(userId)})` : note }] };
       if (tool.propose) {
-        record(tool, { ...base, action: { kind: 'subtask.create', ticketId: row.id, title, assigneeId, subtaskId: null } });
+        record(tool, { ...base, action: { kind: 'part.create', ticketId: row.id, note, userId, partId: null } });
         return { proposed: true, message: PROPOSED };
       }
-      const known = new Set(getTicketDTO(tool.ctx.db, row.id).subtasks.map((subtask) => subtask.id));
-      const ticket = createSubtask(tool.ctx, tool.actor, row.id, { title, assigneeId });
-      const created = ticket.subtasks.find((subtask) => !known.has(subtask.id));
-      record(tool, { ...base, action: { kind: 'subtask.create', ticketId: row.id, title, assigneeId, subtaskId: created?.id ?? null } });
-      return { subtasks: ticket.subtasks.map((subtask) => ({ id: subtask.id, title: subtask.title, done: subtask.done })) };
+      const known = new Set(getTicketDTO(tool.ctx.db, row.id).parts.map((part) => part.id));
+      const ticket = createPart(tool.ctx, tool.actor, row.id, { note, userId });
+      const created = ticket.parts.find((part) => !known.has(part.id));
+      record(tool, { ...base, action: { kind: 'part.create', ticketId: row.id, note, userId, partId: created?.id ?? null } });
+      return { parts: ticket.parts.map((part) => ({ id: part.id, note: part.note, done: part.done })) };
     },
   },
   {
-    name: 'set_subtask',
-    description: 'Coche, décoche ou renomme une sous-tâche (identifiant donné par get_ticket).',
-    parameters: { type: 'object', properties: { subtaskId: { type: 'integer' }, done: { type: 'boolean' }, title: { type: 'string' } }, required: ['subtaskId'] },
+    name: 'set_part',
+    description: 'Termine, rouvre ou réécrit une ligne d’avancement (identifiant donné par get_ticket).',
+    parameters: { type: 'object', properties: { partId: { type: 'integer' }, done: { type: 'boolean' }, note: { type: 'string' } }, required: ['partId'] },
     write: true,
-    label: () => 'Mise à jour d’une sous-tâche',
+    label: () => 'Mise à jour d’une ligne d’avancement',
     run: (tool, args) => {
-      const subtask = requireSubtask(tool.ctx.db, Number(args.subtaskId));
-      const row = requireTicket(tool.ctx.db, subtask.ticket_id);
+      const part = requirePart(tool.ctx.db, Number(args.partId));
+      const row = requireTicket(tool.ctx.db, part.ticket_id);
       canWrite(tool, row.project_id, 'ticket.edit');
       const after = {
-        ...(typeof args.done === 'boolean' && args.done !== (subtask.done === 1) ? { done: args.done } : {}),
-        ...(typeof args.title === 'string' && args.title.trim() && args.title.trim() !== subtask.title ? { title: args.title.trim().slice(0, 300) } : {}),
+        ...(typeof args.done === 'boolean' && args.done !== (part.done === 1) ? { done: args.done } : {}),
+        ...(typeof args.note === 'string' && args.note.trim() && args.note.trim() !== part.note ? { note: args.note.trim().slice(0, LIMITS.partNoteMax) } : {}),
       };
       if (!Object.keys(after).length) return { unchanged: true };
-      const before = { ...('done' in after ? { done: subtask.done === 1 } : {}), ...('title' in after ? { title: subtask.title } : {}) };
+      const before = { ...('done' in after ? { done: part.done === 1 } : {}), ...('note' in after ? { note: part.note } : {}) };
       const key = ticketKeyOf(tool.ctx.db, row);
-      const yesNo = (value: boolean | undefined) => (value === undefined ? null : value ? 'cochée' : 'à faire');
+      const yesNo = (value: boolean | undefined) => (value === undefined ? null : value ? 'terminée' : 'à faire');
       const diff = [
-        ...('title' in after ? [{ field: 'subtask', from: before.title ?? null, to: after.title ?? null }] : []),
-        ...('done' in after ? [{ field: 'subtaskDone', from: yesNo(before.done), to: yesNo(after.done) }] : []),
+        ...('note' in after ? [{ field: 'part', from: before.note ?? null, to: after.note ?? null }] : []),
+        ...('done' in after ? [{ field: 'partDone', from: yesNo(before.done), to: yesNo(after.done) }] : []),
       ];
-      const change = { label: `Sous-tâche « ${clip(subtask.title, 40)} » (${key})`, projectId: row.project_id, ticketKey: key, diff, action: { kind: 'subtask.update' as const, ticketId: row.id, subtaskId: subtask.id, before, after } };
+      const change = { label: `Ligne « ${clip(part.note, 40)} » (${key})`, projectId: row.project_id, ticketKey: key, diff, action: { kind: 'part.update' as const, ticketId: row.id, partId: part.id, before, after } };
       if (tool.propose) {
         record(tool, change);
         return { proposed: true, message: PROPOSED };
       }
-      const ticket = updateSubtask(tool.ctx, tool.actor, subtask.id, after);
+      const ticket = updatePart(tool.ctx, tool.actor, part.id, after);
       record(tool, change);
-      return { subtasks: ticket.subtasks.map((entry) => ({ id: entry.id, title: entry.title, done: entry.done })) };
+      return { parts: ticket.parts.map((entry) => ({ id: entry.id, note: entry.note, done: entry.done })) };
     },
   },
   {

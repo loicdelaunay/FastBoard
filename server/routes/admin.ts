@@ -14,6 +14,8 @@ import {
   folderTestSchema,
   httpsSettingsSchema,
   httpsTestSchema,
+  ldapSettingsSchema,
+  ldapTestSchema,
   selfSignedSchema,
   logQuerySchema,
   monitoringQuerySchema,
@@ -26,12 +28,15 @@ import {
 import { backupOverview, forgetDestinationRuns, runBackup, saveBackupConfig, testFolder } from '../backup/service.ts';
 import { serviceAction, serviceStatus } from '../system/service.ts';
 import { httpsSettingsDTO, loadTls, passphraseFor, saveHttpsSettings, writeSelfSigned } from '../system/https.ts';
+import { ldapTest } from '../auth/ldap.ts';
+import { bindPasswordForTest, ldapSettingsDTO, saveLdapSettings } from '../auth/ldapSettings.ts';
 import { AI_LIMITS, parseModelRef } from '../../shared/ai.ts';
 import { aiSettingsDTO, detectModels, keyForTest, saveAiSettings } from '../ai/settings.ts';
 import { testAiConnection } from '../ai/agent.ts';
 import { appInfo } from '../services/appSettings.ts';
 import { getMaintenance, setAppLogo, setAppName, setMaintenance } from '../services/appSettings.ts';
 import { sniffImageMime } from '../../shared/attachments.ts';
+import { LDAP_DEFAULTS } from '../../shared/ldap.ts';
 import { badRequest, HttpError } from '../http/errors.ts';
 import { LIMITS } from '../../shared/constants.ts';
 import { queryLogs, type LogQuery } from '../monitoring/logger.ts';
@@ -196,6 +201,35 @@ export function adminRouter(ctx: AppContext): Router {
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="fastboard-journaux-${new Date().toISOString().slice(0, 10)}.ndjson"`);
     res.send(lines.join('\n') + (lines.length ? '\n' : ''));
+  });
+
+  // --- Authentification ---------------------------------------------------------------------------------------------
+
+  router.get('/admin/auth', sessionOnly(), (_req, res) => {
+    requireGlobal(currentUser(res), 'auth.manage');
+    res.json({ ldap: ldapSettingsDTO(ctx) });
+  });
+
+  router.put('/admin/auth', sessionOnly(), (req, res) => {
+    const user = currentUser(res);
+    requireGlobal(user, 'auth.manage');
+    const input = parse(ldapSettingsSchema, req.body);
+    const ldap = saveLdapSettings(ctx, user, input);
+    audit(res, `Connexion LDAP ${ldap.enabled ? 'activée' : 'désactivée'} (profil ${ldap.profile}, ${ldap.host || 'sans serveur'}:${ldap.port})`, {
+      security: ldap.security,
+      searchBase: ldap.searchBase,
+      passwordChanged: input.bindPassword !== undefined,
+    });
+    const app = appInfo(ctx.db);
+    ctx.hub.broadcast({ t: 'app', app });
+    res.json({ ldap, app });
+  });
+
+  /** Essaie les valeurs du formulaire (mot de passe saisi, sinon celui enregistré) ; rien n'est enregistré. */
+  router.post('/admin/auth/ldap/test', sessionOnly(), async (req, res) => {
+    requireGlobal(currentUser(res), 'auth.manage');
+    const { login, password, bindPassword, ...fields } = parse(ldapTestSchema, req.body);
+    res.json(await ldapTest({ ...LDAP_DEFAULTS, ...fields, bindPassword: bindPasswordForTest(ctx, bindPassword) }, login, password));
   });
 
   // --- Intelligence artificielle -------------------------------------------------------------------------------------

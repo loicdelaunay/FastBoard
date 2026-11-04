@@ -24,7 +24,7 @@ const delivery = computed(() => (props.ticket.deliveryId ? project.deliveriesByI
 const progress = computed(() => progressOf(props.ticket));
 const priority = computed(() => (props.ticket.priorityId ? project.prioritiesById.get(props.ticket.priorityId) : undefined));
 const components = computed(() => props.ticket.componentIds.flatMap((id) => project.componentsById.get(id) ?? []));
-const subtasksDone = computed(() => props.ticket.subtasks.filter((subtask) => subtask.done).length);
+const partsDone = computed(() => props.ticket.parts.filter((part) => part.done).length);
 /** Sous-tickets (et leur nombre terminé), ou ticket parent quand c'est un sous-ticket. */
 const children = computed(() => project.childrenOf(props.ticket.id));
 const childrenDone = computed(() => children.value.filter((child) => project.settings.completeStatuses.includes(child.status)).length);
@@ -135,11 +135,11 @@ function onLeave(): void {
           <i class="pi pi-truck"></i><span class="truncate">{{ delivery.name }}</span>
         </span>
         <StaleBar :ticket="ticket" compact />
-        <span v-if="ticket.subtasks.length && project.fieldOn('subtasks')" class="comments" :class="{ complete: subtasksDone === ticket.subtasks.length }" :title="$t('Sous-tâches')"><i class="pi pi-list-check"></i>{{ subtasksDone }}/{{ ticket.subtasks.length }}</span>
+        <span v-if="ticket.parts.length > ticket.assignees.length" class="comments" :class="{ complete: partsDone === ticket.parts.length }" :title="$t('Lignes d’avancement')"><i class="pi pi-list-check"></i>{{ partsDone }}/{{ ticket.parts.length }}</span>
         <span v-if="children.length && project.fieldOn('children')" class="comments" :class="{ complete: childrenDone === children.length }" :title="$t('Sous-tickets')"><i class="pi pi-sitemap"></i>{{ childrenDone }}/{{ children.length }}</span>
         <span v-if="linkCount && project.fieldOn('links')" class="comments" :title="$t('Dépendances')"><i class="pi pi-link"></i>{{ linkCount }}</span>
         <span v-if="ticket.attachmentCount && project.fieldOn('attachments')" class="comments" :title="$t('Pièces jointes')"><i class="pi pi-paperclip"></i>{{ ticket.attachmentCount }}</span>
-        <span v-if="ticket.commentCount && project.fieldOn('comments')" class="comments" :title="$t('Commentaires')"><i class="pi pi-comment"></i>{{ ticket.commentCount }}</span>
+        <span v-if="ticket.commentCount && project.fieldOn('comments')" class="comments" :data-comments-of="ticket.id"><i class="pi pi-comment"></i>{{ ticket.commentCount }}</span>
       </div>
       <UserAvatarGroup v-if="assignees.length && project.fieldOn('assignees')" :users="assignees" :highlight-ids="doneIds" :max="3" />
     </footer>

@@ -1,4 +1,5 @@
 import type { AppConfig } from './config.ts';
+import type { DocRooms } from './docs/collab.ts';
 import type { Db } from './db/database.ts';
 import type { Logger } from './monitoring/logger.ts';
 import type { Metrics } from './monitoring/metrics.ts';
@@ -14,6 +15,10 @@ export interface AppContext {
   metrics: Metrics;
   /** Dossier (existant) où sont stockées les pièces jointes. */
   uploadsDir: string;
+  /** Dossier (existant) des espaces de documentation. */
+  docsDir: string;
+  /** Salles d'édition collaborative de la documentation. */
+  docRooms: DocRooms;
   /** Chiffre les secrets réaffichables (jetons d'API). */
   secrets: SecretBox;
   /** Serveur HTTPS optionnel (réglages d'administration « HTTP / HTTPS ») ; absent avant le démarrage du serveur. */

@@ -1,17 +1,18 @@
 /**
  * Mentions dans les textes libres (description, commentaires) :
- * `@[Alice Martin](user:12)` pour une personne, `@[APP-12](ticket:34)` pour un ticket.
+ * `@[Alice Martin](user:12)` pour une personne, `@[APP-12](ticket:34)` pour un ticket, `@[Note](doc:56)` pour un fichier
+ * de documentation.
  * Le nom entre crochets est celui du moment de la saisie ; l'affichage utilise le nom à jour quand il est connu.
  */
 
-export type MentionKind = 'user' | 'ticket';
+export type MentionKind = 'user' | 'ticket' | 'doc';
 
 export type TextSegment =
   | { type: 'text'; text: string }
   | { type: 'mention'; kind: MentionKind; id: number; label: string }
   | { type: 'link'; url: string };
 
-const MENTION = /@\[([^\]\n]{1,80})\]\((user|ticket):(\d+)\)/g;
+const MENTION = /@\[([^\]\n]{1,80})\]\((user|ticket|doc):(\d+)\)/g;
 const URL = /\bhttps?:\/\/[^\s<>"')\]]+/g;
 
 export function mentionToken(kind: MentionKind, id: number, label: string): string {

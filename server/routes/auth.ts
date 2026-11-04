@@ -1,5 +1,8 @@
 import express, { type Request, type Router } from 'express';
 import { LIMITS } from '../../shared/constants.ts';
+import { LdapUnavailable } from '../auth/ldap.ts';
+import { signInWithLdap } from '../auth/ldapAccounts.ts';
+import { ldapConfig } from '../auth/ldapSettings.ts';
 import { hashPassword, verifyDummyPassword, verifyPassword } from '../auth/password.ts';
 import { createSession, destroySession, destroyUserSessions } from '../auth/sessions.ts';
 import { createApiToken, listApiTokens, revealApiToken, revokeApiToken, updateApiToken } from '../auth/tokens.ts';
@@ -100,18 +103,32 @@ export function publicAuthRouter(ctx: AppContext): Router {
       throw error;
     }
 
-    const row = ctx.db.get<{ id: number; password_hash: string; is_active: number }>(
-      'SELECT id, password_hash, is_active FROM users WHERE email = ? COLLATE NOCASE',
+    const known = ctx.db.get<{ id: number; password_hash: string; auth_source: string }>(
+      'SELECT id, password_hash, auth_source FROM users WHERE email = ? COLLATE NOCASE',
       email,
     );
-    const valid = row ? await verifyPassword(password, row.password_hash) : (await verifyDummyPassword(password), false);
-    if (!row || !valid) {
-      recordFailure(key);
-      ctx.logger.warn('auth', `Échec de connexion pour ${email}`, { ip: req.ip ?? null, knownAccount: Boolean(row) }, row?.id ?? null, res.locals.requestId as string);
-      throw unauthorized('Adresse e-mail ou mot de passe incorrect.');
+    // Un compte local se connecte toujours avec son mot de passe : l'annuaire en panne n'empêche pas d'administrer.
+    const local = known?.auth_source === 'local' ? known : undefined;
+    let userId = local && (await verifyPassword(password, local.password_hash)) ? local.id : null;
+    if (!local) await verifyDummyPassword(password);
+    const ldap = ldapConfig(ctx);
+    if (userId === null && ldap && (!local || ldap.linkExisting)) {
+      try {
+        userId = await signInWithLdap(ctx, ldap, email, password, res.locals.requestId as string);
+      } catch (error) {
+        if (!(error instanceof LdapUnavailable)) throw error;
+        ctx.logger.error('auth', `Connexion LDAP impossible : ${error.message}`, { step: error.step, detail: error.detail }, null, res.locals.requestId as string);
+        if (!local) throw new HttpError(503, "L'annuaire est injoignable : réessayez dans quelques instants.", 'ldap_unavailable');
+      }
     }
-    if (row.is_active !== 1) {
-      ctx.logger.warn('auth', `Connexion refusée : compte désactivé (${email})`, { ip: req.ip ?? null }, row.id, res.locals.requestId as string);
+    if (userId === null) {
+      recordFailure(key);
+      ctx.logger.warn('auth', `Échec de connexion pour ${email}`, { ip: req.ip ?? null, knownAccount: Boolean(known) }, known?.id ?? null, res.locals.requestId as string);
+      throw unauthorized(ldap ? 'Identifiant ou mot de passe incorrect.' : 'Adresse e-mail ou mot de passe incorrect.');
+    }
+    const row = ctx.db.get<{ id: number; is_active: number }>('SELECT id, is_active FROM users WHERE id = ?', userId);
+    if (!row || row.is_active !== 1) {
+      ctx.logger.warn('auth', `Connexion refusée : compte désactivé (${email})`, { ip: req.ip ?? null }, userId, res.locals.requestId as string);
       throw new HttpError(403, 'Ce compte est désactivé. Contactez un administrateur.', 'account_disabled');
     }
     attempts.delete(key);
@@ -181,6 +198,7 @@ export function accountRouter(ctx: AppContext): Router {
   router.post('/me/password', sessionOnly(), async (req, res) => {
     const user = currentUser(res);
     const { currentPassword, newPassword } = parse(passwordSchema, req.body);
+    if (user.authSource === 'ldap') throw badRequest("Ce compte se connecte avec l'annuaire : changez votre mot de passe dans celui-ci.");
     const row = ctx.db.get<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = ?', user.id);
     if (!row || !(await verifyPassword(currentPassword, row.password_hash))) {
       throw badRequest('Le mot de passe actuel est incorrect.');
@@ -242,7 +260,7 @@ export function accountRouter(ctx: AppContext): Router {
 
   router.get('/search', (req, res) => {
     const query = parse(searchQuerySchema, req.query);
-    res.json(globalSearch(ctx.db, currentUser(res), query.q, { limit: query.limit, kinds: query.type }));
+    res.json(globalSearch(ctx, currentUser(res), query.q, { limit: query.limit, kinds: query.type }));
   });
 
   router.get('/users/:id/avatar', (req, res) => {

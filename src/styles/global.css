@@ -199,3 +199,24 @@ button {
 .p-contextmenu .menu-danger .p-contextmenu-item-icon {
   color: var(--fb-danger);
 }
+
+/* PrimeIcons n'a ni gras ni italique : ces deux icônes sont des lettres. */
+.fb-glyph-bold::before,
+.fb-glyph-italic::before {
+  display: inline-block;
+  width: 1em;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.1em;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1;
+  text-align: center;
+}
+.fb-glyph-bold::before {
+  content: 'B';
+}
+.fb-glyph-italic::before {
+  content: 'I';
+  font-style: italic;
+  font-weight: 700;
+}

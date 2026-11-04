@@ -8,8 +8,8 @@ import { t } from '@/i18n';
 const props = defineProps<{
   /** Mission actuelle (vide si non renseignée). */
   note: string;
-  /** Prénom ou nom de la personne, pour les libellés. */
-  name: string;
+  /** Prénom ou nom de la personne, pour les libellés (`null` : ligne sans personne). */
+  name: string | null;
   /** Vrai pour « moi » : les libellés passent à la première personne. */
   isMe: boolean;
   editable: boolean;
@@ -21,8 +21,8 @@ const draft = ref('');
 const saving = ref(false);
 const field = ref<{ $el: HTMLTextAreaElement } | null>(null);
 
-const addLabel = computed(() => (props.isMe ? t('Décrire ma mission') : t('Décrire la mission de {name}', { name: props.name })));
-const placeholder = computed(() => (props.isMe ? t('Ce que vous devez faire sur ce ticket…') : t('Ce que {name} doit faire sur ce ticket…', { name: props.name })));
+const addLabel = computed(() => (props.isMe ? t('Décrire ma mission') : props.name ? t('Décrire la mission de {name}', { name: props.name }) : t('Décrire cette ligne')));
+const placeholder = computed(() => (props.isMe ? t('Ce que vous devez faire sur ce ticket…') : props.name ? t('Ce que {name} doit faire sur ce ticket…', { name: props.name }) : t('Ce qu’il y a à faire…')));
 
 async function start(): Promise<void> {
   draft.value = props.note;
@@ -61,7 +61,7 @@ async function save(): Promise<void> {
         :maxlength="LIMITS.partNoteMax"
         :placeholder="placeholder"
         fluid
-        :aria-label="isMe ? $t('Ma mission sur ce ticket') : $t('Mission de {name}', { name })"
+        :aria-label="isMe ? $t('Ma mission sur ce ticket') : name ? $t('Mission de {name}', { name }) : $t('Texte de la ligne')"
         @keydown.ctrl.enter.prevent="save"
         @keydown.meta.enter.prevent="save"
         @keydown.esc="cancel"

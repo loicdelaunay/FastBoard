@@ -19,7 +19,7 @@ const route = useRoute();
 const router = useRouter();
 
 const text = ref(typeof route.query.q === 'string' ? route.query.q : '');
-const kind = ref<'all' | SearchKind>((['projects', 'tickets', 'users'] as const).find((value) => value === route.query.type) ?? 'all');
+const kind = ref<'all' | SearchKind>((['projects', 'tickets', 'docs', 'users'] as const).find((value) => value === route.query.type) ?? 'all');
 const result = ref<SearchResultDTO | null>(null);
 const loading = ref(false);
 let generation = 0;
@@ -28,6 +28,7 @@ const kindOptions = computed(() => [
   { label: t('Tout'), value: 'all' },
   { label: t('Projets ({n})', { n: result.value?.projects.total ?? 0 }), value: 'projects' },
   { label: t('Tickets ({n})', { n: result.value?.tickets.total ?? 0 }), value: 'tickets' },
+  { label: t('Documents ({n})', { n: result.value?.docs.total ?? 0 }), value: 'docs' },
   { label: t('Utilisateurs ({n})', { n: result.value?.users.total ?? 0 }), value: 'users' },
 ]);
 
@@ -120,6 +121,20 @@ const total = computed(() => (result.value ? result.value.projects.total + resul
         <p v-if="result.tickets.total > result.tickets.items.length" class="muted small">{{ $t('Seuls les {n} premiers sont affichés : précisez la recherche.', { n: result.tickets.items.length }) }}</p>
       </section>
 
+      <section v-if="show('docs') && result.docs.items.length" class="section">
+        <h2 class="section-title"><i class="pi pi-file"></i> {{ $t('Documents') }} <span class="muted">{{ result.docs.total }}</span></h2>
+        <ul class="list">
+          <li v-for="doc in result.docs.items" :key="doc.id">
+            <router-link :to="{ name: 'doc-file', params: { nodeId: doc.id } }" class="hit card">
+              <span class="grow doc truncate"><strong class="truncate">{{ doc.title }}</strong><small v-if="doc.excerpt" class="muted truncate">{{ doc.excerpt }}</small></span>
+              <span class="muted small project-name truncate">{{ doc.spaceName }}</span>
+              <span class="muted small when">{{ formatRelative(doc.updatedAt) }}</span>
+            </router-link>
+          </li>
+        </ul>
+        <p v-if="result.docs.total > result.docs.items.length" class="muted small">{{ $t('Seuls les {n} premiers sont affichés : précisez la recherche.', { n: result.docs.items.length }) }}</p>
+      </section>
+
       <section v-if="show('users') && result.users.items.length" class="section">
         <h2 class="section-title"><i class="pi pi-users"></i> {{ $t('Utilisateurs') }} <span class="muted">{{ result.users.total }}</span></h2>
         <ul class="list users">
@@ -139,6 +154,11 @@ const total = computed(() => (result.value ? result.value.projects.total + resul
 </template>
 
 <style scoped>
+.doc {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .head {
   display: flex;
   flex-direction: column;

@@ -73,7 +73,7 @@ Les corps de requête sont en JSON **encodé en UTF-8** (`-H "Content-Type: appl
 
 **Projet** : porte une *clé* (`APP`) ; ses tickets s'appellent `APP-1`, `APP-2`… (`ticket.number` + clé du projet). Chaque projet a ses **catégories**, ses **priorités** (ordonnées de la plus haute à la plus basse), ses **composants** (nom, icône, couleur) et ses **livraisons** (nom, `startDate`, `endDate`).
 
-**Ticket** : `title`, `description`, `status`, `categoryId`, `priorityId`, `componentIds` (plusieurs), `deliveryId` (livraison ciblée), `startDate`/`endDate` (sinon ils suivent la livraison), plusieurs **assignés**, un **ticket parent** (`parentId` : c'est alors un sous-ticket), des **sous-tâches** (`subtasks`, cases à cocher) et des **dépendances** vers d'autres tickets du projet (`links` : `targetId` + `reason`). `statusChangedAt` date le dernier changement de colonne (indicateur d'inactivité) ; `deliveryAddedAt` date le rattachement à la livraison actuelle (`null` sans livraison : burn-down des tickets ajoutés en cours de sprint).
+**Ticket** : `title`, `description`, `status`, `categoryId`, `priorityId`, `componentIds` (plusieurs), `deliveryId` (livraison ciblée), `startDate`/`endDate` (sinon ils suivent la livraison), des **lignes d'avancement** (`parts` : un texte, une personne facultative, un pourcentage, terminée ou non), les **assignés** qui en découlent (`assignees`, une entrée par personne), un **ticket parent** (`parentId` : c'est alors un sous-ticket) et des **dépendances** vers d'autres tickets du projet (`links` : `targetId` + `reason`). `statusChangedAt` date le dernier changement de colonne (indicateur d'inactivité) ; `deliveryAddedAt` date le rattachement à la livraison actuelle (`null` sans livraison : burn-down des tickets ajoutés en cours de sprint).
 
 **Description en Markdown** (GitHub Flavored Markdown : titres, listes, listes de tâches, tableaux, code) avec formules KaTeX (`$…$`, `$$…$$`) et diagrammes Mermaid (bloc ```` ```mermaid ````).
 
@@ -159,7 +159,7 @@ curl -s -X PATCH $FASTBOARD/api/tickets/12 -H "Authorization: Bearer $TOKEN" -H 
   -d '{ "startDate": "2026-11-03", "endDate": "2026-11-12", "deliveryId": 4, "assigneeIds": [3, 5] }'
 ```
 
-`assigneeIds` **remplace** la liste des assignés (les parts des personnes conservées sont gardées). Passer `categoryId`, `deliveryId`, `startDate` ou `endDate` à `null` les vide.
+`assigneeIds` **remplace** la liste des personnes : une personne ajoutée reçoit une ligne ; une personne retirée perd ses lignes vides, celles qui ont un texte restent sans personne. Passer `categoryId`, `deliveryId`, `startDate` ou `endDate` à `null` les vide.
 
 ### Déplacer un ticket vers un autre projet
 
@@ -180,17 +180,54 @@ curl -s -X POST $FASTBOARD/api/me/notifications/read -H "Authorization: Bearer $
 
 Le créateur, les assignés et les commentateurs suivent automatiquement un ticket ; une mention `@[Nom](user:12)` notifie la personne.
 
-### Sous-tâches
+### Lignes d'avancement
 
 ```bash
-# Ajouter, cocher, renommer, réordonner (position = rang, 0 = première), supprimer
-curl -s -X POST $FASTBOARD/api/tickets/12/subtasks -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{ "title": "Écrire les tests", "assigneeId": 3 }'
-curl -s -X PATCH $FASTBOARD/api/subtasks/7 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "done": true }'
-curl -s -X DELETE $FASTBOARD/api/subtasks/7 -H "Authorization: Bearer $TOKEN"
+# Ajouter (texte, personne ou les deux), terminer, régler, confier, réordonner (position = rang, 0 = première), supprimer
+curl -s -X POST $FASTBOARD/api/tickets/12/parts -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "note": "Écrire les tests", "userId": 3 }'
+curl -s -X PATCH $FASTBOARD/api/parts/7 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "progress": 50 }'
+curl -s -X PATCH $FASTBOARD/api/parts/7 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "done": true }'
+curl -s -X DELETE $FASTBOARD/api/parts/7 -H "Authorization: Bearer $TOKEN"
 ```
 
-Chaque appel retourne le ticket à jour. Cocher une sous-tâche dont on est responsable demande `ticket.update_own_part` ; le reste demande `ticket.edit`.
+Chaque appel retourne le ticket à jour. La progression du ticket est la moyenne de ses lignes ; quand toutes sont terminées, il passe à `done`. Modifier le texte, l'avancement ou la fin de ses propres lignes demande `ticket.update_own_part` ; le reste demande `ticket.edit`.
+
+### Documentation
+
+À activer dans *Administration → Documentation* (sinon `409 docs_disabled`). Un espace contient des notes Markdown et des images, dans des dossiers. L'identifiant d'un fichier ne change pas quand on le renomme ou le déplace.
+
+```bash
+# Créer un espace, une note (dossiers créés au besoin), puis lire et remplacer son texte
+curl -s -X POST $FASTBOARD/api/documentation/spaces -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "name": "Technique" }'
+curl -s -X POST $FASTBOARD/api/documentation/spaces/1/nodes -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "path": "Guides/Installation", "content": "# Installer" }'
+curl -s $FASTBOARD/api/documentation/nodes/5 -H "Authorization: Bearer $TOKEN"
+curl -s -X PUT $FASTBOARD/api/documentation/nodes/5/content -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "content": "# Installer\n\nÉtape 1" }'
+# Renommer ou déplacer, historique, restauration
+curl -s -X PATCH $FASTBOARD/api/documentation/nodes/5 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "path": "Guides/Déploiement" }'
+curl -s $FASTBOARD/api/documentation/nodes/5/versions -H "Authorization: Bearer $TOKEN"
+curl -s -X POST $FASTBOARD/api/documentation/versions/12/restore -H "Authorization: Bearer $TOKEN"
+# Export, puis réimport en deux temps : analyse, puis décisions
+curl -s $FASTBOARD/api/documentation/spaces/1/export -H "Authorization: Bearer $TOKEN" -o espace.zip
+curl -s -X POST $FASTBOARD/api/documentation/spaces/1/import -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data-binary @espace.zip
+curl -s -X POST $FASTBOARD/api/documentation/spaces/1/import/$IMPORT/apply -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "decisions": [{ "path": "Guides/Installation.md", "action": "auto" }] }'
+# Un fichier seul (ou un dossier, en ZIP), et son réimport : le corps est le fichier, comparé à ce fichier-ci
+curl -s $FASTBOARD/api/documentation/nodes/5/export -H "Authorization: Bearer $TOKEN" -o Installation.md
+curl -s -X POST $FASTBOARD/api/documentation/nodes/5/import -H "Authorization: Bearer $TOKEN" -H "Content-Type: text/markdown" --data-binary @Installation.md
+# Ce que la note cite et ce qui la cite
+curl -s $FASTBOARD/api/documentation/nodes/5/links -H "Authorization: Bearer $TOKEN"
+# Commenter un passage (texte sans sa syntaxe Markdown), répondre, résoudre
+curl -s -X POST $FASTBOARD/api/documentation/nodes/5/comments -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "quote": "Étape 1", "before": "Installer", "after": "", "body": "À revoir @[Léa](user:12)" }'
+curl -s -X POST $FASTBOARD/api/documentation/nodes/5/comments -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "parentId": 3, "body": "Fait" }'
+curl -s -X PATCH $FASTBOARD/api/documentation/comments/3 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "resolved": true }'
+```
+
+Le ZIP reproduit exactement l'arbre de l'espace, dossiers vides compris, sans fichier ajouté. Le texte exporté reste 90 jours sur le serveur, pour vos 20 derniers exports d'un espace : il sert de version d'origine à la fusion. Sans lui (autre serveur, archive trop ancienne), les fichiers modifiés des deux côtés sont présentés en conflit, ligne à ligne.
+
+Rôles : `reader` lit, `editor` écrit, `owner` gère aussi les membres et l'espace. Un texte envoyé par l'API apparaît en direct chez les personnes qui éditent la note. Pour citer un fichier dans un ticket ou une note : `@[Titre](doc:5)`. Les personnes mentionnées qui ont accès à l'espace sont notifiées. L'historique et la corbeille sont gardés 15 jours. Tous les membres peuvent commenter, lecteurs compris : `quote` retrouve le passage par son texte, `before` et `after` le départagent s'il figure plusieurs fois.
 
 ### Champs personnalisés
 
@@ -330,8 +367,9 @@ curl -s -o tickets.csv "$FASTBOARD/api/projects/1/export?format=csv"  -H "Author
 ### Recherche globale
 
 ```bash
-# Projets, tickets et utilisateurs visibles ; une clé exacte arrive en tête
+# Projets, tickets, documents et utilisateurs visibles ; une clé exacte arrive en tête
 curl -s "$FASTBOARD/api/search?q=paiement&type=tickets&limit=20" -H "Authorization: Bearer $TOKEN"
+curl -s "$FASTBOARD/api/search?q=installation&type=docs" -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Catégories, priorités, composants et livraisons

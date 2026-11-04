@@ -3,7 +3,7 @@ import { after, before, describe, it } from 'node:test';
 import type { ActivityDTO } from '../../shared/types.ts';
 import { Db } from '../db/database.ts';
 import { migrate } from '../db/migrations.ts';
-import { bootServer, TestClient } from './helpers.ts';
+import { bootServer, TestClient, patchPart } from './helpers.ts';
 
 type Booted = Awaited<ReturnType<typeof bootServer>>;
 
@@ -67,7 +67,7 @@ describe("journal d'activité", () => {
   it('suit les changements, déplacements, parts, commentaires et suppressions', async () => {
     await bob.post(`/api/tickets/${ids.ticket}/move`, { status: 'in_progress', beforeId: null });
     await alice.patch(`/api/tickets/${ids.ticket}`, { title: 'Premier ticket (renommé)', endDate: '2026-12-01' });
-    await alice.patch(`/api/tickets/${ids.ticket}/assignees/${ids.alice}`, { done: true });
+    await patchPart(alice, ids.ticket, ids.alice, { done: true });
     await bob.post(`/api/tickets/${ids.ticket}/comments`, { body: 'Un   commentaire\n sur plusieurs lignes' });
     const reorderOnly = await bob.post(`/api/tickets/${ids.ticket}/move`, { status: 'in_progress', beforeId: null });
     assert.equal(reorderOnly.status, 200);
@@ -88,7 +88,7 @@ describe("journal d'activité", () => {
   });
 
   it('retient la complétion automatique et la suppression avec la clé du ticket', async () => {
-    await bob.patch(`/api/tickets/${ids.ticket}/assignees/${ids.bob}`, { done: true });
+    await patchPart(bob, ids.ticket, ids.bob, { done: true });
     const after = (await feed(bob)).activities.slice(0, 3).map((a) => a.data);
     assert.ok(after[0]!.kind === 'ticket' && after[0]!.entry.kind === 'updated' && after[0]!.entry.auto === 'all_parts_done');
     assert.ok(after[1]!.kind === 'ticket' && after[1]!.entry.kind === 'part');
@@ -213,17 +213,17 @@ describe('migration v2 : reprise de l\'existant', () => {
     assert.equal(JSON.parse(rows[1]!.data).excerpt, 'Bonjour');
 
     const perms = (key: string) => JSON.parse(db.get<{ permissions: string }>("SELECT permissions FROM roles WHERE key = ?", key)!.permissions) as string[];
-    assert.deepEqual(perms('admin'), ['admin.access', 'users.view', 'tokens.create', 'tokens.manage', 'monitoring.view', 'logs.view', 'backups.manage', 'system.manage', 'settings.manage', 'ai.use', 'ai.manage']);
-    assert.deepEqual(perms('member'), ['projects.create', 'tokens.create', 'ai.use']);
+    assert.deepEqual(perms('admin'), ['admin.access', 'users.view', 'tokens.create', 'tokens.manage', 'monitoring.view', 'logs.view', 'backups.manage', 'system.manage', 'settings.manage', 'ai.use', 'ai.manage', 'auth.manage', 'docs.create', 'docs.manage']);
+    assert.deepEqual(perms('member'), ['projects.create', 'tokens.create', 'ai.use', 'docs.create']);
     assert.deepEqual(perms('guest'), []);
     assert.deepEqual(perms('editor'), ['ticket.create', 'attachment.create', 'ai.read', 'ai.write']);
     assert.deepEqual(perms('manager'), ['ticket.create', 'attachment.create', 'attachment.moderate', 'ai.read', 'ai.write']);
-    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 15);
+    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 19);
     for (const table of ['ticket_attachments', 'app_logs', 'metrics_minutes', 'ai_conversations']) {
       assert.ok(db.get('SELECT 1 FROM sqlite_master WHERE name = ?', table), `la table ${table} est créée`);
     }
-    const columns = db.all<{ name: string }>('PRAGMA table_info(ticket_assignees)').map((column) => column.name);
-    assert.ok(columns.includes('note'), 'la migration v3 ajoute la mission des assignés');
+    const columns = db.all<{ name: string }>('PRAGMA table_info(ticket_parts)').map((column) => column.name);
+    assert.ok(columns.includes('note'), 'les lignes d’avancement gardent leur texte');
 
     migrate(db);
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM activities')?.n, 2, 'idempotent : rien n\'est rejoué');

@@ -11,6 +11,8 @@ export interface AppConfig {
   distDir: string;
   /** Dossier des pièces jointes (par défaut à côté de la base ; `null` = dossier temporaire, pour les tests). */
   uploadsDir: string | null;
+  /** Dossier des espaces de documentation (par défaut à côté de la base ; `null` = dossier temporaire, pour les tests). */
+  docsDir: string | null;
   maxUploadBytes: number;
   /** Niveau minimal des journaux conservés (`FASTBOARD_LOG_LEVEL` : debug, info, warn, error). */
   logLevel: LogLevel;
@@ -37,6 +39,7 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     dbPath,
     distDir: path.join(root, 'dist'),
     uploadsDir: process.env.FASTBOARD_UPLOADS ?? (dbPath === ':memory:' ? null : path.join(path.dirname(dbPath), 'uploads')),
+    docsDir: process.env.FASTBOARD_DOCS ?? (dbPath === ':memory:' ? null : path.join(path.dirname(dbPath), 'docs')),
     maxUploadBytes: Number.isFinite(maxMb) && maxMb > 0 ? Math.floor(maxMb * 1024 * 1024) : LIMITS.attachmentMaxBytes,
     logLevel: isLogLevel(process.env.FASTBOARD_LOG_LEVEL) ? process.env.FASTBOARD_LOG_LEVEL : 'info',
     logToConsole: process.env.FASTBOARD_LOG_CONSOLE !== '0',

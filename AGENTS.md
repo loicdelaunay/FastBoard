@@ -33,7 +33,8 @@ Une modification sans effet visible (refactorisation, tests, documentation inter
   `PRAGMA user_version`).
 - **PrimeVue reste en 4.x** (la 5 exige une licence).
 - **Temps réel** : toute modification passe par l'API REST puis est diffusée par WebSocket (`shared/realtime.ts`) ;
-  le client applique les évènements de façon idempotente.
+  le client applique les évènements de façon idempotente. Seule exception : la frappe dans la documentation, qui passe
+  directement par WebSocket (Yjs, `server/docs/collab.ts`). L'API REST y reste possible et rejoint les salles ouvertes.
 - **Permissions** : une action protégée vérifie sa permission côté serveur (`requireProject` / `requireGlobal`) ;
   l'interface ne fait que masquer.
 - **Vérifications avant de rendre la main** : `npm run typecheck` et `npm test` doivent passer.

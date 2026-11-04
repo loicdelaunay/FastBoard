@@ -66,6 +66,9 @@ function toggle(event: Event): void {
       <router-link to="/" class="nav-link" :class="{ active: onProjects }">
         <i class="pi pi-th-large"></i><span>{{ $t('Projets') }}</span>
       </router-link>
+      <router-link v-if="app.info.docs" :to="{ name: 'docs' }" class="nav-link" active-class="active">
+        <i class="pi pi-book"></i><span>{{ $t('Documentations') }}</span>
+      </router-link>
       <router-link v-if="auth.canAdmin" :to="{ name: 'admin' }" class="nav-link" active-class="active">
         <i class="pi pi-cog"></i><span>{{ $t('Administration') }}</span>
       </router-link>

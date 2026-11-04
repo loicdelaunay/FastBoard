@@ -65,8 +65,8 @@ function block(text: string, selectFrom = 0, selectLength = 0): void {
 }
 
 const actions = computed<Action[]>(() => [
-  { icon: 'pi pi-bold', label: t('Gras'), shortcut: 'Ctrl+B', run: () => wrap('**', '**', t('texte')) },
-  { icon: 'pi pi-italic', label: t('Italique'), shortcut: 'Ctrl+I', run: () => wrap('_', '_', t('texte')) },
+  { icon: 'fb-glyph-bold', label: t('Gras'), shortcut: 'Ctrl+B', run: () => wrap('**', '**', t('texte')) },
+  { icon: 'fb-glyph-italic', label: t('Italique'), shortcut: 'Ctrl+I', run: () => wrap('_', '_', t('texte')) },
   { icon: 'pi pi-minus', label: t('Barré'), run: () => wrap('~~', '~~', t('texte')) },
   { icon: 'pi pi-hashtag', label: t('Titre'), run: () => prefixLines('## ') },
   'sep',

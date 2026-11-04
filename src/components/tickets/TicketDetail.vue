@@ -24,7 +24,6 @@ import StaleBar from './StaleBar.vue';
 import TicketDescription from './TicketDescription.vue';
 import TicketLinks from './TicketLinks.vue';
 import TicketParts from './TicketParts.vue';
-import TicketSubtasks from './TicketSubtasks.vue';
 import TicketChildren from './TicketChildren.vue';
 import TicketCustomFields from './TicketCustomFields.vue';
 import { useTicketRoute } from '@/composables/useTicketRoute';
@@ -170,8 +169,6 @@ function askDelete(): void {
       <TicketAttachments v-if="project.fieldOn('attachments')" ref="attachments" :ticket="ticket" :dragging="dragging" />
 
       <TicketParts v-if="project.fieldOn('assignees') || project.fieldOn('progress')" :ticket="ticket" />
-
-      <TicketSubtasks v-if="project.fieldOn('subtasks')" :ticket="ticket" />
 
       <TicketChildren v-if="ticket.parentId === null && project.fieldOn('children')" :ticket="ticket" />
 

@@ -16,7 +16,11 @@ export interface UserSummaryDTO {
   isActive: boolean;
 }
 
+/** Origine d'un compte : `local` (mot de passe FastBoard) ou `ldap` (mot de passe vérifié par l'annuaire). */
+export type AuthSource = 'local' | 'ldap';
+
 export interface MeDTO extends UserSummaryDTO {
+  authSource: AuthSource;
   theme: string;
   /** Thèmes et polices personnalisés de la personne. */
   appearance: AppearanceDTO;
@@ -29,6 +33,7 @@ export interface MeDTO extends UserSummaryDTO {
 }
 
 export interface AdminUserDTO extends UserSummaryDTO {
+  authSource: AuthSource;
   theme: string;
   roleId: number;
   roleName: string;
@@ -122,17 +127,6 @@ export interface ProjectListItemDTO {
 export type PriorityDTO = ProjectListItemDTO;
 export type ComponentDTO = ProjectListItemDTO;
 
-export interface SubtaskDTO {
-  id: number;
-  ticketId: number;
-  title: string;
-  done: boolean;
-  assigneeId: number | null;
-  position: number;
-  createdAt: string;
-  doneAt: string | null;
-}
-
 /** Dépendance d'un ticket vers un autre (lien sortant ; les liens entrants se lisent sur les autres tickets). */
 export interface TicketLinkDTO {
   id: number;
@@ -155,15 +149,27 @@ export interface DeliveryDTO {
   position: number;
 }
 
-export interface AssigneeDTO {
-  userId: number;
-  /** La personne a terminé sa part. */
+/** Ligne d'avancement d'un ticket : plusieurs lignes possibles par personne, ou aucune personne. */
+export interface PartDTO {
+  id: number;
+  userId: number | null;
+  /** Ce qu'il y a à faire (texte libre, vide seulement si une personne est indiquée). */
+  note: string;
   done: boolean;
-  /** Avancement personnel (0–100) ; ignoré tant que `done` est faux et que la valeur n'est pas renseignée. */
+  /** Avancement (0–100). */
   progress: number;
   doneAt: string | null;
-  /** Mission facultative : ce que cette personne doit faire sur le ticket (texte libre, peut être vide). */
-  note: string;
+  position: number;
+}
+
+/** Personne présente sur un ticket, résumée à partir de ses lignes. */
+export interface AssigneeDTO {
+  userId: number;
+  /** Toutes ses lignes sont terminées. */
+  done: boolean;
+  /** Moyenne de ses lignes (0–100). */
+  progress: number;
+  doneAt: string | null;
 }
 
 export interface TicketDTO {
@@ -189,13 +195,15 @@ export interface TicketDTO {
   progressFromChildren: boolean;
   startDate: string | null;
   endDate: string | null;
-  /** Avancement saisi à la main (utilisé quand le ticket n'a aucun assigné). */
+  /** Avancement saisi à la main (utilisé quand le ticket n'a aucune ligne d'avancement). */
   progress: number;
   position: number;
+  /** Lignes d'avancement, dans l'ordre d'affichage. */
+  parts: PartDTO[];
+  /** Personnes qui ont au moins une ligne. */
   assignees: AssigneeDTO[];
   commentCount: number;
   attachmentCount: number;
-  subtasks: SubtaskDTO[];
   links: TicketLinkDTO[];
   /** Dernier changement de colonne : sert à l'indicateur d'inactivité. */
   statusChangedAt: string;
@@ -207,6 +215,27 @@ export interface TicketDTO {
   completedAt: string | null;
   /** Rattachement à la livraison actuelle (`null` sans livraison) : tickets ajoutés en cours de sprint. */
   deliveryAddedAt: string | null;
+}
+
+/** Résumé d'un ticket affiché au survol d'une mention, avec les noms déjà résolus. */
+export interface TicketPreviewDTO {
+  id: number;
+  key: string;
+  title: string;
+  projectId: number;
+  projectName: string;
+  status: TicketStatus;
+  statusLabel: string;
+  statusColor: string;
+  priority: { name: string; color: string } | null;
+  delivery: string | null;
+  endDate: string | null;
+  /** Avancement, en pourcentage. */
+  progress: number;
+  commentCount: number;
+  assignees: UserSummaryDTO[];
+  /** Début de la description, sans sa mise en forme. */
+  excerpt: string;
 }
 
 export interface AttachmentDTO {
@@ -272,8 +301,10 @@ export type HistoryData =
   | { kind: 'updated'; changes: HistoryChange[]; auto?: 'all_parts_done' | 'part_reopened' }
   | { kind: 'assignees'; added: NameRef[]; removed: NameRef[] }
   /** `note` : mission définie ou modifiée (chaîne vide = mission effacée). */
-  | { kind: 'part'; user: NameRef; done?: boolean; progress?: number; note?: string }
+  /** `user` : personne de la ligne ; `line` : son texte ; `action` : ligne ajoutée, retirée ou confiée à quelqu'un. */
+  | { kind: 'part'; user: NameRef | null; line?: string; action?: 'added' | 'removed' | 'assigned'; done?: boolean; progress?: number; note?: string }
   | { kind: 'attachment'; action: 'added' | 'removed'; name: string; size: number; link?: 'url' | 'path' }
+  /** Historique antérieur à la version 2 : les sous-tâches sont devenues des lignes d'avancement. */
   | { kind: 'subtask'; action: 'added' | 'done' | 'reopened' | 'renamed' | 'removed'; title: string; previousTitle?: string }
   | { kind: 'link'; action: 'added' | 'removed'; reason: string; target: { id: number; key: string; title: string } }
   | { kind: 'transferred'; from: { key: string; project: string }; to: { key: string; project: string } };
@@ -395,7 +426,7 @@ export interface ActivityDTO {
 // Recherche globale et page utilisateur
 // ---------------------------------------------------------------------------------------------------------------------
 
-export type SearchKind = 'projects' | 'tickets' | 'users';
+export type SearchKind = 'projects' | 'tickets' | 'users' | 'docs';
 
 export interface SearchProjectHit {
   id: number;
@@ -417,11 +448,24 @@ export interface SearchTicketHit {
   updatedAt: string;
 }
 
+/** Note de documentation trouvée par son titre ou son texte. */
+export interface SearchDocHit {
+  id: number;
+  spaceId: number;
+  spaceName: string;
+  path: string;
+  title: string;
+  /** Ligne du texte où figure la recherche (vide si seul le titre correspond). */
+  excerpt: string;
+  updatedAt: string;
+}
+
 export interface SearchResultDTO {
   query: string;
   projects: { items: SearchProjectHit[]; total: number };
   tickets: { items: SearchTicketHit[]; total: number };
   users: { items: UserSummaryDTO[]; total: number };
+  docs: { items: SearchDocHit[]; total: number };
 }
 
 export interface UserProjectDTO {
@@ -487,6 +531,10 @@ export interface AppInfoDTO {
   maintenance: MaintenanceDTO | null;
   /** L'assistant IA est activé sur le site. */
   ai: boolean;
+  /** Connexion par annuaire LDAP activée ; `loginLabel` : libellé du champ d'identifiant (vide : « Identifiant »). */
+  ldap: { loginLabel: string } | null;
+  /** La documentation est activée sur le site. */
+  docs: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -511,6 +559,8 @@ export interface NotificationDTO {
   activity: ActivityData | null;
   /** Extrait du texte où l'on vous mentionne. */
   excerpt: string | null;
+  /** Fichier de documentation où l'on vous mentionne. */
+  doc: { nodeId: number; title: string } | null;
   createdAt: string;
   readAt: string | null;
 }

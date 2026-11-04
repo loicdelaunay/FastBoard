@@ -301,6 +301,27 @@ describe('assistant IA', () => {
     assert.equal((await chat(vera, 'Bonjour', { projectId: other })).status, 404);
   });
 
+  it('ajoute et termine une ligne d’avancement, et lit les lignes du ticket', async () => {
+    const context = { projectId: ids.project };
+    const added = events((await chat(bob, 'outil:add_part {"ticket":"BTQ-1","note":"Relire les CGV"}', context, true)).body);
+    const [change] = changesOf(added);
+    assert.equal(change?.action.kind, 'part.create');
+    const partId = change?.action.kind === 'part.create' ? change.action.partId : null;
+    assert.ok(partId);
+
+    const read = events((await chat(bob, 'outil:get_ticket {"ticket":"BTQ-1"}', context, false)).body);
+    assert.ok(read.some((event) => event.type === 'message' && event.content.includes('Relire les CGV')), 'les lignes sont lues avec le ticket');
+
+    const done = changesOf(events((await chat(bob, `outil:set_part {"partId":${partId},"done":true}`, context, true)).body));
+    assert.equal(done[0]?.action.kind, 'part.update');
+    const ticket = (await bob.get(`/api/tickets/${ids.ticket}`)).body.ticket;
+    assert.equal(ticket.parts.find((part: { id: number }) => part.id === partId).done, true);
+
+    const denied = events((await chat(vera, `outil:set_part {"partId":${partId},"done":false}`, context, true)).body);
+    assert.equal(changesOf(denied).length, 0, 'mêmes droits que pour le reste');
+    await bob.del(`/api/parts/${partId}`);
+  });
+
   it('propose les modèles de plusieurs fournisseurs, transmet la réflexion, les images et réduit la conversation au contexte', async () => {
     const second = await startFakeProvider();
     try {

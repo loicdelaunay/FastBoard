@@ -6,10 +6,10 @@ import { idParam, parse } from '../http/validate.ts';
 import { requireProject, type AuthUser } from '../services/access.ts';
 import { createComment, deleteComment, listComments, requireComment, updateComment } from '../services/comments.ts';
 import { listHistory } from '../services/history.ts';
-import { deleteTicket, getTicketDTO, moveTicket, requireTicket, ticketKeyOf, transferTicket, updatePart, updateTicket } from '../services/tickets.ts';
-import { commentEditSchema, commentSchema, linkSchema, moveTicketSchema, partSchema, subtaskPatchSchema, subtaskSchema, transferTicketSchema, updateTicketSchema } from '../http/schemas.ts';
+import { deleteTicket, getTicketDTO, moveTicket, requireTicket, ticketKeyOf, ticketPreview, transferTicket, updateTicket } from '../services/tickets.ts';
+import { commentEditSchema, commentSchema, linkSchema, moveTicketSchema, partCreateSchema, partPatchSchema, transferTicketSchema, updateTicketSchema } from '../http/schemas.ts';
 import { createLink, deleteLink, requireLink } from '../services/links.ts';
-import { createSubtask, deleteSubtask, requireSubtask, updateSubtask } from '../services/subtasks.ts';
+import { createPart, deletePart, requirePart, updatePart } from '../services/parts.ts';
 import { unwatchTicket, watchTicket } from '../services/notifications.ts';
 import { publishTicketChange } from '../services/tickets.ts';
 
@@ -27,6 +27,12 @@ export function ticketsRouter(ctx: AppContext): Router {
     const ticketId = idParam(req.params.id);
     const { ticket } = ticketAccess(currentUser(res), ticketId);
     res.json({ ticket: getTicketDTO(ctx.db, ticketId), key: ticketKeyOf(ctx.db, ticket) });
+  });
+
+  router.get('/tickets/:id/preview', (req, res) => {
+    const ticketId = idParam(req.params.id);
+    ticketAccess(currentUser(res), ticketId);
+    res.json({ preview: ticketPreview(ctx.db, ticketId) });
   });
 
   router.patch('/tickets/:id', (req, res) => {
@@ -60,18 +66,35 @@ export function ticketsRouter(ctx: AppContext): Router {
     res.json({ ok: true });
   });
 
-  /** Avancement / fin de « sa part » : chaque assigné gère la sienne ; `ticket.edit` permet de corriger celle d'un autre. */
-  router.patch('/tickets/:id/assignees/:userId', (req, res) => {
-    const user = currentUser(res);
+  // --- Lignes d'avancement ------------------------------------------------------------------------------------------
+
+  router.post('/tickets/:id/parts', (req, res) => {
     const ticketId = idParam(req.params.id);
-    const targetUserId = idParam(req.params.userId);
-    const { access } = ticketAccess(user, ticketId);
-    const ownPart = targetUserId === user.id && access.permissions.has('ticket.update_own_part');
-    if (!ownPart && !access.permissions.has('ticket.edit')) {
-      throw forbidden("Seule la personne assignée peut mettre à jour sa part.");
+    ticketAccess(currentUser(res), ticketId, 'ticket.edit');
+    res.status(201).json({ ticket: createPart(ctx, actorOf(req, res), ticketId, parse(partCreateSchema, req.body)) });
+  });
+
+  /** `ticket.edit` modifie tout ; chacun gère ses propres lignes (texte, avancement, fin) avec `ticket.update_own_part`. */
+  router.patch('/parts/:id', (req, res) => {
+    const user = currentUser(res);
+    const partId = idParam(req.params.id);
+    const row = requirePart(ctx.db, partId);
+    const patch = parse(partPatchSchema, req.body);
+    const { access } = ticketAccess(user, row.ticket_id);
+    const ownFields = patch.userId === undefined && patch.position === undefined;
+    const own = ownFields && row.user_id === user.id && access.permissions.has('ticket.update_own_part');
+    if (!own && !access.permissions.has('ticket.edit')) {
+      throw forbidden('Seule la personne de la ligne peut la mettre à jour.');
     }
-    requireProject(ctx, user, access.project.id, ownPart ? 'ticket.update_own_part' : 'ticket.edit');
-    res.json({ ticket: updatePart(ctx, actorOf(req, res), ticketId, targetUserId, parse(partSchema, req.body)) });
+    requireProject(ctx, user, access.project.id, own ? 'ticket.update_own_part' : 'ticket.edit');
+    res.json({ ticket: updatePart(ctx, actorOf(req, res), partId, patch) });
+  });
+
+  router.delete('/parts/:id', (req, res) => {
+    const partId = idParam(req.params.id);
+    const row = requirePart(ctx.db, partId);
+    ticketAccess(currentUser(res), row.ticket_id, 'ticket.edit');
+    res.json({ ticket: deletePart(ctx, actorOf(req, res), partId) });
   });
 
   // --- Suivi (notifications) -----------------------------------------------------------------------------------------
@@ -90,34 +113,6 @@ export function ticketsRouter(ctx: AppContext): Router {
     ticketAccess(user, ticketId);
     unwatchTicket(ctx.db, ticketId, user.id);
     res.json({ ticket: publishTicketChange(ctx, actorOf(req, res), ticketId, []) });
-  });
-
-  // --- Sous-tâches ---------------------------------------------------------------------------------------------------
-
-  router.post('/tickets/:id/subtasks', (req, res) => {
-    const ticketId = idParam(req.params.id);
-    ticketAccess(currentUser(res), ticketId, 'ticket.edit');
-    res.status(201).json({ ticket: createSubtask(ctx, actorOf(req, res), ticketId, parse(subtaskSchema, req.body)) });
-  });
-
-  /** `ticket.edit` modifie tout ; la personne chargée d'une sous-tâche peut la cocher avec `ticket.update_own_part`. */
-  router.patch('/subtasks/:id', (req, res) => {
-    const user = currentUser(res);
-    const subtaskId = idParam(req.params.id);
-    const row = requireSubtask(ctx.db, subtaskId);
-    const patch = parse(subtaskPatchSchema, req.body);
-    const { access } = ticketAccess(user, row.ticket_id);
-    const onlyDone = Object.keys(patch).every((key) => key === 'done');
-    const own = onlyDone && row.assignee_id === user.id && access.permissions.has('ticket.update_own_part');
-    requireProject(ctx, user, access.project.id, own ? 'ticket.update_own_part' : 'ticket.edit');
-    res.json({ ticket: updateSubtask(ctx, actorOf(req, res), subtaskId, patch) });
-  });
-
-  router.delete('/subtasks/:id', (req, res) => {
-    const subtaskId = idParam(req.params.id);
-    const row = requireSubtask(ctx.db, subtaskId);
-    ticketAccess(currentUser(res), row.ticket_id, 'ticket.edit');
-    res.json({ ticket: deleteSubtask(ctx, actorOf(req, res), subtaskId) });
   });
 
   // --- Dépendances ---------------------------------------------------------------------------------------------------

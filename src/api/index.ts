@@ -1,5 +1,8 @@
-import type { TicketStatus } from '@shared/constants';
+import { FILE_NAME_HEADER, type TicketStatus } from '@shared/constants';
 import type { RoleScope, PermissionDef } from '@shared/permissions';
+import type { DocImportAction, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocRole, DocSearchHitDTO, DocSpaceDTO, DocVersionDTO } from '@shared/docs';
+import type { DocCommentDTO, DocQuote } from '@shared/docComments';
+import type { LdapFields, LdapSettingsDTO, LdapTestResultDTO } from '@shared/ldap';
 import type { Locale } from '@shared/locales';
 import type { ProjectSettingsDTO } from '@shared/settings';
 import type {
@@ -21,7 +24,7 @@ import type {
   ProjectDTO,
   ProjectListItemDTO,
   SearchKind,
-  SearchResultDTO,
+  SearchResultDTO, TicketPreviewDTO,
   UserSummaryPageDTO,
   ProjectSnapshotDTO,
   ProjectSummaryDTO,
@@ -153,6 +156,19 @@ function parseUploadResponse(text: string): UploadResponse | null {
   }
 }
 
+/** Envoie un fichier de documentation en corps brut. */
+async function uploadDocFile<T>(path: string, file: File): Promise<T> {
+  const response = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: { ...httpHeaders(), 'Content-Type': file.type || 'application/octet-stream', [FILE_NAME_HEADER]: encodeURIComponent(file.name) },
+    body: file,
+    credentials: 'same-origin',
+  });
+  const payload = (await response.json().catch(() => null)) as (T & { error?: { message?: string } }) | null;
+  if (!response.ok) throw new Error(translateServerMessage(payload?.error?.message ?? `Erreur ${response.status}`));
+  return payload as T;
+}
+
 /** Envoie un fichier en corps brut (XMLHttpRequest : seul moyen d'obtenir la progression de l'envoi). */
 export function uploadAttachment(ticketId: number, file: File, onProgress?: (ratio: number) => void): Promise<AttachmentDTO> {
   return new Promise((resolve, reject) => {
@@ -207,6 +223,7 @@ export const api = {
   markNotificationsRead: (ids?: number[]) => http<{ unread: number }>('POST', '/me/notifications/read', { body: ids ? { ids } : {} }),
   watchTicket: (ticketId: number, watch: boolean) => http<{ ticket: TicketDTO }>(watch ? 'POST' : 'DELETE', `/tickets/${ticketId}/watch`),
   userSummary: (userId: number) => http<{ summary: UserSummaryPageDTO }>('GET', `/users/${userId}/summary`),
+  ticketPreview: (ticketId: number) => http<{ preview: TicketPreviewDTO }>('GET', `/tickets/${ticketId}/preview`),
   search: (q: string, options: { limit?: number; type?: SearchKind[] } = {}) => {
     const query = new URLSearchParams({ q, limit: String(options.limit ?? 6) });
     if (options.type?.length) query.set('type', options.type.join(','));
@@ -262,14 +279,11 @@ export const api = {
   deleteTicket: (ticketId: number) => http<{ ok: true }>('DELETE', `/tickets/${ticketId}`),
   transferTicket: (ticketId: number, projectId: number, status: TicketStatus) =>
     http<{ ticket: TicketDTO; key: string }>('POST', `/tickets/${ticketId}/transfer`, { body: { projectId, status } }),
-  updatePart: (ticketId: number, userId: number, patch: { done?: boolean; progress?: number; note?: string }) =>
-    http<{ ticket: TicketDTO }>('PATCH', `/tickets/${ticketId}/assignees/${userId}`, { body: patch }),
 
-  addSubtask: (ticketId: number, title: string, assigneeId: number | null = null) =>
-    http<{ ticket: TicketDTO }>('POST', `/tickets/${ticketId}/subtasks`, { body: { title, assigneeId } }),
-  updateSubtask: (subtaskId: number, patch: { title?: string; done?: boolean; assigneeId?: number | null; position?: number }) =>
-    http<{ ticket: TicketDTO }>('PATCH', `/subtasks/${subtaskId}`, { body: patch }),
-  deleteSubtask: (subtaskId: number) => http<{ ticket: TicketDTO }>('DELETE', `/subtasks/${subtaskId}`),
+  addPart: (ticketId: number, input: { note?: string; userId?: number | null }) => http<{ ticket: TicketDTO }>('POST', `/tickets/${ticketId}/parts`, { body: input }),
+  updatePart: (partId: number, patch: { note?: string; userId?: number | null; done?: boolean; progress?: number; position?: number }) =>
+    http<{ ticket: TicketDTO }>('PATCH', `/parts/${partId}`, { body: patch }),
+  deletePart: (partId: number) => http<{ ticket: TicketDTO }>('DELETE', `/parts/${partId}`),
   addLink: (ticketId: number, targetId: number, reason: string) =>
     http<{ ticket: TicketDTO }>('POST', `/tickets/${ticketId}/links`, { body: { targetId, reason } }),
   deleteLink: (linkId: number) => http<{ ticket: TicketDTO }>('DELETE', `/links/${linkId}`),
@@ -314,6 +328,42 @@ export const api = {
   adminRevokeToken: (tokenId: number) => http<{ ok: true }>('DELETE', `/admin/tokens/${tokenId}`),
   adminUpdateToken: (tokenId: number, patch: { displayName?: string | null; expiresInDays?: number | null }) =>
     http<{ token: ApiTokenDTO }>('PATCH', `/admin/tokens/${tokenId}`, { body: patch }),
+  adminDocs: () => http<{ enabled: boolean; spaces: number; files: number; bytes: number; retentionDays: number }>('GET', '/admin/documentation'),
+  adminSaveDocs: (enabled: boolean) => http<{ enabled: boolean; app: AppInfoDTO }>('PUT', '/admin/documentation', { body: { enabled } }),
+
+  ticket: (ticketId: number) => http<{ ticket: TicketDTO }>('GET', `/tickets/${ticketId}`),
+  docSpaces: () => http<{ spaces: DocSpaceDTO[] }>('GET', '/documentation/spaces'),
+  docCreateSpace: (input: { name: string; description: string }) => http<{ space: DocSpaceDTO }>('POST', '/documentation/spaces', { body: input }),
+  docSpace: (spaceId: number) => http<{ space: DocSpaceDTO; nodes: DocNodeDTO[]; members: DocMemberDTO[] }>('GET', `/documentation/spaces/${spaceId}`),
+  docUpdateSpace: (spaceId: number, input: { name?: string; description?: string }) => http<{ space: DocSpaceDTO }>('PATCH', `/documentation/spaces/${spaceId}`, { body: input }),
+  docDeleteSpace: (spaceId: number) => http<{ ok: true }>('DELETE', `/documentation/spaces/${spaceId}`),
+  docAddMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('POST', `/documentation/spaces/${spaceId}/members`, { body: { userId, role } }),
+  docSetMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('PATCH', `/documentation/spaces/${spaceId}/members/${userId}`, { body: { role } }),
+  docRemoveMember: (spaceId: number, userId: number) => http<{ members: DocMemberDTO[] }>('DELETE', `/documentation/spaces/${spaceId}/members/${userId}`),
+  docTrash: (spaceId: number) => http<{ nodes: DocNodeDTO[] }>('GET', `/documentation/spaces/${spaceId}/trash`),
+  docCreateNode: (spaceId: number, path: string, kind: 'folder' | 'markdown') => http<{ node: DocNodeDTO }>('POST', `/documentation/spaces/${spaceId}/nodes`, { body: { path, kind } }),
+  docNode: (nodeId: number) => http<{ node: DocNodeDTO; role: DocRole; content: string | null }>('GET', `/documentation/nodes/${nodeId}`),
+  docMoveNode: (nodeId: number, path: string) => http<{ node: DocNodeDTO }>('PATCH', `/documentation/nodes/${nodeId}`, { body: { path } }),
+  docDeleteNode: (nodeId: number) => http<{ ok: true }>('DELETE', `/documentation/nodes/${nodeId}`),
+  docRestoreNode: (nodeId: number) => http<{ node: DocNodeDTO }>('POST', `/documentation/nodes/${nodeId}/restore`, { body: {} }),
+  docVersions: (nodeId: number) => http<{ versions: DocVersionDTO[]; retentionDays: number }>('GET', `/documentation/nodes/${nodeId}/versions`),
+  docVersion: (versionId: number) => http<{ content: string; createdAt: string }>('GET', `/documentation/versions/${versionId}`),
+  docRestoreVersion: (versionId: number) => http<{ ok: true }>('POST', `/documentation/versions/${versionId}/restore`, { body: {} }),
+  docSearch: (q: string) => http<{ files: DocSearchHitDTO[] }>('GET', `/documentation/search?q=${encodeURIComponent(q)}`),
+  docApplyImport: (spaceId: number, importId: string, decisions: Array<{ path: string; action: DocImportAction; content?: string }>) =>
+    http<{ written: number; deleted: number }>('POST', `/documentation/spaces/${spaceId}/import/${importId}/apply`, { body: { decisions } }),
+  docImportPreview: (spaceId: number, file: File, folder = '') => uploadDocFile<DocImportPreviewDTO>(`/documentation/spaces/${spaceId}/import${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`, file),
+  docFileImportPreview: (nodeId: number, file: File) => uploadDocFile<DocImportPreviewDTO>(`/documentation/nodes/${nodeId}/import`, file),
+  docLinks: (nodeId: number) => http<DocLinksDTO>('GET', `/documentation/nodes/${nodeId}/links`),
+  docComments: (nodeId: number) => http<{ comments: DocCommentDTO[] }>('GET', `/documentation/nodes/${nodeId}/comments`),
+  docAddComment: (nodeId: number, input: Partial<DocQuote> & { body: string; parentId?: number }) => http<{ comment: DocCommentDTO }>('POST', `/documentation/nodes/${nodeId}/comments`, { body: input }),
+  docResolveComment: (commentId: number, resolved: boolean) => http<{ comment: DocCommentDTO }>('PATCH', `/documentation/comments/${commentId}`, { body: { resolved } }),
+  docDeleteComment: (commentId: number) => http<{ ok: true }>('DELETE', `/documentation/comments/${commentId}`),
+  docUploadImage: (spaceId: number, folder: string, file: File) => uploadDocFile<{ node: DocNodeDTO }>(`/documentation/spaces/${spaceId}/images?folder=${encodeURIComponent(folder)}`, file),
+
+  adminAuth: () => http<{ ldap: LdapSettingsDTO }>('GET', '/admin/auth'),
+  adminSaveAuth: (input: LdapFields & { bindPassword?: string }) => http<{ ldap: LdapSettingsDTO; app: AppInfoDTO }>('PUT', '/admin/auth', { body: input }),
+  adminTestLdap: (input: LdapFields & { bindPassword?: string; login: string; password: string }) => http<LdapTestResultDTO>('POST', '/admin/auth/ldap/test', { body: input }),
   adminAi: () => http<{ settings: AiSettingsDTO }>('GET', '/admin/ai'),
   adminSaveAi: (input: { enabled: boolean; providers: AiProviderInput[]; defaultModel: string; maxSteps: number; maxTurns: number }) => http<{ settings: AiSettingsDTO; app: AppInfoDTO }>('PUT', '/admin/ai', { body: input }),
   adminTestAi: (probe: { providerId?: string; baseUrl: string; timeoutSeconds?: number; model?: string; apiKey?: string }) => http<{ ok: boolean; message: string }>('POST', '/admin/ai/test', { body: probe }),

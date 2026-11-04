@@ -7,6 +7,13 @@ export interface ApiResult<T = any> {
   body: T;
 }
 
+/** Modifie la première ligne d'avancement d'une personne sur un ticket. */
+export async function patchPart(client: TestClient, ticketId: number, userId: number, patch: Record<string, unknown>): Promise<ApiResult> {
+  const { body } = await client.get(`/api/tickets/${ticketId}`);
+  const part = (body.ticket.parts as Array<{ id: number; userId: number | null }>).find((entry) => entry.userId === userId);
+  return client.patch(`/api/parts/${part?.id}`, patch);
+}
+
 /** Client HTTP minimal avec jar de cookies, pour tester l'API comme un navigateur. */
 export class TestClient {
   readonly base: string;

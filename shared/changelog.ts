@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '1.10.0';
+export const APP_VERSION = '2.0.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,72 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.0.0',
+    date: '2026-11-04',
+    changes: [
+      {
+        category: 'Nouveauté',
+        text: 'Documentation : nouvel onglet « Documentations », activable dans l’administration. Des espaces de fichiers Markdown en dossiers, écrits à plusieurs en temps réel, avec lecture et écriture, Mermaid, images, membres et rôles, et 15 jours d’historique et de corbeille.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Documentation : nouveau mode « Lecture et écriture ». La note s’affiche rendue, et un clic sur un texte ou un bloc le modifie directement.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Documentation : barre d’outils, commandes / et menu du clic droit pour écrire plus vite : titres, listes, tableaux, code, Mermaid, images, blocs à dupliquer ou déplacer.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Documentation : un clic droit sur un passage sélectionné permet de le commenter, de mentionner des personnes, de répondre et de résoudre le fil.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Documentation : les liens et rétroliens d’une note, notes et tickets, sont visibles d’un coup d’œil.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Documentation : export et réimport avec fusion ligne à ligne, d’un clic droit sur un espace, un dossier ou un fichier. Le ZIP reproduit exactement l’arborescence et s’ouvre comme un coffre Obsidian.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'La recherche générale trouve aussi les documents, par leur titre ou leur contenu.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Le survol d’une mention de ticket affiche un aperçu du ticket, et celui du nombre de commentaires affiche les derniers commentaires.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Mentions : @ propose aussi les fichiers de documentation dans les tickets, et les personnes, tickets et fichiers dans les documents.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Administration : nouvel onglet « Authentification » pour se connecter avec un annuaire LDAP (LDAP, LDAPS ou StartTLS), avec un profil classique, un profil spécifique, des champs personnalisables et un test des réglages.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Quand le navigateur utilise une autre version que le serveur (page en cache, onglet resté ouvert), un message en bas de page propose de mettre à jour.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Fenêtre d’un ticket : le bouton + du bloc « Avancement » ajoute des lignes libres, avec ou sans personne, et plusieurs lignes par personne si besoin.',
+      },
+      {
+        category: 'Amélioration',
+        text: 'Les sous-tâches disparaissent au profit des lignes d’avancement : celles existantes y sont reprises et comptent désormais dans la progression du ticket.',
+      },
+      {
+        category: 'Amélioration',
+        text: 'API : les routes /subtasks et /tickets/{id}/assignees/{userId} sont remplacées par /tickets/{id}/parts et /parts/{id}.',
+      },
+      {
+        category: 'Correction',
+        text: 'Éditeur de description : les icônes Gras et Italique s’affichent de nouveau.',
+      },
+    ],
+  },
   {
     version: '1.10.0',
     date: '2026-11-03',
