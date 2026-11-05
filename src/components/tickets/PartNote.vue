@@ -5,6 +5,7 @@ import Textarea from 'primevue/textarea';
 import { LIMITS } from '@shared/constants';
 
 import { t } from '@/i18n';
+/** Texte d'une ligne d'avancement, dans le fil de la ligne ; le crayon apparaît à son survol. */
 const props = defineProps<{
   /** Mission actuelle (vide si non renseignée). */
   note: string;
@@ -21,7 +22,10 @@ const draft = ref('');
 const saving = ref(false);
 const field = ref<{ $el: HTMLTextAreaElement } | null>(null);
 
-const addLabel = computed(() => (props.isMe ? t('Décrire ma mission') : props.name ? t('Décrire la mission de {name}', { name: props.name }) : t('Décrire cette ligne')));
+const editLabel = computed(() => {
+  if (props.note) return props.isMe ? t('Modifier ma mission') : props.name ? t('Modifier la mission de {name}', { name: props.name }) : t('Modifier la ligne');
+  return props.isMe ? t('Décrire ma mission') : props.name ? t('Décrire la mission de {name}', { name: props.name }) : t('Décrire cette ligne');
+});
 const placeholder = computed(() => (props.isMe ? t('Ce que vous devez faire sur ce ticket…') : props.name ? t('Ce que {name} doit faire sur ce ticket…', { name: props.name }) : t('Ce qu’il y a à faire…')));
 
 async function start(): Promise<void> {
@@ -51,99 +55,68 @@ async function save(): Promise<void> {
 </script>
 
 <template>
-  <div class="part-note">
-    <form v-if="editing" class="edit" @submit.prevent="save">
-      <Textarea
-        ref="field"
-        v-model="draft"
-        auto-resize
-        rows="2"
-        :maxlength="LIMITS.partNoteMax"
-        :placeholder="placeholder"
-        fluid
-        :aria-label="isMe ? $t('Ma mission sur ce ticket') : name ? $t('Mission de {name}', { name }) : $t('Texte de la ligne')"
-        @keydown.ctrl.enter.prevent="save"
-        @keydown.meta.enter.prevent="save"
-        @keydown.esc="cancel"
-      />
-      <div class="actions">
-        <Button type="submit" :label="$t('Enregistrer')" size="small" :loading="saving" />
-        <Button type="button" :label="$t('Annuler')" size="small" severity="secondary" text @click="cancel" />
-        <span class="muted small hint">{{ $t('Ctrl + Entrée pour enregistrer · laisser vide pour effacer') }}</span>
-      </div>
-    </form>
-
-    <div v-else-if="note" class="view">
-      <span class="label">{{ $t('Mission') }}</span>
-      <p class="text">{{ note }}</p>
-      <Button
-        v-if="editable"
-        class="edit-btn"
-        icon="pi pi-pencil"
-        text
-        rounded
-        size="small"
-        severity="secondary"
-        :aria-label="isMe ? $t('Modifier ma mission') : $t('Modifier la mission de {name}', { name })"
-        @click="start"
-      />
+  <form v-if="editing" class="edit" @submit.prevent="save">
+    <Textarea
+      ref="field"
+      v-model="draft"
+      auto-resize
+      rows="2"
+      :maxlength="LIMITS.partNoteMax"
+      :placeholder="placeholder"
+      fluid
+      :aria-label="isMe ? $t('Ma mission sur ce ticket') : name ? $t('Mission de {name}', { name }) : $t('Texte de la ligne')"
+      @keydown.ctrl.enter.prevent="save"
+      @keydown.meta.enter.prevent="save"
+      @keydown.esc.stop="cancel"
+    />
+    <div class="actions">
+      <Button type="submit" :label="$t('Enregistrer')" size="small" :loading="saving" />
+      <Button type="button" :label="$t('Annuler')" size="small" severity="secondary" text @click="cancel" />
+      <span class="muted small hint">{{ $t('Ctrl + Entrée pour enregistrer · laisser vide pour effacer') }}</span>
     </div>
+  </form>
 
-    <button v-else-if="editable" type="button" class="add" @click="start"><i class="pi pi-plus"></i> {{ addLabel }}</button>
-  </div>
+  <span v-else class="view">
+    <span v-if="note" class="text">{{ note }}</span>
+    <slot />
+    <button v-if="editable" v-tooltip.top="editLabel" type="button" class="edit-btn" :aria-label="editLabel" @click="start"><i class="pi pi-pencil"></i></button>
+  </span>
 </template>
 
 <style scoped>
-.part-note {
-  min-width: 0;
-}
-/* Rien à montrer (pas de mission et pas le droit d'en écrire) : la ligne disparaît. */
-.part-note:empty {
-  display: none;
-}
-.view {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.4rem 2.2rem 0.4rem 0.75rem;
-  border-left: 3px solid var(--fb-accent);
-  border-radius: 0 8px 8px 0;
-  background: var(--fb-accent-soft);
-}
-.label {
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--fb-accent);
-}
 .text {
-  margin: 0;
-  font-size: 0.9rem;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .edit-btn {
-  position: absolute;
-  top: 0.2rem;
-  right: 0.2rem;
-}
-.add {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.15rem 0;
+  display: inline-grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  margin-left: 0.15rem;
+  padding: 0;
   border: 0;
+  border-radius: 4px;
   background: none;
   color: var(--fb-muted);
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.7rem;
+  vertical-align: middle;
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
 }
-.add:hover,
-.add:focus-visible {
+.edit-btn:hover {
+  background: var(--fb-panel);
   color: var(--fb-accent);
+}
+.edit-btn:focus-visible {
+  opacity: 1;
+}
+/* Sans survol possible (écran tactile), le crayon reste visible. */
+@media (hover: none) {
+  .edit-btn {
+    opacity: 1;
+  }
 }
 .edit {
   display: flex;

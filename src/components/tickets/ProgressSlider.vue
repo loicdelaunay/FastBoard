@@ -5,6 +5,9 @@ import Slider from 'primevue/slider';
 const props = withDefaults(defineProps<{ modelValue: number; disabled?: boolean; delay?: number }>(), { delay: 500 });
 const emit = defineEmits<{ commit: [value: number] }>();
 
+const STEP = 5;
+const KEY_STEPS: Record<string, number> = { ArrowRight: STEP, ArrowUp: STEP, ArrowLeft: -STEP, ArrowDown: -STEP };
+
 const local = ref(props.modelValue);
 let timer: number | null = null;
 
@@ -18,8 +21,12 @@ watch(
   },
 );
 
+/** Arrondi au palier le plus proche : le bout de la barre donne bien 100 %, qui termine une ligne. */
 function onInput(value: number | number[]): void {
-  const next = Array.isArray(value) ? (value[0] ?? 0) : value;
+  const next = Math.round((Array.isArray(value) ? (value[0] ?? 0) : value) / STEP) * STEP;
+  if (next === local.value) {
+    return;
+  }
   local.value = next;
   if (timer !== null) {
     window.clearTimeout(timer);
@@ -28,6 +35,17 @@ function onInput(value: number | number[]): void {
     timer = null;
     emit('commit', next);
   }, props.delay);
+}
+
+/** La barre avance par 1 pour suivre la souris ; au clavier, on garde des paliers. */
+function onKeydown(event: KeyboardEvent): void {
+  const delta = KEY_STEPS[event.key];
+  if (delta === undefined || props.disabled) {
+    return;
+  }
+  event.preventDefault();
+  event.stopPropagation();
+  onInput(Math.min(100, Math.max(0, local.value + delta)));
 }
 
 onBeforeUnmount(() => {
@@ -39,8 +57,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="progress-slider">
-    <Slider :model-value="local" :min="0" :max="100" :step="5" :disabled="disabled" class="slider" :aria-label="$t('Avancement')" @update:model-value="onInput" />
+  <div class="progress-slider" @keydown.capture="onKeydown">
+    <Slider :model-value="local" :min="0" :max="100" :step="1" :disabled="disabled" class="slider" :aria-label="$t('Avancement')" @update:model-value="onInput" />
     <span class="percent">{{ local }}%</span>
   </div>
 </template>

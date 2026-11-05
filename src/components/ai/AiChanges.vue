@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import Button from 'primevue/button';
 import type { AiChangeDTO } from '@shared/ai';
+import DocInlineDiff from '@/components/docs/DocInlineDiff.vue';
 import { useAiStore, type AiTurn } from '@/stores/ai';
 
 import { t } from '@/i18n';
@@ -48,6 +49,8 @@ const FIELD_LABELS = computed<Record<string, string>>(() => ({
   subtask: t('Sous-tâche'),
   subtaskDone: t('État'),
   link: t('Dépendance'),
+  doc: t('Texte de la note'),
+  docPath: t('Note'),
 }));
 
 const STATE = computed<Record<AiChangeDTO['state'], { label: string; icon: string }>>(() => ({
@@ -77,7 +80,9 @@ const show = (value: string | null) => (value === null ? t('aucun') : value === 
           </button>
           <span class="state" :title="STATE[change.state].label"><i :class="STATE[change.state].icon"></i> {{ STATE[change.state].label }}</span>
         </div>
-        <dl v-if="opened.has(change.id)" class="diff">
+        <template v-if="opened.has(change.id) && change.action.kind === 'doc.edit'"><DocInlineDiff :before="change.action.before" :after="change.action.after" /></template>
+        <template v-else-if="opened.has(change.id) && change.action.kind === 'doc.create'"><DocInlineDiff before="" :after="change.action.content" /></template>
+        <dl v-else-if="opened.has(change.id)" class="diff">
           <div v-for="entry in change.diff" :key="entry.field" class="diff-row">
             <dt>{{ FIELD_LABELS[entry.field] ?? entry.field }}</dt>
             <dd>

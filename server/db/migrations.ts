@@ -629,6 +629,10 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE INDEX idx_doc_exports_user ON doc_exports (space_id, user_id, created_at);
     `);
   },
+  // 20 — Une ligne d'avancement à 100 % est terminée : plus de case à cocher, le pourcentage suffit.
+  (db) => {
+    db.run('UPDATE ticket_parts SET done = 1, done_at = ? WHERE done = 0 AND progress >= 100', new Date().toISOString());
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

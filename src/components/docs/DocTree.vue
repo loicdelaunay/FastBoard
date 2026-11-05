@@ -90,12 +90,13 @@ const target = ref<DocNodeDTO | null>(null);
 const menuItems = computed<MenuItem[]>(() => {
   const node = target.value;
   const folder = node ? (node.kind === 'folder' ? node.path : docParent(node.path)) : '';
-  const transfer: Record<'space' | 'folder' | 'file', { out: string; in: string }> = {
-    space: { out: t('Exporter l’espace en ZIP'), in: t('Réimporter un ZIP') },
-    folder: { out: t('Exporter le dossier en ZIP'), in: t('Réimporter un ZIP dans ce dossier') },
-    file: { out: t('Exporter le fichier'), in: t('Réimporter le fichier') },
+  const transfer: Record<'space' | DocNodeDTO['kind'], { out: string; in: string }> = {
+    space: { out: t('Exporter l’espace en ZIP'), in: t('Importer un .md ou un ZIP') },
+    folder: { out: t('Exporter le dossier en ZIP'), in: t('Importer un .md ou un ZIP ici') },
+    markdown: { out: t('Exporter en .md'), in: t('Importer un .md') },
+    image: { out: t('Exporter l’image'), in: t('Remplacer l’image') },
   };
-  const labels = transfer[!node ? 'space' : node.kind === 'folder' ? 'folder' : 'file'];
+  const labels = transfer[node?.kind ?? 'space'];
   const write: MenuItem[] = props.editable
     ? [
         { label: t('Nouvelle note'), icon: 'pi pi-file-plus', command: () => emit('create', 'markdown', folder) },

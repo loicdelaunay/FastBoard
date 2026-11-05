@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
+import { useConfirm } from 'primevue/useconfirm';
 import Button from 'primevue/button';
-import Checkbox from 'primevue/checkbox';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
 import ToggleSwitch from 'primevue/toggleswitch';
@@ -19,11 +19,12 @@ import PartNote from './PartNote.vue';
 import ProgressSlider from './ProgressSlider.vue';
 
 import { t } from '@/i18n';
-/** Avancement d'un ticket : ses lignes (un texte, une personne facultative, un pourcentage, terminée ou non). */
+/** Avancement d'un ticket : ses lignes (un texte, une personne facultative, un pourcentage ; à 100 %, la ligne est terminée). */
 const props = defineProps<{ ticket: TicketDTO }>();
 
 const auth = useAuthStore();
 const project = useProjectStore();
+const confirm = useConfirm();
 
 const global = computed(() => progressOf(props.ticket));
 /** Sous-tickets : l'avancement peut suivre le leur (réglage du ticket, activé par défaut). */
@@ -47,6 +48,8 @@ const writable = computed(() => !project.archived);
 const canEditTicket = computed(() => writable.value && project.can('ticket.edit'));
 const showPeople = computed(() => project.fieldOn('assignees'));
 const people = computed(() => project.users.filter((user) => user.isActive));
+/** La liste commence par « personne » : on retire quelqu'un en choisissant dans la même liste. */
+const personOptions = computed(() => [{ id: 0, name: t('Sans responsable') }, ...people.value]);
 
 function canEditPart(part: PartDTO): boolean {
   return writable.value && (project.can('ticket.edit') || (part.userId === auth.user?.id && project.can('ticket.update_own_part')));
@@ -63,6 +66,20 @@ async function run(action: () => Promise<void>, summaryText?: string): Promise<v
 }
 
 const update = (part: PartDTO, patch: Parameters<typeof project.updatePart>[2], summaryText?: string) => run(() => project.updatePart(props.ticket.id, part.id, patch), summaryText);
+
+function askDelete(part: PartDTO): void {
+  const name = (part.note || personName(part) || '').replace(/\s+/g, ' ').slice(0, 80);
+  confirm.require({
+    header: t('Supprimer cette ligne ?'),
+    message: t('« {name} » disparaît de l’avancement du ticket.', { name }),
+    icon: 'pi pi-trash',
+    acceptLabel: t('Supprimer'),
+    rejectLabel: t('Annuler'),
+    acceptProps: { severity: 'danger' },
+    rejectProps: { severity: 'secondary', text: true },
+    accept: () => run(() => project.deletePart(part.id)),
+  });
+}
 
 async function setManualProgress(progress: number): Promise<void> {
   try {
@@ -150,48 +167,46 @@ function onDrop(target: PartDTO): void {
           <i v-if="canEditTicket && ticket.parts.length > 1" class="pi pi-bars handle" draggable="true" :aria-label="$t('Glisser pour réordonner')" @dragstart="dragId = part.id" @dragend="dragId = null"></i>
           <Select
             v-if="showPeople && canEditTicket"
-            :model-value="part.userId"
-            :options="people"
+            :model-value="part.userId ?? 0"
+            :options="personOptions"
             option-label="name"
             option-value="id"
-            show-clear
             size="small"
             class="person"
             :placeholder="$t('Personne')"
             :aria-label="$t('Personne chargée de la ligne')"
-            @update:model-value="(userId: number | null) => update(part, { userId: userId ?? null })"
+            @update:model-value="(userId: number) => update(part, { userId: userId || null })"
           >
             <template #value="{ value }">
-              <UserAvatar v-if="value" :user="project.usersById.get(value)" :ring="part.done ? 'done' : 'none'" />
-              <i v-else class="pi pi-user-plus muted"></i>
+              <UserAvatar v-if="value" :user="project.usersById.get(value)" size="small" :ring="part.done ? 'done' : 'none'" />
+              <i v-else class="pi pi-user-plus muted no-one"></i>
             </template>
-            <template #option="{ option }"><span class="option"><UserAvatar :user="option" size="small" /> {{ option.name }}</span></template>
+            <template #option="{ option }">
+              <span class="option"><UserAvatar v-if="option.id" :user="option" size="small" /><i v-else class="pi pi-user-minus muted"></i> {{ option.name }}</span>
+            </template>
           </Select>
-          <UserAvatar v-else-if="part.userId !== null" :user="project.usersById.get(part.userId)" :ring="part.done ? 'done' : 'none'" />
+          <UserAvatar v-else-if="part.userId !== null" :user="project.usersById.get(part.userId)" size="small" :ring="part.done ? 'done' : 'none'" />
         </div>
-        <div class="who">
-          <strong v-if="part.userId !== null" class="truncate">{{ personName(part) }}</strong>
-          <span v-else class="muted">{{ $t('Sans responsable') }}</span>
-          <span v-if="part.userId === auth.user?.id" class="muted small">{{ $t('(vous)') }}</span>
-          <span v-if="part.done && part.doneAt" class="muted small">{{ $t('· terminé {value}', { value: formatRelative(part.doneAt) }) }}</span>
+        <div class="body">
+          <strong v-if="part.userId !== null" class="who">{{ personName(part) }}<span v-if="part.userId === auth.user?.id" class="muted you">{{ $t('(vous)') }}</span></strong>
+          <PartNote :note="part.note" :name="personName(part)" :is-me="part.userId === auth.user?.id" :editable="canEditPart(part)" @save="(note) => update(part, { note }, $t('Mission non enregistrée'))">
+            <span v-if="part.done && part.doneAt" class="muted when">{{ $t('· terminé {value}', { value: formatRelative(part.doneAt) }) }}</span>
+          </PartNote>
         </div>
-        <ProgressSlider class="slider" :model-value="partProgress(part)" :disabled="!canEditPart(part) || part.done" @commit="(progress) => update(part, { progress })" />
-        <label class="done-toggle" :class="{ disabled: !canEditPart(part) }">
-          <Checkbox :model-value="part.done" binary :disabled="!canEditPart(part)" :input-id="`part-${part.id}`" @update:model-value="(done: boolean) => update(part, { done })" />
-          <span>{{ part.userId === auth.user?.id ? $t('J\'ai terminé ma part') : $t('Terminé') }}</span>
-        </label>
-        <Button v-if="canEditTicket" v-tooltip.top="$t('Supprimer la ligne')" icon="pi pi-times" text rounded size="small" severity="secondary" :aria-label="$t('Supprimer la ligne')" @click="run(() => project.deletePart(part.id))" />
-        <PartNote class="note" :note="part.note" :name="personName(part)" :is-me="part.userId === auth.user?.id" :editable="canEditPart(part)" @save="(note) => update(part, { note }, $t('Mission non enregistrée'))" />
+        <ProgressSlider class="slider" :model-value="partProgress(part)" :disabled="!canEditPart(part)" @commit="(progress) => update(part, { progress })" />
+        <button v-if="canEditTicket" v-tooltip.top="$t('Supprimer la ligne')" type="button" class="remove" :aria-label="$t('Supprimer la ligne')" @click="askDelete(part)"><i class="pi pi-times"></i></button>
       </li>
     </ul>
 
     <form v-if="adding" class="add-line" @submit.prevent="add">
-      <Select v-if="showPeople" v-model="newUserId" :options="people" option-label="name" option-value="id" show-clear size="small" class="person" :aria-label="$t('Personne chargée de la ligne')">
+      <Select v-if="showPeople" :model-value="newUserId ?? 0" :options="personOptions" option-label="name" option-value="id" size="small" class="person" :aria-label="$t('Personne chargée de la ligne')" @update:model-value="(userId: number) => (newUserId = userId || null)">
         <template #value="{ value }">
-          <UserAvatar v-if="value" :user="project.usersById.get(value)" />
-          <i v-else class="pi pi-user-plus muted"></i>
+          <UserAvatar v-if="value" :user="project.usersById.get(value)" size="small" />
+          <i v-else class="pi pi-user-plus muted no-one"></i>
         </template>
-        <template #option="{ option }"><span class="option"><UserAvatar :user="option" size="small" /> {{ option.name }}</span></template>
+        <template #option="{ option }">
+          <span class="option"><UserAvatar v-if="option.id" :user="option" size="small" /><i v-else class="pi pi-user-minus muted"></i> {{ option.name }}</span>
+        </template>
       </Select>
       <InputText ref="noteField" v-model="newNote" size="small" :placeholder="$t('Ce qu’il y a à faire…')" :maxlength="LIMITS.partNoteMax" fluid :aria-label="$t('Texte de la ligne')" @keydown.esc.stop="stopAdding" />
       <Button type="submit" icon="pi pi-check" size="small" :disabled="!canAdd" :loading="saving" :aria-label="$t('Ajouter')" />
@@ -259,22 +274,26 @@ function onDrop(target: PartDTO): void {
 .list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.1rem;
   margin: 0;
   padding: 0;
   list-style: none;
+  container-type: inline-size;
 }
 .part {
   display: grid;
-  grid-template-columns: auto minmax(7rem, 11rem) 1fr auto auto;
+  grid-template-columns: auto minmax(0, 1fr) minmax(8rem, 11rem) 1.5rem;
   align-items: center;
-  gap: 0.25rem 0.75rem;
-  padding: 0.45rem 0.65rem;
-  border-radius: 8px;
+  gap: 0.1rem 0.5rem;
+  min-height: 2rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 6px;
+}
+.part:hover {
   background: var(--fb-panel-alt);
 }
 .part.done {
-  background: color-mix(in srgb, #22c55e 10%, transparent);
+  background: color-mix(in srgb, #22c55e 9%, transparent);
 }
 .part.dragging {
   opacity: 0.4;
@@ -282,74 +301,129 @@ function onDrop(target: PartDTO): void {
 .lead {
   display: flex;
   align-items: center;
-  gap: 0.35rem;
-  min-height: 2rem;
+  gap: 0.15rem;
+}
+/* Ce qui agit sur la ligne n'apparaît qu'à son survol : au repos, on ne lit que le texte et la barre. */
+.handle,
+.remove {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.part:hover .handle,
+.part:hover .remove,
+.part:hover :deep(.edit-btn),
+.part:focus-within .handle,
+.part:focus-within .remove,
+.part:focus-within :deep(.edit-btn) {
+  opacity: 1;
+}
+@media (hover: none) {
+  .handle,
+  .remove {
+    opacity: 1;
+  }
 }
 .handle {
+  width: 0.75rem;
   color: var(--fb-muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   cursor: grab;
 }
 .person {
   width: auto;
-  min-width: 2.6rem;
+  min-width: 0;
   border-color: transparent;
   background: transparent;
   box-shadow: none;
+  cursor: pointer;
 }
+/* PrimeVue coupe ce qui dépasse du libellé : l'anneau d'une ligne terminée doit pouvoir déborder. */
 .person :deep(.p-select-label) {
   display: flex;
   align-items: center;
-  padding: 0.1rem 0.25rem;
+  padding: 0.1rem;
+  overflow: visible;
 }
+/* L'avatar suffit à ouvrir la liste. */
 .person :deep(.p-select-dropdown) {
-  width: 1.1rem;
+  display: none;
+}
+.no-one {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 0.8rem;
 }
 .option {
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
-.note {
-  grid-column: 1 / -1;
-  margin-left: 2.75rem;
+.body {
+  min-width: 0;
+  font-size: 0.86rem;
+  line-height: 1.4;
 }
 .who {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 0.35rem;
-  min-width: 0;
-}
-.done-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.82rem;
+  margin-right: 0.35rem;
   font-weight: 600;
+}
+.you {
+  margin-left: 0.25rem;
+  font-weight: 400;
+}
+.when {
+  margin-left: 0.25rem;
+  font-size: 0.76rem;
   white-space: nowrap;
+}
+.part.done .body {
+  color: var(--fb-muted);
+}
+.slider :deep(.percent) {
+  font-size: 0.78rem;
+}
+.remove {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--fb-muted);
+  font-size: 0.7rem;
   cursor: pointer;
 }
-.done-toggle.disabled {
-  cursor: default;
-  opacity: 0.7;
+.remove:hover {
+  background: color-mix(in srgb, var(--fb-danger) 14%, transparent);
+  color: var(--fb-danger);
+}
+/* Le texte en cours d'édition prend toute la largeur, sous la ligne. */
+.part:has(.edit) .body {
+  grid-row: 2;
+  grid-column: 1 / -1;
+  padding: 0.2rem 0 0.4rem;
 }
 .add-line {
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
-@media (max-width: 700px) {
+/* Panneau étroit : la barre passe sous le texte. */
+@container (max-width: 30rem) {
   .part {
-    grid-template-columns: auto 1fr auto auto;
+    grid-template-columns: auto minmax(0, 1fr) 1.5rem;
+    padding-block: 0.25rem;
   }
   .slider {
+    grid-row: 2;
     grid-column: 1 / -1;
-    order: 4;
   }
-  .note {
-    order: 5;
-    margin-left: 0;
+  .part:has(.edit) .body {
+    grid-row: 3;
   }
 }
 </style>

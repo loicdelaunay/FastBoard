@@ -34,6 +34,8 @@ const EXACT: Record<string, string> = {
   "Seul le premier commentaire d’un fil se résout.": "Only the first comment of a thread can be resolved.",
   "Archive trop volumineuse.": "Archive too large.",
   "Archive ZIP illisible.": "Unreadable ZIP archive.",
+  "Format non pris en charge : choisissez un fichier .md, une image ou un ZIP.": "Unsupported format: choose a .md file, an image or a ZIP.",
+  "Fichier invalide ou trop volumineux.": "Invalid or too large file.",
   "Import introuvable ou expiré : relancez-le.": "Import not found or expired: start it again.",
   "Donnez un nom à l’espace.": "Give the space a name.",
   "Une ligne a besoin d’un texte ou d’une personne.": "A line needs a text or a person.",

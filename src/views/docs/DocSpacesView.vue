@@ -47,7 +47,7 @@ const menuItems = computed<MenuItem[]>(() => {
     { label: t('Ouvrir'), icon: 'pi pi-folder-open', command: () => open(space) },
     { separator: true },
     { label: t('Exporter l’espace en ZIP'), icon: 'pi pi-download', command: () => downloadFrom(`/api/documentation/spaces/${space.id}/export`) },
-    ...(docRoleAtLeast(space.role, 'editor') ? [{ label: t('Réimporter un ZIP'), icon: 'pi pi-upload', command: () => (importOpen.value = true) }] : []),
+    ...(docRoleAtLeast(space.role, 'editor') ? [{ label: t('Importer un .md ou un ZIP'), icon: 'pi pi-upload', command: () => (importOpen.value = true) }] : []),
   ];
 });
 

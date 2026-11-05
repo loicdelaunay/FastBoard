@@ -223,7 +223,7 @@ export const useAiStore = defineStore('ai', () => {
     if (!content || busy.value) return;
     const attached = model.value?.vision ? images : [];
     const messages: AiMessage[] = [...history.value, { role: 'user', content, ...(attached.length ? { images: attached } : {}), ...(files.length ? { files } : {}) }];
-    if (!turns.value.length) conversationContext.value = { projectId: context.projectId ?? null, ticketId: context.ticketId ?? null };
+    if (!turns.value.length) conversationContext.value = { projectId: context.projectId ?? null, ticketId: context.ticketId ?? null, docSpaceId: context.docSpaceId ?? null, docNodeId: context.docNodeId ?? null };
     turns.value.push({ id: nextId++, role: 'user', content, images: attached, ...(files.length ? { files } : {}), steps: [] });
     turns.value.push({ id: nextId++, role: 'assistant', content: '', steps: [], edits: [] });
     // L'objet réactif (et non l'objet brut) : ses modifications pendant le flux s'affichent.

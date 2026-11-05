@@ -312,7 +312,7 @@ export const partCreateSchema = z.object({
   userId: nullableId.optional().describe('Membre du projet chargé de la ligne (facultatif).'),
 });
 export const partPatchSchema = partCreateSchema.extend({
-  done: z.boolean().optional().describe('Ligne terminée.'),
+  done: z.boolean().optional().describe('Ligne terminée. `progress` à 100 revient au même ; donné aussi, c’est `progress` qui décide.'),
   progress: percent.optional().describe('Avancement de la ligne (%).'),
   position: z.number().int().min(0).max(1000).optional().describe('Nouveau rang (0 = première).'),
 });
@@ -361,6 +361,15 @@ export const activityQuerySchema = z.object({
   ticketId: z.coerce.number().int().positive().optional().describe('Uniquement les évènements de ce ticket.'),
 });
 
+const aiContextSchema = z
+  .object({
+    projectId: id.nullable().optional(),
+    ticketId: id.nullable().optional(),
+    docSpaceId: id.nullable().optional().describe('Espace de documentation ouvert.'),
+    docNodeId: id.nullable().optional().describe('Note ouverte.'),
+  })
+  .default({});
+
 export const aiChatSchema = z.object({
   messages: z
     .array(
@@ -389,7 +398,7 @@ export const aiChatSchema = z.object({
     .min(1)
     .max(AI_LIMITS.messages)
     .refine((messages) => messages.at(-1)?.role === 'user', 'Le dernier message doit venir de la personne.'),
-  context: z.object({ projectId: id.nullable().optional(), ticketId: id.nullable().optional() }).default({}),
+  context: aiContextSchema,
   allowWrite: z.boolean().default(false).describe("Autorise l'assistant à modifier (si la personne en a le droit)."),
   writeMode: z.enum(['apply', 'propose']).default('apply').describe('`apply` : modifications faites directement ; `propose` : proposées, à valider par la personne.'),
   model: z.string().max(300).optional().describe('Référence d’un modèle mis à disposition (`GET /ai/models` → `ref`) ; absent = modèle par défaut.'),
@@ -440,7 +449,7 @@ export const aiProbeSchema = z.object({
 
 export const aiConversationSchema = z.object({
   title: z.string().trim().min(1).max(120),
-  context: z.object({ projectId: id.nullable().optional(), ticketId: id.nullable().optional() }).default({}),
+  context: aiContextSchema,
   turns: z.array(z.unknown()).max(AI_LIMITS.messages * 2).describe('Tours affichés dans le panneau (format de l’interface).'),
 });
 
@@ -501,6 +510,8 @@ export const docNodeSchema = z.object({
 });
 export const docMoveSchema = z.object({ path: z.string().min(1).max(1000).describe('Nouveau chemin (renommage ou déplacement).') });
 export const docContentSchema = z.object({ content: z.string().max(DOC_LIMITS.fileChars) });
+export const docRestoreSchema = z.object({ content: z.string().max(DOC_LIMITS.fileChars).optional().describe('Texte final, si l’on ne reprend qu’une partie de la version ; absent : la version entière.') });
+export const docImportCompareSchema = z.object({ path: z.string().min(1).max(1000).describe('Chemin du fichier, tel que renvoyé par l’analyse.') });
 export const docCommentSchema = z.object({
   body: z.string().trim().min(1).max(DOC_COMMENT_LIMITS.body).describe('Texte du commentaire ; `@[Nom](user:12)` mentionne une personne.'),
   quote: z.string().max(DOC_COMMENT_LIMITS.quote).default('').describe('Passage commenté, sans sa syntaxe Markdown (vide pour une réponse).'),
@@ -516,7 +527,7 @@ export const docImportApplySchema = z.object({
       z.object({
         path: z.string().min(1).max(1000),
         action: z.enum(['auto', 'keep', 'incoming', 'both', 'delete']).describe('`auto` : résultat proposé ; `keep` : garder le serveur ; `incoming` : prendre l’import ; `both` : garder les deux ; `delete` : supprimer du serveur.'),
-        content: z.string().max(DOC_LIMITS.fileChars).optional().describe('Texte final d’un conflit résolu à la main.'),
+        content: z.string().max(DOC_LIMITS.fileChars).optional().describe('Texte final, choisi dans le comparateur (avec `auto`).'),
       }),
     )
     .max(DOC_LIMITS.zipFiles),

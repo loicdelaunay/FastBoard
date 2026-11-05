@@ -5,7 +5,7 @@ import { docBaseName, DOC_LIMITS, docRoleAtLeast, type DocRole } from '../../sha
 import type { AppContext } from '../context.ts';
 import { commentNode, createComment, deleteComment, listComments, resolveComment } from '../docs/comments.ts';
 import { noteLinks } from '../docs/links.ts';
-import { applyImport, exportFile, exportSpace, previewFileImport, previewImport } from '../docs/transfer.ts';
+import { applyImport, compareImport, exportFile, exportSpace, previewFileImport, previewImport } from '../docs/transfer.ts';
 import {
   createNode,
   createSpace,
@@ -38,7 +38,7 @@ import {
 } from '../docs/store.ts';
 import { badRequest, conflict, notFound } from '../http/errors.ts';
 import { actorOf, csrfGuard, currentUser, requireAuth, sessionOnly } from '../http/middleware.ts';
-import { docCommentResolveSchema, docCommentSchema, docContentSchema, docImportApplySchema, docMemberRoleSchema, docMemberSchema, docMoveSchema, docNodeSchema, docSearchSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema } from '../http/schemas.ts';
+import { docCommentResolveSchema, docCommentSchema, docContentSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal } from '../services/access.ts';
 import { appInfo } from '../services/appSettings.ts';
@@ -74,10 +74,10 @@ export function documentationUploadRouter(ctx: AppContext): Router {
     const user = currentUser(res);
     requireSpace(ctx, user, spaceId, 'editor');
     const body = req.body as unknown;
-    if (!Buffer.isBuffer(body) || body.length === 0) throw badRequest('Archive vide.');
+    if (!Buffer.isBuffer(body) || body.length === 0) throw badRequest('Fichier vide.');
     const folder = typeof req.query.folder === 'string' ? req.query.folder : '';
     if (folder && findNodeByPath(ctx.db, spaceId, folder)?.kind !== 'folder') throw notFound('Dossier introuvable.');
-    res.json(previewImport(ctx, user.id, spaceId, body, folder));
+    res.json(previewImport(ctx, user.id, spaceId, body, folder, decodedName(req.get(FILE_NAME_HEADER))));
   });
 
   router.post('/documentation/nodes/:id/import', csrfGuard(ctx), requireAuth(ctx), raw(DOC_LIMITS.imageBytes), (req, res) => {
@@ -203,6 +203,13 @@ export function documentationRouter(ctx: AppContext): Router {
     sendZip(res, getSpace(ctx, user, spaceId).name, exportSpace(ctx, user.id, spaceId, { remember: docRoleAtLeast(role, 'editor') }));
   });
 
+  router.get('/documentation/spaces/:id/import/:importId/compare', (req, res) => {
+    const spaceId = idParam(req.params.id);
+    const user = currentUser(res);
+    requireSpace(ctx, user, spaceId, 'editor');
+    res.json(compareImport(ctx, user.id, spaceId, String(req.params.importId), parse(docImportCompareSchema, req.query).path));
+  });
+
   router.post('/documentation/spaces/:id/import/:importId/apply', (req, res) => {
     const spaceId = idParam(req.params.id);
     requireSpace(ctx, currentUser(res), spaceId, 'editor');
@@ -320,7 +327,7 @@ export function documentationRouter(ctx: AppContext): Router {
   router.post('/documentation/versions/:id/restore', (req, res) => {
     const version = requireVersion(ctx.db, idParam(req.params.id));
     const node = activeNote(res, version.node_id, 'editor');
-    writeContent(ctx, actorOf(req, res), node, version.content, 'restore');
+    writeContent(ctx, actorOf(req, res), node, parse(docRestoreSchema, req.body ?? {}).content ?? version.content, 'restore');
     res.json({ ok: true });
   });
 

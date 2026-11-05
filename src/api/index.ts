@@ -1,6 +1,6 @@
 import { FILE_NAME_HEADER, type TicketStatus } from '@shared/constants';
 import type { RoleScope, PermissionDef } from '@shared/permissions';
-import type { DocImportAction, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocRole, DocSearchHitDTO, DocSpaceDTO, DocVersionDTO } from '@shared/docs';
+import type { DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocRole, DocSearchHitDTO, DocSpaceDTO, DocVersionDTO } from '@shared/docs';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
 import type { LdapFields, LdapSettingsDTO, LdapTestResultDTO } from '@shared/ldap';
 import type { Locale } from '@shared/locales';
@@ -341,17 +341,19 @@ export const api = {
   docSetMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('PATCH', `/documentation/spaces/${spaceId}/members/${userId}`, { body: { role } }),
   docRemoveMember: (spaceId: number, userId: number) => http<{ members: DocMemberDTO[] }>('DELETE', `/documentation/spaces/${spaceId}/members/${userId}`),
   docTrash: (spaceId: number) => http<{ nodes: DocNodeDTO[] }>('GET', `/documentation/spaces/${spaceId}/trash`),
-  docCreateNode: (spaceId: number, path: string, kind: 'folder' | 'markdown') => http<{ node: DocNodeDTO }>('POST', `/documentation/spaces/${spaceId}/nodes`, { body: { path, kind } }),
+  docCreateNode: (spaceId: number, path: string, kind: 'folder' | 'markdown', content?: string) => http<{ node: DocNodeDTO }>('POST', `/documentation/spaces/${spaceId}/nodes`, { body: { path, kind, ...(content === undefined ? {} : { content }) } }),
   docNode: (nodeId: number) => http<{ node: DocNodeDTO; role: DocRole; content: string | null }>('GET', `/documentation/nodes/${nodeId}`),
+  docSetContent: (nodeId: number, content: string) => http<{ ok: true }>('PUT', `/documentation/nodes/${nodeId}/content`, { body: { content } }),
   docMoveNode: (nodeId: number, path: string) => http<{ node: DocNodeDTO }>('PATCH', `/documentation/nodes/${nodeId}`, { body: { path } }),
   docDeleteNode: (nodeId: number) => http<{ ok: true }>('DELETE', `/documentation/nodes/${nodeId}`),
   docRestoreNode: (nodeId: number) => http<{ node: DocNodeDTO }>('POST', `/documentation/nodes/${nodeId}/restore`, { body: {} }),
   docVersions: (nodeId: number) => http<{ versions: DocVersionDTO[]; retentionDays: number }>('GET', `/documentation/nodes/${nodeId}/versions`),
   docVersion: (versionId: number) => http<{ content: string; createdAt: string }>('GET', `/documentation/versions/${versionId}`),
-  docRestoreVersion: (versionId: number) => http<{ ok: true }>('POST', `/documentation/versions/${versionId}/restore`, { body: {} }),
+  docRestoreVersion: (versionId: number, content?: string) => http<{ ok: true }>('POST', `/documentation/versions/${versionId}/restore`, { body: content === undefined ? {} : { content } }),
   docSearch: (q: string) => http<{ files: DocSearchHitDTO[] }>('GET', `/documentation/search?q=${encodeURIComponent(q)}`),
   docApplyImport: (spaceId: number, importId: string, decisions: Array<{ path: string; action: DocImportAction; content?: string }>) =>
     http<{ written: number; deleted: number }>('POST', `/documentation/spaces/${spaceId}/import/${importId}/apply`, { body: { decisions } }),
+  docImportCompare: (spaceId: number, importId: string, path: string) => http<DocImportCompareDTO>('GET', `/documentation/spaces/${spaceId}/import/${importId}/compare?path=${encodeURIComponent(path)}`),
   docImportPreview: (spaceId: number, file: File, folder = '') => uploadDocFile<DocImportPreviewDTO>(`/documentation/spaces/${spaceId}/import${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`, file),
   docFileImportPreview: (nodeId: number, file: File) => uploadDocFile<DocImportPreviewDTO>(`/documentation/nodes/${nodeId}/import`, file),
   docLinks: (nodeId: number) => http<DocLinksDTO>('GET', `/documentation/nodes/${nodeId}/links`),

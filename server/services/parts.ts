@@ -8,7 +8,7 @@ import { watchTicket } from './notifications.ts';
 import type { PartRow } from './rows.ts';
 import { assertMembers, insertPart, POSITION_STEP, publishTicketChange, reconcileStatus, requireTicket, touchTicket, truncate, userRef } from './tickets.ts';
 
-/** Lignes d'avancement d'un ticket : un texte, une personne facultative, un pourcentage, terminée ou non. */
+/** Lignes d'avancement d'un ticket : un texte, une personne facultative, un pourcentage. À 100 %, la ligne est terminée. */
 
 export interface PartCreate {
   note?: string;
@@ -92,8 +92,9 @@ export function updatePart(ctx: AppContext, actor: Actor, partId: number, patch:
     if (!note && userId === null) throw badRequest(EMPTY_LINE);
     const userChanged = userId !== row.user_id;
     if (userChanged && userId !== null) assertMembers(db, ticket.project_id, [userId]);
-    const done = patch.done ?? row.done === 1;
-    const progress = patch.progress ?? row.progress;
+    // Terminée et 100 %, c'est tout un : un pourcentage donné décide, et une ligne rouverte quitte les 100 %.
+    const done = patch.progress !== undefined ? patch.progress >= 100 : (patch.done ?? row.done === 1);
+    const progress = patch.progress ?? (!done && row.progress >= 100 ? 0 : row.progress);
     const doneChanged = done !== (row.done === 1);
     const before = peopleOf(db, row.ticket_id);
     const position = patch.position === undefined ? row.position : reorder(db, row, patch.position);

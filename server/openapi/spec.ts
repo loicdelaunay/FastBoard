@@ -610,10 +610,10 @@ const OPERATIONS: Operation[] = [
     path: '/documentation/spaces/{id}/import',
     tag: 'Espaces de documentation',
     permission: 'éditeur de l’espace',
-    summary: 'Analyser un ZIP avant import',
-    description: "**Le corps de la requête est l'archive** (octets bruts). `?folder=` la place dans un dossier de l'espace. Rien n'est écrit : la réponse indique le sort de chaque fichier (`new`, `same`, `updated`, `kept`, `merged`, `conflict`, `removed`), à confirmer avec `POST …/import/{importId}/apply` sous 30 minutes.",
+    summary: 'Analyser un ZIP ou un fichier avant import',
+    description: "**Le corps de la requête est l'archive** (octets bruts), ou un fichier seul (`.md`, image) nommé par l'en-tête `X-File-Name` : il devient une nouvelle note, ou la mise à jour de celle qui porte son nom. `?folder=` place le tout dans un dossier de l'espace. Rien n'est écrit : la réponse indique le sort de chaque fichier (`new`, `same`, `updated`, `kept`, `merged`, `conflict`, `removed`), à confirmer avec `POST …/import/{importId}/apply` sous 30 minutes.",
     params: DOC_SPACE_ID,
-    rawBody: { contentType: 'application/zip', description: 'Archive ZIP (100 Mo maximum).' },
+    rawBody: { contentType: 'application/zip', description: 'Archive ZIP (100 Mo maximum), ou fichier seul.' },
     ok: obj({ importId: str(), entries: arr({ type: 'object', description: 'path, kind, status, merged' }), ignored: arr(str()) }),
   },
   {
@@ -633,6 +633,7 @@ const OPERATIONS: Operation[] = [
   { method: 'post', path: '/documentation/nodes/{id}/comments', tag: 'Espaces de documentation', summary: 'Commenter un passage', description: 'Ouvert à tous les membres, lecteurs compris. Les personnes mentionnées qui ont accès à l’espace sont prévenues.', params: DOC_NODE_ID, body: S.docCommentSchema, status: 201, ok: obj({ comment: ref('DocComment') }) },
   { method: 'patch', path: '/documentation/comments/{id}', tag: 'Espaces de documentation', summary: 'Résoudre ou rouvrir un fil', params: { id: 'Identifiant du commentaire.' }, body: S.docCommentResolveSchema, ok: obj({ comment: ref('DocComment') }) },
   { method: 'delete', path: '/documentation/comments/{id}', tag: 'Espaces de documentation', permission: 'auteur ou propriétaire de l’espace', summary: 'Supprimer un commentaire', description: 'Ses réponses disparaissent avec lui.', params: { id: 'Identifiant du commentaire.' }, ok: obj({ ok: bool() }) },
+  { method: 'get', path: '/documentation/spaces/{id}/import/{importId}/compare', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Versions d’une note importée', description: 'Le texte du serveur, celui de l’import et le texte exporté d’où ils sont partis, s’il est encore connu : de quoi les comparer et choisir bloc par bloc.', params: { ...DOC_SPACE_ID, importId: 'Identifiant renvoyé par l’analyse.' }, query: S.docImportCompareSchema, ok: obj({ server: nullable(str()), incoming: nullable(str()), base: nullable(str()) }) },
   { method: 'post', path: '/documentation/spaces/{id}/import/{importId}/apply', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Appliquer un import', params: { ...DOC_SPACE_ID, importId: 'Identifiant renvoyé par l’analyse.' }, body: S.docImportApplySchema, ok: obj({ written: int(), deleted: int() }) },
   {
     method: 'post',
@@ -655,7 +656,7 @@ const OPERATIONS: Operation[] = [
   { method: 'post', path: '/documentation/nodes/{id}/restore', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Sortir un fichier de la corbeille', params: DOC_NODE_ID, ok: obj({ node: ref('DocNode') }) },
   { method: 'get', path: '/documentation/nodes/{id}/versions', tag: 'Espaces de documentation', summary: 'Historique d’une note (15 jours)', params: DOC_NODE_ID, ok: obj({ versions: arr(ref('DocVersion')), retentionDays: int() }) },
   { method: 'get', path: '/documentation/versions/{id}', tag: 'Espaces de documentation', summary: 'Texte d’une version', params: { id: 'Identifiant de la version.' }, ok: obj({ content: str(), createdAt: dateTime() }) },
-  { method: 'post', path: '/documentation/versions/{id}/restore', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Restaurer une version', params: { id: 'Identifiant de la version.' }, ok: obj({ ok: bool() }) },
+  { method: 'post', path: '/documentation/versions/{id}/restore', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Restaurer une version', description: 'La version entière, ou le texte choisi bloc par bloc dans le comparateur (`content`).', params: { id: 'Identifiant de la version.' }, body: S.docRestoreSchema, ok: obj({ ok: bool() }) },
   { method: 'get', path: '/documentation/search', tag: 'Espaces de documentation', summary: 'Chercher une note par son chemin', query: S.docSearchSchema, ok: obj({ files: arr({ type: 'object', description: 'id, spaceId, spaceName, path, title' }) }) },
 
   // --- Lignes d'avancement et dépendances -------------------------------------------------------------------------------

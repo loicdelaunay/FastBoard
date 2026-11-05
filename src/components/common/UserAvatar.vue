@@ -19,7 +19,7 @@ const background = computed(() => (props.user ? avatarColor(props.user.id) : '#9
 </script>
 
 <template>
-  <span class="user-avatar" :class="[`ring-${ring}`]" :title="user?.name ?? $t('Utilisateur supprimé')">
+  <span class="user-avatar" :class="[`ring-${ring}`, { small: size === 'small' }]" :title="user?.name ?? $t('Utilisateur supprimé')">
     <Avatar
       :image="image ?? undefined"
       :label="image ? undefined : label"
@@ -48,5 +48,10 @@ const background = computed(() => (props.user ? avatarColor(props.user.id) : '#9
 }
 .ring-online {
   box-shadow: 0 0 0 2px var(--fb-panel), 0 0 0 4px #22c55e;
+}
+/* Un anneau proportionné au petit format, qui tient dans une ligne compacte. */
+.small.ring-done,
+.small.ring-online {
+  box-shadow: 0 0 0 1px var(--fb-panel), 0 0 0 3px #22c55e;
 }
 </style>

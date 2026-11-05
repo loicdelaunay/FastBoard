@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { gunzipSync, gzipSync, strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
-import { docFileKind, DOC_LIMITS, normalizeDocPath } from '../../shared/docs.ts';
-import type { DocImportAction, DocImportEntryDTO, DocImportPreviewDTO, DocImportStatus } from '../../shared/docs.ts';
+import { normalizeEol } from '../../shared/docDiff.ts';
+import { docBaseName, docFileKind, DOC_LIMITS, normalizeDocPath } from '../../shared/docs.ts';
+import type { DocImportAction, DocImportCompareDTO, DocImportEntryDTO, DocImportPreviewDTO, DocImportStatus } from '../../shared/docs.ts';
 import { isInlineImage, sniffImageMime } from '../../shared/attachments.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { nowIso } from '../db/database.ts';
@@ -22,6 +23,8 @@ const IMPORT_TTL_MS = 30 * 60 * 1000;
 interface PendingEntry extends DocImportEntryDTO {
   /** Contenu du ZIP. */
   incoming: string | Uint8Array | null;
+  /** Texte exporté d'où viennent le serveur et l'import, s'il est connu. */
+  base: string | null;
 }
 
 interface PendingImport {
@@ -195,27 +198,41 @@ function analyseFile(ctx: AppContext, spaceId: number, relative: string, bytes: 
   const node = findNodeByPath(ctx.db, spaceId, relative);
   if (docFileKind(relative) === 'markdown') {
     if (bytes.length > DOC_LIMITS.fileChars * 4) return null;
-    const incoming = strFromU8(bytes);
-    const { status, merged } = analyseText(node ? readText(ctx, node) : null, base, incoming);
-    return { path: relative, kind: 'markdown', status, merged, incoming };
+    const incoming = normalizeEol(strFromU8(bytes));
+    const origin = base === undefined ? undefined : normalizeEol(base);
+    const { status, merged } = analyseText(node ? normalizeEol(readText(ctx, node)) : null, origin, incoming);
+    return { path: relative, kind: 'markdown', status, merged, incoming, base: origin ?? null };
   }
   const mime = sniffImageMime(bytes.subarray(0, 16));
   if (!mime || !isInlineImage(mime) || bytes.length > DOC_LIMITS.imageBytes) return null;
   const current = node ? readBytes(ctx, node) : null;
   const status: DocImportStatus = !current ? 'new' : current.equals(bytes) ? 'same' : 'conflict';
-  return { path: relative, kind: 'image', status, merged: null, incoming: bytes };
+  return { path: relative, kind: 'image', status, merged: null, incoming: bytes, base: null };
 }
 
 function register(userId: number, spaceId: number, entries: Map<string, PendingEntry>, folders: string[], ignored: string[]): DocImportPreviewDTO {
   const importId = randomUUID();
   pending.set(importId, { userId, spaceId, expiresAt: Date.now() + IMPORT_TTL_MS, entries, folders });
-  return { importId, entries: [...entries.values()].map(({ incoming: _incoming, ...entry }) => entry).sort((a, b) => a.path.localeCompare(b.path)), ignored };
+  return { importId, entries: [...entries.values()].map(({ incoming: _incoming, base: _base, ...entry }) => entry).sort((a, b) => a.path.localeCompare(b.path)), ignored };
 }
 
-/** Analyse un ZIP importé dans un espace, ou dans l'un de ses dossiers. */
-export function previewImport(ctx: AppContext, userId: number, spaceId: number, data: Uint8Array, folder = ''): DocImportPreviewDTO {
+const isZip = (data: Uint8Array): boolean => data[0] === 0x50 && data[1] === 0x4b;
+
+/** Un fichier seul, déposé dans un dossier : nouveau, ou mise à jour de la note qui porte son nom. */
+function previewLooseFile(ctx: AppContext, userId: number, spaceId: number, data: Uint8Array, folder: string, name: string): DocImportPreviewDTO {
+  const relative = normalizeDocPath([folder, docBaseName(name.replace(/\\/g, '/'))].filter(Boolean).join('/'));
+  if (!relative || !docFileKind(relative)) throw badRequest('Format non pris en charge : choisissez un fichier .md, une image ou un ZIP.');
+  const base = originalTexts(ctx, userId, spaceId, null, [relative]);
+  const entry = analyseFile(ctx, spaceId, relative, data, base.get(relative));
+  if (!entry) throw badRequest('Fichier invalide ou trop volumineux.');
+  return register(userId, spaceId, new Map([[relative, entry]]), [], []);
+}
+
+/** Analyse ce qu'on importe dans un espace, ou dans l'un de ses dossiers : un ZIP, ou un fichier seul nommé `name`. */
+export function previewImport(ctx: AppContext, userId: number, spaceId: number, data: Uint8Array, folder = '', name = ''): DocImportPreviewDTO {
   forgetExpired();
   ctx.docRooms.flushSpace(spaceId);
+  if (name && !isZip(data)) return previewLooseFile(ctx, userId, spaceId, data, folder, name);
   const { files, folders, ignored, exportId } = readArchive(ctx, spaceId, data, folder);
   const base = originalTexts(ctx, userId, spaceId, exportId, [...files.keys()]);
   const entries = new Map<string, PendingEntry>();
@@ -228,7 +245,7 @@ export function previewImport(ctx: AppContext, userId: number, spaceId: number, 
   for (const relative of base.keys()) {
     if (folder && !relative.startsWith(`${folder}/`)) continue;
     const node = findNodeByPath(ctx.db, spaceId, relative);
-    if (node && !files.has(node.path)) entries.set(node.path, { path: node.path, kind: 'markdown', status: 'removed', merged: null, incoming: null });
+    if (node && !files.has(node.path)) entries.set(node.path, { path: node.path, kind: 'markdown', status: 'removed', merged: null, incoming: null, base: base.get(relative) ?? null });
   }
   return register(userId, spaceId, entries, folders, ignored);
 }
@@ -243,17 +260,34 @@ export function previewFileImport(ctx: AppContext, userId: number, node: NodeRow
   return register(userId, node.space_id, new Map([[node.path, entry]]), [], []);
 }
 
+function pendingImport(spaceId: number, userId: number | null, importId: string): PendingImport {
+  forgetExpired();
+  const plan = pending.get(importId);
+  if (!plan || plan.spaceId !== spaceId || plan.userId !== userId) throw notFound('Import introuvable ou expiré : relancez-le.');
+  return plan;
+}
+
+/** Les versions d'une note importée, pour le comparateur. */
+export function compareImport(ctx: AppContext, userId: number, spaceId: number, importId: string, relative: string): DocImportCompareDTO {
+  const entry = pendingImport(spaceId, userId, importId).entries.get(relative);
+  if (!entry || entry.kind !== 'markdown') throw notFound('Fichier introuvable.');
+  const node = findNodeByPath(ctx.db, spaceId, relative);
+  return {
+    server: node ? normalizeEol(ctx.docRooms.currentText(node.id) ?? readText(ctx, node)) : null,
+    incoming: typeof entry.incoming === 'string' ? entry.incoming : null,
+    base: entry.base,
+  };
+}
+
 export interface ImportDecision {
   path: string;
   action: DocImportAction;
-  /** Texte final d'un conflit résolu à la main. */
+  /** Texte final, choisi dans le comparateur. */
   content?: string;
 }
 
 export function applyImport(ctx: AppContext, actor: Actor, spaceId: number, importId: string, decisions: ImportDecision[]): { written: number; deleted: number } {
-  forgetExpired();
-  const plan = pending.get(importId);
-  if (!plan || plan.spaceId !== spaceId || plan.userId !== actor.userId) throw notFound('Import introuvable ou expiré : relancez-le.');
+  const plan = pendingImport(spaceId, actor.userId, importId);
   let written = 0;
   let deleted = 0;
   for (const folder of plan.folders) putImportedFolder(ctx, actor, spaceId, folder);

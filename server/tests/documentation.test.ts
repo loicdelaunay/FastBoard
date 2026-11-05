@@ -276,6 +276,21 @@ describe('documentation', () => {
     assert.equal(await contentOf(bob, kept.id), 'a', 'le fichier lui-même reste');
   });
 
+  it('restaure une version entière, ou le résultat choisi bloc par bloc', async () => {
+    const spaceId = await newSpace('Versions partielles');
+    await bob.post(`/api/documentation/spaces/${spaceId}/members`, { userId: ids.vera, role: 'reader' });
+    const { node } = (await bob.post(`/api/documentation/spaces/${spaceId}/nodes`, { path: 'Versions partielles', kind: 'markdown', content: 'A\nB' })).body;
+    await bob.request('PUT', `/api/documentation/nodes/${node.id}/content`, { content: 'A2\nB2' });
+    const { versions } = (await bob.get(`/api/documentation/nodes/${node.id}/versions`)).body as { versions: DocVersionDTO[] };
+    const first = versions.at(-1)!;
+    assert.equal((await vera.post(`/api/documentation/versions/${first.id}/restore`, { content: 'pirate' })).status, 403);
+    assert.equal((await bob.post(`/api/documentation/versions/${first.id}/restore`, { content: 'A\nB2' })).status, 200);
+    assert.equal((await bob.get(`/api/documentation/nodes/${node.id}`)).body.content, 'A\nB2');
+    assert.equal((await bob.get(`/api/documentation/nodes/${node.id}/versions`)).body.versions[0].origin, 'restore');
+    assert.equal((await bob.post(`/api/documentation/versions/${first.id}/restore`, {})).status, 200);
+    assert.equal((await bob.get(`/api/documentation/nodes/${node.id}`)).body.content, 'A\nB');
+  });
+
   it('prévient les membres mentionnés, une seule fois', async () => {
     const spaceId = await newSpace('Mentions');
     await bob.post(`/api/documentation/spaces/${spaceId}/members`, { userId: ids.vera, role: 'reader' });
@@ -457,6 +472,51 @@ describe('documentation', () => {
       assert.deepEqual(paths, ['images', 'images/a.png', 'note (import).md', 'note.md']);
     });
 
+    it('reçoit un .md seul : nouvelle note, ou mise à jour de celle qui porte son nom', async () => {
+      const spaceId = await newSpace('Fichier seul');
+      await bob.post(`/api/documentation/spaces/${spaceId}/nodes`, { path: 'Dossier', kind: 'folder' });
+      const send = (body: string, name: string, folder = 'Dossier') =>
+        bob.raw('POST', `/api/documentation/spaces/${spaceId}/import?folder=${folder}`, Buffer.from(body), { 'Content-Type': 'text/markdown', 'X-File-Name': encodeURIComponent(name) });
+
+      const fresh = (await send('Bonjour', 'Déposée.md')).json as DocImportPreviewDTO;
+      assert.deepEqual(fresh.entries.map((entry) => [entry.path, entry.status]), [['Dossier/Déposée.md', 'new']]);
+      await bob.post(`/api/documentation/spaces/${spaceId}/import/${fresh.importId}/apply`, { decisions: [{ path: 'Dossier/Déposée.md', action: 'auto' }] });
+
+      const other = (await send('Bonjour\net la suite', 'Déposée.md')).json as DocImportPreviewDTO;
+      assert.equal(other.entries[0]!.status, 'conflict', 'sans export d’origine, chaque écart se tranche');
+      const compare = await bob.get(`/api/documentation/spaces/${spaceId}/import/${other.importId}/compare?path=${encodeURIComponent('Dossier/Déposée.md')}`);
+      assert.deepEqual(compare.body, { server: 'Bonjour', incoming: 'Bonjour\net la suite', base: null });
+      assert.equal((await eve.get(`/api/documentation/spaces/${spaceId}/import/${other.importId}/compare?path=x`)).status, 404, 'un autre compte ne voit pas cet import');
+      assert.equal((await bob.get(`/api/documentation/spaces/${spaceId}/import/${other.importId}/compare?path=Inconnu.md`)).status, 404);
+
+      // Le texte final vient du comparateur.
+      await bob.post(`/api/documentation/spaces/${spaceId}/import/${other.importId}/apply`, { decisions: [{ path: 'Dossier/Déposée.md', action: 'auto', content: 'Bonjour\nchoisi à la main' }] });
+      const nodes = (await bob.get(`/api/documentation/spaces/${spaceId}`)).body.nodes as DocNodeDTO[];
+      const note = nodes.find((node) => node.path === 'Dossier/Déposée.md')!;
+      assert.equal((await bob.get(`/api/documentation/nodes/${note.id}`)).body.content, 'Bonjour\nchoisi à la main');
+
+      assert.equal((await send('x', 'script.exe')).status, 400, 'format refusé');
+      assert.equal((await send('x', '../../secret.md')).json.entries[0].path, 'Dossier/secret.md', 'le nom ne sort pas du dossier');
+    });
+
+    it('ne voit pas de différence dans les fins de ligne Windows', async () => {
+      const spaceId = await newSpace('Fins de ligne');
+      const { node } = (await bob.post(`/api/documentation/spaces/${spaceId}/nodes`, { path: 'Windows', kind: 'markdown', content: 'un\ndeux\ntrois' })).body;
+      const preview = (await bob.raw('POST', `/api/documentation/nodes/${node.id}/import`, Buffer.from('\uFEFFun\r\ndeux\r\ntrois'), { 'Content-Type': 'text/markdown' })).json as DocImportPreviewDTO;
+      assert.equal(preview.entries[0]!.status, 'same');
+    });
+
+    it('donne au comparateur le texte d’origine de l’export', async () => {
+      const spaceId = await newSpace('Origine');
+      const { node } = (await bob.post(`/api/documentation/spaces/${spaceId}/nodes`, { path: 'Origine', kind: 'markdown', content: 'un\ndeux\ntrois' })).body;
+      await raw(`/nodes/${node.id}/export`);
+      await bob.request('PUT', `/api/documentation/nodes/${node.id}/content`, { content: 'UN\ndeux\ntrois' });
+      const preview = (await bob.raw('POST', `/api/documentation/nodes/${node.id}/import`, Buffer.from('un\ndeux\nTROIS'), { 'Content-Type': 'text/markdown' })).json as DocImportPreviewDTO;
+      assert.equal(preview.entries[0]!.status, 'merged');
+      const compare = await bob.get(`/api/documentation/spaces/${spaceId}/import/${preview.importId}/compare?path=Origine.md`);
+      assert.deepEqual(compare.body, { server: 'UN\ndeux\ntrois', incoming: 'un\ndeux\nTROIS', base: 'un\ndeux\ntrois' });
+    });
+
     it('refuse les archives piégées', async () => {
       const spaceId = await newSpace('Piège');
       const preview = (await send(spaceId, { '../../evil.md': 'x', 'a/../../evil2.md': 'x', 'ok.md': 'x' })).json as DocImportPreviewDTO;
@@ -635,6 +695,19 @@ describe('documentation', () => {
       first.socket.close();
       second.socket.close();
       await until(async () => ((await bob.get(`/api/documentation/nodes/${node.id}/versions`)).body.versions as DocVersionDTO[]).length >= 2);
+    });
+
+    it('garde dans l’historique ce qui était tapé avant un remplacement', async () => {
+      const spaceId = await newSpace('Remplacement');
+      const { node } = (await bob.post(`/api/documentation/spaces/${spaceId}/nodes`, { path: 'Remplacée', kind: 'markdown', content: 'Départ' })).body;
+      const { socket, doc, text } = await joinRoom(bob, node.id);
+      doc.transact(() => text.insert(text.length, ' et la suite tapée'));
+      await until(async () => (await bob.get(`/api/documentation/nodes/${node.id}`)).body.content === 'Départ et la suite tapée');
+      await bob.request('PUT', `/api/documentation/nodes/${node.id}/content`, { content: 'Tout neuf' });
+      const { versions } = (await bob.get(`/api/documentation/nodes/${node.id}/versions`)).body as { versions: DocVersionDTO[] };
+      const texts = await Promise.all(versions.map(async (version) => (await bob.get(`/api/documentation/versions/${version.id}`)).body.content as string));
+      assert.ok(texts.includes('Départ et la suite tapée'));
+      socket.close();
     });
 
     it('note les auteurs dans l’historique à la fin de l’édition', async () => {

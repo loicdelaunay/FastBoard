@@ -120,6 +120,29 @@ describe('lignes d’avancement', () => {
       assert.equal(((await owner.del(`/api/parts/${last.id}`)).body.ticket as TicketDTO).status, 'done', 'il ne restait que cette ligne à faire');
     });
 
+    it('une ligne à 100 % est terminée, et le pourcentage la rouvre', async () => {
+      const ticket = await add((await newTicket()).id, { note: 'Seule' });
+      const part = ticket.parts[0]!;
+      const patch = async (body: Record<string, unknown>) => (await owner.patch(`/api/parts/${part.id}`, body)).body.ticket as TicketDTO;
+
+      const full = await patch({ progress: 100 });
+      assert.equal(full.parts[0]!.done, true);
+      assert.ok(full.parts[0]!.doneAt);
+      assert.equal(full.status, 'done', 'comme toutes les lignes terminées');
+
+      const back = await patch({ progress: 70 });
+      assert.deepEqual([back.parts[0]!.done, back.parts[0]!.progress, back.parts[0]!.doneAt], [false, 70, null]);
+      assert.equal(back.status, 'in_progress');
+
+      assert.equal((await patch({ done: true })).parts[0]!.done, true, 'terminer sans pourcentage reste possible');
+      assert.equal((await patch({ done: false })).parts[0]!.progress, 70, 'on retrouve le pourcentage d’avant');
+
+      await patch({ progress: 100 });
+      const reopened = await patch({ done: false });
+      assert.deepEqual([reopened.parts[0]!.done, reopened.parts[0]!.progress], [false, 0], 'une ligne rouverte quitte les 100 %');
+      assert.equal((await patch({ done: true, progress: 40 })).parts[0]!.done, false, 'le pourcentage décide');
+    });
+
     it('retirer une personne garde ses lignes rédigées, sans personne', async () => {
       const ticket = await newTicket({ assigneeIds: [ids.me, ids.alice] });
       const first = ticket.parts.find((part) => part.userId === ids.alice)!;
@@ -201,7 +224,15 @@ describe('migration v17 : parts et sous-tâches', () => {
     const fields = (id: number) => (JSON.parse(db.get<{ settings: string }>('SELECT settings FROM projects WHERE id = ?', id)!.settings) as { ticketFields: Record<string, boolean> }).ticketFields;
     assert.equal(fields(1).progress, true, 'un projet qui n’affichait que les sous-tâches garde ses lignes visibles');
     assert.equal(fields(2).progress, undefined);
-    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 19);
+    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 20);
+
+    // Une ligne déjà à 100 % sans être cochée compte désormais comme terminée.
+    db.exec('PRAGMA user_version = 19');
+    db.run('INSERT INTO ticket_parts (ticket_id, user_id, note, done, progress, position, created_at) VALUES (2, NULL, ?, 0, 100, 99, ?)', 'À cent pour cent', now);
+    migrate(db);
+    const full = db.get<{ done: number; done_at: string | null }>('SELECT done, done_at FROM ticket_parts WHERE note = ?', 'À cent pour cent')!;
+    assert.equal(full.done, 1);
+    assert.ok(full.done_at);
 
     db.run('DELETE FROM users WHERE id = 1');
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM ticket_parts WHERE user_id IS NULL AND ticket_id = 1')?.n, 3, 'un compte supprimé laisse ses lignes');

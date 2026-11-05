@@ -316,6 +316,8 @@ export class DocRooms {
   replaceText(nodeId: number, content: string): boolean {
     const room = this.#rooms.get(nodeId);
     if (!room) return false;
+    // Ce qui a été écrit depuis la dernière version reste retrouvable dans l'historique.
+    this.#flush(room, true);
     applyTextDiff(room.doc, room.text, content, 'server');
     this.#flush(room);
     room.versioned = content;

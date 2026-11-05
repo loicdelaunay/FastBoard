@@ -93,10 +93,12 @@ export interface AiMessage {
   files?: AiFile[];
 }
 
-/** Contexte ouvert dans l'interface : le projet et, le cas échéant, le ticket affichés. */
+/** Contexte ouvert dans l'interface : le projet et le ticket affichés, ou l'espace de documentation et sa note. */
 export interface AiContext {
   projectId?: number | null;
   ticketId?: number | null;
+  docSpaceId?: number | null;
+  docNodeId?: number | null;
 }
 
 /** `apply` : l'assistant modifie directement ; `propose` : il propose des modifications que la personne valide. */
@@ -137,14 +139,18 @@ export type AiChangeAction =
   | { kind: 'comment.create'; ticketId: number; body: string; commentId: number | null }
   | { kind: 'part.create'; ticketId: number; note: string; userId: number | null; partId: number | null }
   | { kind: 'part.update'; ticketId: number; partId: number; before: { done?: boolean; note?: string }; after: { done?: boolean; note?: string } }
-  | { kind: 'link.create'; ticketId: number; targetId: number; reason: string; linkId: number | null };
+  | { kind: 'link.create'; ticketId: number; targetId: number; reason: string; linkId: number | null }
+  | { kind: 'doc.create'; spaceId: number; path: string; content: string; nodeId: number | null }
+  /** Passage remplacé, avec son contexte : le rejouer respecte ce qui a été écrit ailleurs dans la note entre-temps. */
+  | { kind: 'doc.edit'; nodeId: number; before: string; after: string };
 
 /** Une modification faite (ou proposée) par l'assistant, telle qu'affichée dans le panneau. */
 export interface AiChangeDTO {
   id: string;
   /** Ex. « Modification de APP-12 ». */
   label: string;
-  projectId: number;
+  /** `null` : modification de la documentation. */
+  projectId: number | null;
   ticketKey: string | null;
   /** Différences lisibles (valeurs affichées, pas des identifiants). */
   diff: Array<{ field: string; from: string | null; to: string | null }>;

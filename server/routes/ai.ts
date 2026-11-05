@@ -4,6 +4,7 @@ import { AiError, runAgent } from '../ai/agent.ts';
 import { deleteConversation, getConversation, listConversations, saveConversation } from '../ai/conversations.ts';
 import { aiAvailable, availableModels } from '../ai/settings.ts';
 import type { AppContext } from '../context.ts';
+import { activeNote, requireSpace } from '../docs/store.ts';
 import { HttpError, badRequest } from '../http/errors.ts';
 import { currentUser, sessionOnly } from '../http/middleware.ts';
 import { aiChatSchema, aiConversationSchema } from '../http/schemas.ts';
@@ -40,6 +41,12 @@ export function aiRouter(ctx: AppContext): Router {
         throw new HttpError(403, "Vous n'avez pas accès à l'assistant IA dans ce projet.", 'forbidden');
       }
     }
+
+    // La note ouverte a pu disparaître pendant la conversation : on continue sans elle.
+    const note = request.context.docNodeId ? activeNote(ctx.db, request.context.docNodeId) : undefined;
+    request.context.docSpaceId ??= note?.space_id ?? null;
+    if (note?.space_id !== request.context.docSpaceId) request.context.docNodeId = null;
+    if (request.context.docSpaceId) requireSpace(ctx, user, request.context.docSpaceId);
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');

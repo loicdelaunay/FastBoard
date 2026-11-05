@@ -203,7 +203,7 @@ export const componentSchemas: Record<string, Schema> = {
     id: int(),
     nodeId: int(),
     authors: arr(str()),
-    origin: str('', { enum: ['create', 'edit', 'api', 'import', 'restore', 'delete'] }),
+    origin: str('', { enum: ['create', 'edit', 'api', 'import', 'restore', 'delete', 'ai'] }),
     size: int(),
     createdAt: dateTime(),
   }),

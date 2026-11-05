@@ -555,6 +555,10 @@ export const useProjectStore = defineStore('project', () => {
     const previous = part ? { ...part } : null;
     if (part && patch.done !== undefined) part.done = patch.done;
     if (part && patch.note !== undefined) part.note = patch.note;
+    if (part && patch.progress !== undefined) {
+      part.progress = patch.progress;
+      part.done = patch.progress >= 100;
+    }
     try {
       upsertTicket((await api.updatePart(partId, patch)).ticket);
     } catch (cause) {

@@ -7,6 +7,7 @@ import Select from 'primevue/select';
 import SelectButton from 'primevue/selectbutton';
 import ToggleSwitch from 'primevue/toggleswitch';
 import { AI_LIMITS, REASONING_LEVELS, type AiFile, type AiWriteMode, type ReasoningLevel } from '@shared/ai';
+import { docTitle } from '@shared/docs';
 import { AI_FILE_ACCEPT, fileIcon, fileInfo, isImage, readForAi } from '@/utils/aiFiles';
 import { imageToDataUrl } from '@/utils/image';
 import { notify, notifyError } from '@/utils/notify';
@@ -16,6 +17,7 @@ import AiHistory from './AiHistory.vue';
 import AiSteps from './AiSteps.vue';
 import { useAiStore } from '@/stores/ai';
 import { useAuthStore } from '@/stores/auth';
+import { useDocsStore } from '@/stores/docs';
 import { useProjectStore } from '@/stores/project';
 import { useProjectsStore } from '@/stores/projects';
 import { ticketKey } from '@/utils/tickets';
@@ -23,14 +25,15 @@ import { ticketKey } from '@/utils/tickets';
 import { t } from '@/i18n';
 /**
  * Assistant IA : panneau à droite (comme Gemini dans Workspace), redimensionnable, ou page dédiée (`mode="page"`,
- * pour le garder ouvert dans un autre onglet). Il connaît le projet et le ticket ouverts, cherche partout, et ne
- * modifie que si la personne coche « Autoriser les modifications » (et en a le droit).
+ * pour le garder ouvert dans un autre onglet). Il connaît le projet et le ticket ouverts, ou l'espace de documentation
+ * et sa note, cherche partout, et ne modifie que si la personne coche « Autoriser les modifications » (et en a le droit).
  */
 const props = withDefaults(defineProps<{ mode?: 'panel' | 'page' }>(), { mode: 'panel' });
 const page = computed(() => props.mode === 'page');
 
 const ai = useAiStore();
 const auth = useAuthStore();
+const docs = useDocsStore();
 const project = useProjectStore();
 const projects = useProjectsStore();
 const route = useRoute();
@@ -146,17 +149,29 @@ const ticket = computed(() => {
   const id = queryId('ticket');
   return inProject.value && id ? project.ticketsById.get(id) : undefined;
 });
-const pageContext = computed(() => (ai.turns.length ? ai.conversationContext : { projectId: queryId('project'), ticketId: queryId('ticket') }));
-const context = computed(() => (page.value ? pageContext.value : { projectId: inProject.value ? routeProjectId.value : null, ticketId: ticket.value?.id ?? null }));
+const inDocs = computed(() => !page.value && route.name === 'doc-space' && docs.space?.id === Number(route.params.spaceId));
+const note = computed(() => {
+  const id = queryId('file');
+  return inDocs.value && id ? docs.nodes.find((node) => node.id === id && node.kind === 'markdown') : undefined;
+});
+const pageContext = computed(() => (ai.turns.length ? ai.conversationContext : { projectId: queryId('project'), ticketId: queryId('ticket'), docSpaceId: queryId('space'), docNodeId: queryId('note') }));
+const context = computed(() =>
+  page.value
+    ? pageContext.value
+    : { projectId: inProject.value ? routeProjectId.value : null, ticketId: ticket.value?.id ?? null, docSpaceId: inDocs.value ? (docs.space?.id ?? null) : null, docNodeId: note.value?.id ?? null },
+);
 const canRead = computed(() => page.value || !inProject.value || project.can('ai.read'));
 /** Droit de laisser l'IA modifier ce projet (et d'y modifier quelque chose soi-même) ; la page dédiée laisse le serveur vérifier. */
 const canWrite = computed(
-  () => page.value || (inProject.value && !project.archived && project.can('ai.write') && (project.can('ticket.edit') || project.can('ticket.create') || project.can('comment.create'))),
+  () => page.value || (inDocs.value && docs.canEdit) || (inProject.value && !project.archived && project.can('ai.write') && (project.can('ticket.edit') || project.can('ticket.create') || project.can('comment.create'))),
 );
 watch(canWrite, (value) => !value && (ai.allowWrite = false));
 
 const contextLabel = computed(() => {
+  if (note.value) return docTitle(note.value.path);
+  if (inDocs.value) return docs.space?.name ?? '';
   if (page.value) {
+    if (context.value.docSpaceId) return context.value.docNodeId ? t('Note de la documentation') : t('Espace de documentation');
     const projectName = projects.projects.find((entry) => entry.id === context.value.projectId)?.name;
     if (projectName) return context.value.ticketId ? t('{project} · ticket ouvert', { project: projectName }) : projectName;
     return t('Tous vos projets');
@@ -167,13 +182,19 @@ const contextLabel = computed(() => {
 });
 const hasTicket = computed(() => Boolean(context.value.ticketId));
 const hasProject = computed(() => Boolean(context.value.projectId));
+const hasNote = computed(() => Boolean(context.value.docNodeId));
+const hasSpace = computed(() => Boolean(context.value.docSpaceId));
 
 const suggestions = computed(() =>
-  hasTicket.value
-    ? [t('Résume ce ticket et son historique'), t('Quels sont les risques ou les blocages de ce ticket ?'), t('Propose des lignes d’avancement pour ce ticket'), t('Rédige un commentaire de point d’avancement')]
-    : hasProject.value
-      ? [t('Où en est le projet ? Fais un point rapide'), t('Quels tickets sont en retard ou bloqués ?'), t('Qui est le plus chargé en ce moment ?'), t('Quels tickets parlent de paiement ?')]
-      : [t('Sur quels projets ai-je des tickets en cours ?'), t('Cherche les tickets qui parlent de sécurité'), t('Quels tickets sont bloqués, tous projets confondus ?')],
+  hasNote.value
+    ? [t('Résume cette note'), t('Corrige les fautes de cette note'), t('Que manque-t-il à cette note ?'), t('Quelles autres notes parlent de ce sujet ?')]
+    : hasSpace.value
+      ? [t('De quoi parle cet espace de documentation ?'), t('Quelles notes sont à compléter ?'), t('Rédige une note de synthèse de cet espace')]
+      : hasTicket.value
+        ? [t('Résume ce ticket et son historique'), t('Quels sont les risques ou les blocages de ce ticket ?'), t('Propose des lignes d’avancement pour ce ticket'), t('Rédige un commentaire de point d’avancement')]
+        : hasProject.value
+          ? [t('Où en est le projet ? Fais un point rapide'), t('Quels tickets sont en retard ou bloqués ?'), t('Qui est le plus chargé en ce moment ?'), t('Quels tickets parlent de paiement ?')]
+          : [t('Sur quels projets ai-je des tickets en cours ?'), t('Cherche les tickets qui parlent de sécurité'), t('Quels tickets sont bloqués, tous projets confondus ?')],
 );
 
 async function scrollDown(): Promise<void> {
@@ -228,6 +249,8 @@ function openInTab(): void {
   if (ai.turns.length) query.c = ai.conversationId;
   if (context.value.projectId) query.project = String(context.value.projectId);
   if (context.value.ticketId) query.ticket = String(context.value.ticketId);
+  if (context.value.docSpaceId) query.space = String(context.value.docSpaceId);
+  if (context.value.docNodeId) query.note = String(context.value.docNodeId);
   window.open(router.resolve({ name: 'assistant', query }).href, '_blank', 'noopener');
 }
 
@@ -334,7 +357,7 @@ onBeforeUnmount(() => (resizing.value = false));
         </Popover>
 
         <div class="context">
-          <span class="chip" :title="contextLabel"><i :class="hasTicket ? 'pi pi-ticket' : hasProject ? 'pi pi-folder' : 'pi pi-globe'"></i><span class="truncate">{{ contextLabel }}</span></span>
+          <span class="chip" :title="contextLabel"><i :class="hasNote ? 'pi pi-file' : hasSpace ? 'pi pi-book' : hasTicket ? 'pi pi-ticket' : hasProject ? 'pi pi-folder' : 'pi pi-globe'"></i><span class="truncate">{{ contextLabel }}</span></span>
           <label v-if="canWrite" class="write" :class="{ on: ai.allowWrite }">
             <ToggleSwitch v-model="ai.allowWrite" :aria-label="$t('Autoriser les modifications')" />
             <span>{{ ai.writeMode === 'propose' ? $t('Autoriser les propositions') : $t('Autoriser les modifications') }}</span>
@@ -353,7 +376,7 @@ onBeforeUnmount(() => (resizing.value = false));
           <div v-else-if="!ai.turns.length" class="empty">
             <div class="orb" aria-hidden="true"></div>
             <p class="hello">{{ $t('Bonjour {name}, que puis-je faire pour vous ?', { name: auth.user?.name?.split(' ')[0] ?? '' }) }}</p>
-            <p class="muted small">{{ hasTicket ? $t('Je connais le ticket ouvert et son projet.') : hasProject ? $t('Je connais le projet ouvert et je peux chercher dans tous ses tickets.') : $t('Je peux chercher dans tous les projets auxquels vous avez accès.') }}</p>
+            <p class="muted small">{{ hasNote ? $t('Je connais la note ouverte et je peux chercher dans toute votre documentation.') : hasSpace ? $t('Je connais cet espace et je peux chercher dans toute votre documentation.') : hasTicket ? $t('Je connais le ticket ouvert et son projet.') : hasProject ? $t('Je connais le projet ouvert et je peux chercher dans tous ses tickets.') : $t('Je peux chercher dans tous les projets auxquels vous avez accès.') }}</p>
             <div class="suggestions">
               <button v-for="suggestion in suggestions" :key="suggestion" type="button" class="suggestion" @click="send(suggestion)">{{ suggestion }}</button>
             </div>
@@ -416,7 +439,7 @@ onBeforeUnmount(() => (resizing.value = false));
             rows="2"
             maxlength="4000"
             :disabled="!canRead"
-            :placeholder="ai.allowWrite && canWrite ? $t('Demandez une analyse ou une modification…') : $t('Posez une question sur vos projets…')"
+            :placeholder="ai.allowWrite && canWrite ? $t('Demandez une analyse ou une modification…') : hasSpace ? $t('Posez une question sur cette documentation…') : $t('Posez une question sur vos projets…')"
             :aria-label="$t('Message à l’assistant')"
             @keydown="onKeydown"
             @paste="onPaste"

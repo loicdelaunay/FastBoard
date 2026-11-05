@@ -187,6 +187,7 @@ Le créateur, les assignés et les commentateurs suivent automatiquement un tick
 curl -s -X POST $FASTBOARD/api/tickets/12/parts -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{ "note": "Écrire les tests", "userId": 3 }'
 curl -s -X PATCH $FASTBOARD/api/parts/7 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "progress": 50 }'
+# 100 % et « terminée », c'est tout un : ceci revient à { "progress": 100 }
 curl -s -X PATCH $FASTBOARD/api/parts/7 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "done": true }'
 curl -s -X DELETE $FASTBOARD/api/parts/7 -H "Authorization: Bearer $TOKEN"
 ```
@@ -225,7 +226,9 @@ curl -s -X POST $FASTBOARD/api/documentation/nodes/5/comments -H "Authorization:
 curl -s -X PATCH $FASTBOARD/api/documentation/comments/3 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "resolved": true }'
 ```
 
-Le ZIP reproduit exactement l'arbre de l'espace, dossiers vides compris, sans fichier ajouté. Le texte exporté reste 90 jours sur le serveur, pour vos 20 derniers exports d'un espace : il sert de version d'origine à la fusion. Sans lui (autre serveur, archive trop ancienne), les fichiers modifiés des deux côtés sont présentés en conflit, ligne à ligne.
+Le ZIP reproduit exactement l'arbre de l'espace, dossiers vides compris, sans fichier ajouté. Le texte exporté reste 90 jours sur le serveur, pour vos 20 derniers exports d'un espace : il sert de version d'origine à la fusion. Sans lui (autre serveur, archive trop ancienne), les fichiers modifiés des deux côtés sont présentés en conflit.
+
+`POST /documentation/spaces/{id}/import` accepte aussi un fichier seul (`.md` ou image), nommé par l'en-tête `X-File-Name` : il devient une nouvelle note, ou la mise à jour de celle qui porte son nom. Avant d'appliquer, `GET …/import/{importId}/compare?path=…` donne le texte du serveur, celui de l'import et leur origine commune (`base`, ou `null`) ; le texte final retenu s'envoie dans `content`, avec l'action `auto`. De même, `POST /documentation/versions/{id}/restore` accepte un `content` pour ne reprendre qu'une partie d'une version.
 
 Rôles : `reader` lit, `editor` écrit, `owner` gère aussi les membres et l'espace. Un texte envoyé par l'API apparaît en direct chez les personnes qui éditent la note. Pour citer un fichier dans un ticket ou une note : `@[Titre](doc:5)`. Les personnes mentionnées qui ont accès à l'espace sont notifiées. L'historique et la corbeille sont gardés 15 jours. Tous les membres peuvent commenter, lecteurs compris : `quote` retrouve le passage par son texte, `before` et `after` le départagent s'il figure plusieurs fois.
 

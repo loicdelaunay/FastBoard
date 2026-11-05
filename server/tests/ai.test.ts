@@ -421,6 +421,105 @@ describe('assistant IA', () => {
     assert.equal((await bob.get('/api/ai/conversations/conv-0050')).status, 404);
   });
 
+  describe('documentation', () => {
+    let spaceId = 0;
+    let noteId = 0;
+    const CONTENT = '# Guide\n\nInstaller le serveur de test.\n\n## Suite\n\nFin.';
+
+    const nodeText = async (id: number) => (await bob.get(`/api/documentation/nodes/${id}`)).body.content as string;
+    const toolOutput = () => JSON.parse(provider.requests.at(-1)!.body.messages.at(-1)!.content as string) as Record<string, any>;
+    const toolNames = () => provider.requests.at(-1)!.body.tools!.map((tool) => tool.function.name);
+
+    before(async () => {
+      await admin.request('PUT', '/api/admin/documentation', { enabled: true });
+      const space = (await bob.post('/api/documentation/spaces', { name: 'Guide technique' })).body.space;
+      spaceId = space.id;
+      await bob.post(`/api/documentation/spaces/${spaceId}/members`, { userId: ids.vera, role: 'reader' });
+      noteId = (await bob.post(`/api/documentation/spaces/${spaceId}/nodes`, { path: 'Guides/Installation', kind: 'markdown', content: CONTENT })).body.node.id;
+    });
+
+    it('connaît la note ouverte, et lit et cherche dans la documentation', async () => {
+      await chat(bob, 'Bonjour', { docSpaceId: spaceId, docNodeId: noteId });
+      const system = provider.requests.at(-1)!.body.messages[0]!.content as string;
+      assert.ok(system.includes('« Guides/Installation.md »') && system.includes('Guide technique'));
+      assert.ok(toolNames().includes('read_doc') && !toolNames().includes('edit_doc'), 'en lecture seule, pas d’outil d’écriture');
+
+      await chat(bob, `outil:read_doc {"note":${noteId}}`, { docNodeId: noteId });
+      const read = toolOutput();
+      assert.equal(read.path, 'Guides/Installation.md');
+      assert.equal(read.content, CONTENT);
+      assert.deepEqual(read.outline, ['# Guide', '## Suite']);
+
+      await chat(bob, `outil:read_doc {"note":"Guides/Installation","spaceId":${spaceId}}`);
+      assert.equal(toolOutput().id, noteId, 'une note se désigne aussi par son chemin');
+
+      await chat(bob, 'outil:search_docs {"query":"serveur de test"}');
+      assert.deepEqual(toolOutput().notes.map((note: { path: string }) => note.path), ['Guides/Installation.md']);
+    });
+
+    it('n’ouvre que les espaces de la personne', async () => {
+      const eve = app.client();
+      const roles = (await admin.get('/api/admin/roles')).body.roles as Array<{ id: number; key: string; scope: string }>;
+      await admin.post('/api/admin/users', { email: 'eve@t.fr', name: 'eve', password: 'motdepasse1', roleId: roles.find((r) => r.key === 'member' && r.scope === 'global')!.id });
+      await eve.login('eve@t.fr', 'motdepasse1');
+      assert.equal((await chat(eve, 'Bonjour', { docSpaceId: spaceId })).status, 404);
+      assert.equal((await chat(eve, 'Bonjour', { docNodeId: noteId })).status, 404);
+      await chat(eve, `outil:read_doc {"note":${noteId}}`);
+      assert.ok(toolOutput().error, 'l’outil refuse aussi');
+      await chat(eve, 'outil:search_docs {"query":"serveur de test"}');
+      assert.deepEqual(toolOutput().notes, [], 'la recherche ne montre rien d’inaccessible');
+    });
+
+    it('retouche un passage, avec de quoi annuler, et le signale dans l’historique', async () => {
+      const stream = events((await chat(bob, `outil:edit_doc {"note":${noteId},"old":"serveur de test","new":"serveur de production"}`, {}, true)).body);
+      const change = changesOf(stream)[0]!;
+      assert.equal(change.state, 'applied');
+      assert.equal(change.projectId, null);
+      assert.ok(change.action.kind === 'doc.edit');
+      assert.ok(change.action.before.includes('serveur de test') && change.action.after.includes('serveur de production'));
+      assert.ok(change.action.before.length < CONTENT.length, 'seul le passage voyage');
+      assert.ok((await nodeText(noteId)).includes('serveur de production'));
+      const versions = (await bob.get(`/api/documentation/nodes/${noteId}/versions`)).body.versions;
+      assert.equal(versions[0].origin, 'ai');
+    });
+
+    it('explique pourquoi un passage ne convient pas', async () => {
+      await chat(bob, `outil:edit_doc {"note":${noteId},"old":"absent du texte","new":"x"}`, {}, true);
+      assert.match(toolOutput().error, /Passage introuvable/);
+      await chat(bob, `outil:edit_doc {"note":${noteId},"old":"e","new":"x"}`, {}, true);
+      assert.match(toolOutput().error, /plusieurs fois/);
+    });
+
+    it('propose sans écrire, et respecte le rôle dans l’espace', async () => {
+      const before = await nodeText(noteId);
+      const stream = events((await chat(bob, `outil:rewrite_doc {"note":${noteId},"content":"Tout neuf"}`, {}, true, { writeMode: 'propose' })).body);
+      const change = changesOf(stream)[0]!;
+      assert.equal(change.state, 'pending');
+      assert.equal(await nodeText(noteId), before);
+
+      await chat(vera, `outil:edit_doc {"note":${noteId},"old":"Fin.","new":"x"}`, {}, true);
+      assert.ok(toolOutput().error, 'un lecteur ne modifie pas, même avec l’assistant');
+      assert.equal(await nodeText(noteId), before);
+    });
+
+    it('crée une note et ses dossiers', async () => {
+      const stream = events((await chat(bob, `outil:create_doc {"spaceId":${spaceId},"path":"Nouveau/Synthèse","content":"# Synthèse"}`, {}, true)).body);
+      const change = changesOf(stream)[0]!;
+      assert.ok(change.action.kind === 'doc.create' && change.action.nodeId);
+      const nodes = (await bob.get(`/api/documentation/spaces/${spaceId}`)).body.nodes as Array<{ path: string }>;
+      assert.ok(nodes.some((node) => node.path === 'Nouveau/Synthèse.md'));
+      await chat(bob, `outil:create_doc {"spaceId":${spaceId},"path":"Nouveau/Synthèse","content":"x"}`, {}, true);
+      assert.ok(toolOutput().error, 'pas d’écrasement');
+    });
+
+    it('ne propose pas ses outils quand la documentation est coupée', async () => {
+      await admin.request('PUT', '/api/admin/documentation', { enabled: false });
+      await chat(bob, 'Bonjour');
+      assert.ok(!toolNames().includes('read_doc'));
+      await admin.request('PUT', '/api/admin/documentation', { enabled: true });
+    });
+  });
+
   it("signale les erreurs du fournisseur et se coupe une fois désactivé", async () => {
     await admin.request('PUT', '/api/admin/ai', settings(`${provider.url}/introuvable`));
     const failure = await chat(bob, 'Bonjour');

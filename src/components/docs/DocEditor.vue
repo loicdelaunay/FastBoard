@@ -44,7 +44,7 @@ const props = defineProps<{
   live: boolean;
   readonly: boolean;
 }>();
-const emit = defineEmits<{ open: [node: DocNodeDTO]; comment: [quote: DocQuote]; 'focus-comment': [commentId: number] }>();
+const emit = defineEmits<{ open: [node: DocNodeDTO]; comment: [quote: DocQuote]; 'focus-comment': [commentId: number]; 'top-line': [line: number] }>();
 
 const host = ref<HTMLElement | null>(null);
 const picker = ref<HTMLInputElement | null>(null);
@@ -288,7 +288,26 @@ function reveal(comment: DocCommentDTO): void {
   view.focus();
 }
 
-defineExpose({ reveal });
+/** Amène une ligne en haut de l'écran, sans y placer le curseur : le bloc reste rendu. */
+function scrollToLine(line: number): void {
+  if (!view) return;
+  const position = view.state.doc.line(Math.min(line, view.state.doc.lines)).from;
+  view.dispatch({ effects: EditorView.scrollIntoView(position, { y: 'start', yMargin: 12 }) });
+}
+
+defineExpose({ reveal, scrollToLine });
+
+// Pour le sommaire : la ligne lue, signalée une fois par image.
+let scrollFrame = 0;
+function onScroll(): void {
+  if (scrollFrame) return;
+  scrollFrame = requestAnimationFrame(() => {
+    scrollFrame = 0;
+    if (!view) return;
+    const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 16);
+    emit('top-line', view.state.doc.lineAt(block.from).number);
+  });
+}
 
 const FONT_MONO = 'ui-monospace, SFMono-Regular, Consolas, monospace';
 
@@ -368,6 +387,7 @@ onMounted(() => {
       ],
     }),
   });
+  view.scrollDOM.addEventListener('scroll', onScroll, { passive: true });
   if (props.comments.length) view.dispatch({ effects: [setDocComments.of(props.comments), ...(props.live ? [refreshLive.of()] : [])] });
   // En lecture et écriture, un curseur posé d'office ouvrirait le premier bloc.
   if (!props.live) view.focus();
@@ -379,6 +399,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  cancelAnimationFrame(scrollFrame);
   view?.destroy();
   view = null;
 });

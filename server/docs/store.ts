@@ -432,6 +432,11 @@ export function listVersions(db: Db, nodeId: number): DocVersionDTO[] {
     .map((row) => ({ id: row.id, nodeId: row.node_id, authors: JSON.parse(row.authors) as string[], origin: row.origin, size: row.size, createdAt: row.created_at }));
 }
 
+/** Note active, sans erreur si elle a disparu. */
+export function activeNote(db: Db, nodeId: number): NodeRow | undefined {
+  return db.get<NodeRow>(`SELECT ${NODE_COLUMNS} FROM doc_nodes WHERE id = ? AND kind = 'markdown' AND deleted_at IS NULL`, nodeId);
+}
+
 export function requireVersion(db: Db, versionId: number): VersionRow {
   const row = db.get<VersionRow>('SELECT * FROM doc_versions WHERE id = ?', versionId);
   if (!row) throw notFound('Version introuvable.');

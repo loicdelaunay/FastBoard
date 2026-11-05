@@ -1,11 +1,9 @@
-import { randomUUID } from 'node:crypto';
 import type { AiChangeDTO, AiTicketFields } from '../../shared/ai.ts';
 import { LIMITS, STATUS_META, TICKET_STATUSES, isTicketStatus, type TicketStatus } from '../../shared/constants.ts';
 import { childrenByParent, ticketProgress } from '../../shared/progress.ts';
 import type { TicketDTO } from '../../shared/types.ts';
-import type { Actor, AppContext } from '../context.ts';
 import { HttpError, badRequest, forbidden, notFound } from '../http/errors.ts';
-import { requireProject, resolveProjectAccess, type AuthUser, type ProjectAccess } from '../services/access.ts';
+import { requireProject, resolveProjectAccess, type ProjectAccess } from '../services/access.ts';
 import { createComment, listComments } from '../services/comments.ts';
 import { listHistory } from '../services/history.ts';
 import { createLink } from '../services/links.ts';
@@ -13,35 +11,10 @@ import { buildSnapshot } from '../services/projects.ts';
 import { visibleProjects } from '../services/search.ts';
 import { createPart, requirePart, updatePart } from '../services/parts.ts';
 import { createTicket, foldText, getTicketDTO, listTicketDTOs, moveTicket, requireTicket, ticketKeyOf, updateTicket } from '../services/tickets.ts';
+import { DOC_TOOLS } from './docTools.ts';
+import { clip, PROPOSED, record, type ToolContext, type ToolDefinition } from './toolKit.ts';
 
-/** Ce que l'agent sait de la personne et de la page ouverte ; les droits sont revérifiés à chaque appel d'outil. */
-export interface ToolContext {
-  ctx: AppContext;
-  user: AuthUser;
-  actor: Actor;
-  allowWrite: boolean;
-  /** Mode « proposer » : les outils d'écriture vérifient les droits et préparent la modification sans l'appliquer. */
-  propose: boolean;
-  changes: number;
-  proposals: number;
-  onChange?: (change: AiChangeDTO) => void;
-}
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  write: boolean;
-  /** Libellé court affiché dans le panneau pendant l'exécution. */
-  label: (args: Record<string, unknown>) => string;
-  run: (tool: ToolContext, args: Record<string, unknown>) => unknown;
-}
-
-const MAX_TEXT = 1_500;
-
-function clip(text: string, max = MAX_TEXT): string {
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
+export type { ToolContext } from './toolKit.ts';
 
 const TICKET_REF = {
   oneOf: [{ type: 'integer' }, { type: 'string' }],
@@ -230,16 +203,6 @@ const FIELD_PROPERTIES = {
 };
 
 // --- Modifications (faites ou proposées) ---------------------------------------------------------------------------------
-
-const PROPOSED = 'Proposition enregistrée : elle ne sera appliquée que si la personne la valide dans le panneau.';
-
-function record(tool: ToolContext, change: Omit<AiChangeDTO, 'id' | 'state'>): AiChangeDTO {
-  const full: AiChangeDTO = { ...change, id: randomUUID(), state: tool.propose ? 'pending' : 'applied' };
-  if (tool.propose) tool.proposals += 1;
-  else tool.changes += 1;
-  tool.onChange?.(full);
-  return full;
-}
 
 /** Valeurs actuelles des champs qui vont changer (pour pouvoir annuler). */
 function currentFields(ticket: TicketDTO, keys: Array<keyof AiTicketFields>): AiTicketFields {
@@ -611,11 +574,12 @@ export const TOOLS: ToolDefinition[] = [
       return { dependencies: ticket.links.length };
     },
   },
+  ...DOC_TOOLS,
 ];
 
-/** Outils proposés au modèle : les outils d'écriture seulement si la personne a autorisé les modifications. */
-export function availableTools(allowWrite: boolean): ToolDefinition[] {
-  return TOOLS.filter((tool) => allowWrite || !tool.write);
+/** Outils proposés au modèle : l'écriture si la personne l'a autorisée, la documentation si elle est activée. */
+export function availableTools(allowWrite: boolean, docs: boolean): ToolDefinition[] {
+  return TOOLS.filter((tool) => (allowWrite || !tool.write) && (docs || !tool.docs));
 }
 
 /** Exécute un outil ; une erreur devient un message pour le modèle, pas un échec de la discussion. */

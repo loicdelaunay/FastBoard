@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.0.0';
+export const APP_VERSION = '2.1.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,24 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.1.0',
+    date: '2026-11-05',
+    changes: [
+      { category: 'Nouveauté', text: 'Documentation : un sommaire à gauche de la note, en lecture et en lecture et écriture, reprend ses titres et sous-titres et y amène d’un clic.' },
+      {
+        category: 'Nouveauté',
+        text: 'Documentation : à l’import d’un fichier ou d’un ZIP, un comparateur montre les deux versions côte à côte, avec ce qui est ajouté, retiré ou changé. Vous choisissez bloc par bloc, et le résultat reste modifiable avant d’importer.',
+      },
+      { category: 'Nouveauté', text: 'Documentation : le même comparateur dans l’historique d’une note, pour ne reprendre que certains blocs d’une ancienne version.' },
+      { category: 'Nouveauté', text: 'Assistant IA : il connaît la note ouverte, cherche et lit dans la documentation, et peut créer ou modifier des notes avec vos droits, en vous montrant chaque changement.' },
+      { category: 'Amélioration', text: 'Documentation : importer ou exporter un .md se fait au clic droit dans l’arbre, y compris pour déposer un nouveau fichier dans un dossier.' },
+      { category: 'Amélioration', text: 'Avancement : des lignes bien plus compactes, sur une seule ligne quand le texte le permet. Le crayon, la poignée et la suppression apparaissent au survol.' },
+      { category: 'Amélioration', text: 'Avancement : une ligne est terminée quand sa barre atteint 100 %, sans case à cocher. La supprimer demande une confirmation.' },
+      { category: 'Correction', text: 'Documentation : un fichier enregistré sous Windows n’apparaît plus comme entièrement modifié à l’import.' },
+      { category: 'Correction', text: 'Documentation : ce qui venait d’être tapé reste dans l’historique quand la note est remplacée par un import ou une restauration.' },
+    ],
+  },
   {
     version: '2.0.0',
     date: '2026-11-04',

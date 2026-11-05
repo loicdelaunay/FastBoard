@@ -43,7 +43,7 @@ export interface DocMemberDTO {
   role: DocRole;
 }
 
-export type DocVersionOrigin = 'create' | 'edit' | 'api' | 'import' | 'restore' | 'delete';
+export type DocVersionOrigin = 'create' | 'edit' | 'api' | 'import' | 'restore' | 'delete' | 'ai';
 
 export interface DocVersionDTO {
   id: number;
@@ -105,6 +105,16 @@ export interface DocImportPreviewDTO {
   entries: DocImportEntryDTO[];
   /** Fichiers ignorés : format non pris en charge ou chemin invalide. */
   ignored: string[];
+}
+
+/** Les deux versions d'un fichier importé et celle d'où elles sont parties, pour les comparer. */
+export interface DocImportCompareDTO {
+  /** Absent du serveur : nouveau fichier. */
+  server: string | null;
+  /** Absent de l'import : fichier retiré. */
+  incoming: string | null;
+  /** Texte exporté, s'il est encore connu. */
+  base: string | null;
 }
 
 /** `auto` : résultat proposé ; `keep` : garder le serveur ; `incoming` : prendre l'import ; `both` : garder les deux ; `delete` : supprimer du serveur. */

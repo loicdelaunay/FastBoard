@@ -9,6 +9,7 @@ import SelectButton from 'primevue/selectbutton';
 import ToggleSwitch from 'primevue/toggleswitch';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
 import { docBaseName, docParent, docTitle, type DocLinksDTO, type DocNodeDTO } from '@shared/docs';
+import { docOutline } from '@shared/docOutline';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
@@ -16,6 +17,7 @@ import DocEditor from '@/components/docs/DocEditor.vue';
 import DocHistoryDialog from '@/components/docs/DocHistoryDialog.vue';
 import DocImportDialog from '@/components/docs/DocImportDialog.vue';
 import DocMembersDialog from '@/components/docs/DocMembersDialog.vue';
+import DocOutline from '@/components/docs/DocOutline.vue';
 import DocPreview from '@/components/docs/DocPreview.vue';
 import DocSidePanel from '@/components/docs/DocSidePanel.vue';
 import DocSpaceDialog from '@/components/docs/DocSpaceDialog.vue';
@@ -101,11 +103,77 @@ function chooseMode(value: DocMode): void {
   }
 }
 
+// --- Sommaire ---
+const OUTLINE_KEY = 'fb.docs.outline';
+function storedOutline(): boolean {
+  try {
+    return localStorage.getItem(OUTLINE_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+const outlineOpen = ref(storedOutline());
+const outlineAvailable = computed(() => !writing.value || live.value);
+const showOutline = computed(() => outlineOpen.value && outlineAvailable.value);
+const headings = computed(() => docOutline(content.value));
+const activeHeading = ref(0);
+const previewPane = ref<HTMLElement | null>(null);
+/** Après un clic sur un titre, le défilement ne doit pas en mettre un autre en avant. */
+let followAfter = 0;
+let spyFrame = 0;
+
+watch(outlineOpen, (open) => {
+  try {
+    localStorage.setItem(OUTLINE_KEY, open ? '1' : '0');
+  } catch {
+    // Stockage indisponible : le choix vaut pour cette page seulement.
+  }
+});
+
+const renderedHeadings = (): HTMLElement[] => [...(previewPane.value?.querySelectorAll<HTMLElement>('.markdown > :is(h1, h2, h3, h4, h5, h6)') ?? [])];
+const squash = (text: string | null | undefined): string => (text ?? '').replace(/\s+/g, ' ').trim();
+
+/** Titre rendu : même rang dans la page, ou même texte si du HTML brut a décalé les rangs. */
+function renderedHeading(index: number): HTMLElement | undefined {
+  const elements = renderedHeadings();
+  if (elements.length === headings.value.length) return elements[index];
+  const title = squash(headings.value[index]?.title);
+  return elements.find((element) => squash(element.textContent) === title) ?? elements[index];
+}
+
+function goToHeading(index: number): void {
+  const heading = headings.value[index];
+  if (!heading) return;
+  activeHeading.value = index;
+  followAfter = Date.now() + 900;
+  if (live.value) editor.value?.scrollToLine(heading.line);
+  else renderedHeading(index)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+function onPreviewScroll(): void {
+  if (spyFrame || !showOutline.value) return;
+  spyFrame = requestAnimationFrame(() => {
+    spyFrame = 0;
+    const pane = previewPane.value;
+    if (!pane || Date.now() < followAfter) return;
+    const elements = renderedHeadings();
+    const limit = pane.getBoundingClientRect().top + 24;
+    const atEnd = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2;
+    activeHeading.value = atEnd ? Math.max(0, elements.length - 1) : Math.max(0, elements.findLastIndex((element) => element.getBoundingClientRect().top <= limit));
+  });
+}
+
+function onEditorLine(line: number): void {
+  if (Date.now() < followAfter) return;
+  activeHeading.value = Math.max(0, headings.value.findLastIndex((heading) => heading.line <= line));
+}
+
 function closeSession(): void {
   session.value?.close();
   session.value = null;
   content.value = '';
   presence.value = [];
+  activeHeading.value = 0;
 }
 
 function openSession(nodeId: number): void {
@@ -234,6 +302,7 @@ watch(closed, (reason) => {
 
 onBeforeUnmount(() => {
   window.clearTimeout(linksTimer);
+  cancelAnimationFrame(spyFrame);
   closeSession();
   void store.loadComments(null);
   store.closeSpace();
@@ -369,7 +438,7 @@ function askDeleteSpace(): void {
       <span class="spacer"></span>
       <Button v-tooltip.bottom="$t('Membres')" icon="pi pi-users" text rounded size="small" severity="secondary" :aria-label="$t('Membres')" @click="membersOpen = true" />
       <Button v-tooltip.bottom="$t('Exporter l’espace en ZIP')" icon="pi pi-download" text rounded size="small" severity="secondary" :aria-label="$t('Exporter l’espace en ZIP')" @click="exportNode(null)" />
-      <Button v-if="store.canEdit" v-tooltip.bottom="$t('Réimporter un ZIP')" icon="pi pi-upload" text rounded size="small" severity="secondary" :aria-label="$t('Réimporter un ZIP')" @click="askImport(null)" />
+      <Button v-if="store.canEdit" v-tooltip.bottom="$t('Importer un .md ou un ZIP')" icon="pi pi-upload" text rounded size="small" severity="secondary" :aria-label="$t('Importer un .md ou un ZIP')" @click="askImport(null)" />
       <Button v-tooltip.bottom="$t('Corbeille')" icon="pi pi-trash" text rounded size="small" severity="secondary" :aria-label="$t('Corbeille')" @click="trashOpen = true" />
       <template v-if="store.isOwner">
         <Button v-tooltip.bottom="$t('Modifier l’espace')" icon="pi pi-cog" text rounded size="small" severity="secondary" :aria-label="$t('Modifier l’espace')" @click="settingsOpen = true" />
@@ -395,6 +464,9 @@ function askDeleteSpace(): void {
               </span>
             </div>
             <div class="counters">
+              <button v-if="outlineAvailable" v-tooltip.bottom="$t('Sommaire')" type="button" class="counter outline-toggle" :class="{ active: outlineOpen }" :aria-label="$t('Sommaire')" :aria-pressed="outlineOpen" @click="outlineOpen = !outlineOpen">
+                <i class="pi pi-list"></i>
+              </button>
               <button v-tooltip.bottom="$t('Liens et rétroliens')" type="button" class="counter" :class="{ active: sideOpen && sideTab === 'links' }" :aria-label="$t('Liens et rétroliens')" @click="showSide('links')">
                 <i class="pi pi-link"></i>{{ linkCount }}<i class="pi pi-reply back"></i>{{ backlinkCount }}
               </button>
@@ -415,12 +487,13 @@ function askDeleteSpace(): void {
           </header>
 
           <div v-if="!synced" class="waiting muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
-          <div v-else class="note-body" :class="{ 'with-side': sideOpen }">
+          <div v-else class="note-body" :class="{ 'with-side': sideOpen, 'with-outline': showOutline }">
+            <DocOutline v-if="showOutline" class="outline" :headings="headings" :active="activeHeading" @go="goToHeading" @close="outlineOpen = false" />
             <div class="panes" :class="{ split: writing && !live && showPreview }">
               <div v-if="writing && session" class="pane editor">
-                <DocEditor :key="`${session.nodeId}-${mode}`" ref="editor" :session="session" :space-id="spaceId" :note-path="selected.path" :users="users" :nodes="store.nodes" :comments="store.comments" :live="live" :readonly="false" @open="openNode" @comment="startComment" @focus-comment="focusComment" />
+                <DocEditor :key="`${session.nodeId}-${mode}`" ref="editor" :session="session" :space-id="spaceId" :note-path="selected.path" :users="users" :nodes="store.nodes" :comments="store.comments" :live="live" :readonly="false" @open="openNode" @comment="startComment" @focus-comment="focusComment" @top-line="onEditorLine" />
               </div>
-              <div v-if="!writing || (showPreview && !live)" class="pane preview">
+              <div v-if="!writing || (showPreview && !live)" ref="previewPane" class="pane preview" @scroll.passive="onPreviewScroll">
                 <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" @open="openNode" @comment="startComment" @focus-comment="focusComment" />
                 <p v-else class="muted empty-note">{{ canWrite ? $t('Cette note est vide. Passez en écriture pour la rédiger.') : $t('Cette note est vide.') }}</p>
               </div>
@@ -475,7 +548,7 @@ function askDeleteSpace(): void {
     <DocMembersDialog v-model:visible="membersOpen" :users="users" />
     <DocImportDialog v-model:visible="importOpen" :space-id="spaceId" :node="importNode" @done="store.reload(spaceId)" />
     <DocTrashDialog v-model:visible="trashOpen" :space-id="spaceId" />
-    <DocHistoryDialog v-if="selected?.kind === 'markdown'" v-model:visible="historyOpen" :node="selected" :nodes="store.nodes" :users="users" :can-restore="canWrite" />
+    <DocHistoryDialog v-if="selected?.kind === 'markdown'" v-model:visible="historyOpen" :node="selected" :nodes="store.nodes" :users="users" :can-restore="canWrite" :current="content" />
     <DocSpaceDialog v-model:visible="settingsOpen" :space="store.space" @saved="store.reload(spaceId)" />
   </div>
 
@@ -602,6 +675,12 @@ function askDeleteSpace(): void {
 .note-body.with-side {
   grid-template-columns: minmax(0, 1fr) 20rem;
 }
+.note-body.with-outline {
+  grid-template-columns: 14rem minmax(0, 1fr);
+}
+.note-body.with-outline.with-side {
+  grid-template-columns: 14rem minmax(0, 1fr) 20rem;
+}
 .panes {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -624,6 +703,9 @@ function askDeleteSpace(): void {
 }
 .pane.preview {
   padding: 1.25rem 1.5rem 3rem;
+}
+.pane.preview :deep(.markdown > :is(h1, h2, h3, h4, h5, h6)) {
+  scroll-margin-top: 0.75rem;
 }
 .empty-note {
   text-align: center;
@@ -672,7 +754,23 @@ function askDeleteSpace(): void {
   justify-content: flex-end;
   gap: 0.5rem;
 }
+/* Trop étroit pour trois colonnes : le panneau ouvert à la main passe avant le sommaire. */
+@media (max-width: 1100px) {
+  .note-body.with-outline.with-side {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+  }
+  .note-body.with-side .outline {
+    display: none;
+  }
+}
 @media (max-width: 760px) {
+  .outline,
+  .outline-toggle {
+    display: none;
+  }
+  .note-body.with-outline {
+    grid-template-columns: 1fr;
+  }
   .body {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 13rem) minmax(0, 1fr);
@@ -681,7 +779,8 @@ function askDeleteSpace(): void {
     border-right: 0;
     border-bottom: 1px solid var(--fb-border);
   }
-  .note-body.with-side {
+  .note-body.with-side,
+  .note-body.with-outline.with-side {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   }
