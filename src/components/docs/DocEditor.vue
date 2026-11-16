@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, pickedCompletion, type Completion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
-import { markdown } from '@codemirror/lang-markdown';
-import { bracketMatching, defaultHighlightStyle, indentOnInput, syntaxHighlighting } from '@codemirror/language';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { Compartment, EditorState } from '@codemirror/state';
 import { drawSelection, dropCursor, EditorView, highlightActiveLine, keymap, lineNumbers, placeholder, type Command } from '@codemirror/view';
@@ -18,14 +19,17 @@ import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import { useDocLinks } from '@/composables/useDocLinks';
 import type { DocSession } from '@/realtime/docSession';
-import { copyText, renderDocBlock, selectionQuote } from '@/utils/docRender';
+import { copyText, pendingAnchor, renderDocBlock, selectionQuote } from '@/utils/docRender';
 import { markdownBlocks } from '@/utils/markdown';
 import { mentionToken, type MentionKind } from '@/utils/mentions';
 import { notifyError } from '@/utils/notify';
 import { matchesQuery } from '@/utils/search';
 import { taskLine, toggleTask } from './editor/commands';
 import { docComments, setDocComments } from './editor/comments';
+import { docHighlight } from './editor/highlight';
+import { editImageSource, liveInline } from './editor/liveInline';
 import { livePreview, refreshLive, textBeforePoint } from './editor/live';
+import { tableCellAt } from './editor/tableWidget';
 import { editorMenu, type MenuHandlers, type MenuTarget } from './editor/menu';
 import { completionIcon, inlineTools, insertTools, lineTools, slashCommands, type DocTool, type ToolHandlers } from './editor/tools';
 
@@ -43,6 +47,8 @@ const props = defineProps<{
   comments: DocCommentDTO[];
   live: boolean;
   readonly: boolean;
+  /** Syntaxe propre à Obsidian (réglage de l'espace). */
+  obsidian?: boolean;
 }>();
 const emit = defineEmits<{ open: [node: DocNodeDTO]; comment: [quote: DocQuote]; 'focus-comment': [commentId: number]; 'top-line': [line: number] }>();
 
@@ -52,6 +58,7 @@ let view: EditorView | null = null;
 const editable = new Compartment();
 const editableState = (readonly: boolean) => [EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)];
 
+const router = useRouter();
 const { follow, openNode, openTicket } = useDocLinks(() => props.nodes, (node) => emit('open', node));
 
 /** `@` propose les personnes, les tickets et les fichiers de documentation. */
@@ -153,7 +160,54 @@ function commentsIn(state: EditorState, block: { from: number; to: number }): Do
 }
 
 const live = livePreview({
-  render: (source, block, state) => renderDocBlock(source, { nodes: props.nodes, notePath: props.notePath, users: props.users }, commentsIn(state, block)),
+  render: (source, block, state) => renderDocBlock(source, { nodes: props.nodes, notePath: props.notePath, users: props.users, obsidian: props.obsidian }, commentsIn(state, block)),
+  obsidian: () => props.obsidian ?? false,
+  follow: (element, event) => followCell(element, event),
+  undo: (editor) => void yUndoManagerKeymap[0]!.run!(editor),
+  redo: (editor) => void yUndoManagerKeymap[1]!.run!(editor),
+});
+
+/** Lien cliqué dans une cellule de tableau : comme dans un bloc rendu, adresses externes comprises. */
+function followCell(element: HTMLElement, event: MouseEvent): boolean {
+  if (follow(element, event)) return true;
+  const link = element.closest<HTMLAnchorElement>('a');
+  if (!link || !/^(https?:|mailto:)/i.test(link.getAttribute('href') ?? '')) return false;
+  window.open(link.href, '_blank', 'noopener');
+  return true;
+}
+
+/** Suit un lien rendu dans le texte : mention, note de l'espace (lien Markdown ou wiki) ou adresse externe. */
+function followRendered(element: HTMLElement): boolean {
+  const { kind, id, href, wiki } = element.dataset;
+  if (kind && id) {
+    if (kind === 'user') void router.push({ name: 'user', params: { id } });
+    else if (kind === 'ticket') void openTicket(Number(id));
+    else openNode(Number(id));
+    return true;
+  }
+  if (href && /^(https?:|mailto:)/i.test(href)) {
+    window.open(href, '_blank', 'noopener');
+    return true;
+  }
+  const raw = wiki ?? (href ? decodeURIComponent(href) : '');
+  const [target = '', heading] = raw.split('#');
+  if (!target.trim()) return false;
+  const node = resolveDocLink(props.nodes, props.notePath, target.trim());
+  if (!node) return false;
+  pendingAnchor.value = heading ? { path: node.path, heading } : null;
+  emit('open', node);
+  return true;
+}
+
+const inline = liveInline({
+  obsidian: () => props.obsidian ?? false,
+  skipped: (state) => live.complexRanges(state),
+  imageUrl: (target) => {
+    const node = resolveDocLink(props.nodes, props.notePath, target);
+    return node?.kind === 'image' ? `/api/documentation/nodes/${node.id}/raw` : null;
+  },
+  mentionLabel: (kind, id, label) => (kind === 'user' ? `@${props.users.find((user) => user.id === id)?.name ?? label}` : label),
+  follow: (element) => followRendered(element),
 });
 
 /** Le rendu dépend aussi des commentaires et de l'arbre : le refaire, sans toucher au bloc en cours. */
@@ -171,7 +225,7 @@ watch(
 // --- Clics ---
 function onClick(event: MouseEvent): void {
   const element = event.target as HTMLElement;
-  if (!view) return;
+  if (!view || element.closest('.cm-table-editor')) return;
   const box = element.closest<HTMLElement>('.cm-live-block');
   if (box && element instanceof HTMLInputElement && element.type === 'checkbox') {
     event.preventDefault();
@@ -222,7 +276,9 @@ function renderedLink(element: HTMLElement, event: MouseEvent): MenuTarget['link
 /** Ce qui se trouve sous le clic droit, dans un bloc rendu ou dans le source. */
 function targetOf(editor: EditorView, event: MouseEvent): MenuTarget {
   const element = event.target as HTMLElement;
-  const box = element.closest<HTMLElement>('.cm-live-block');
+  const box = element.closest<HTMLElement>('.cm-live-block, .cm-table-editor');
+  const figure = element.closest<HTMLElement>('.cm-lp-figure');
+  const picture = element.closest<HTMLImageElement>('img');
   const text = editor.state.doc.toString();
   const blocks = markdownBlocks(text);
   const main = editor.state.selection.main;
@@ -235,6 +291,9 @@ function targetOf(editor: EditorView, event: MouseEvent): MenuTarget {
     quote = selectionQuote(editor.contentDOM);
     selection = quote && findQuote(text, quote, true);
     selected = quote ? (window.getSelection()?.toString() ?? '') : '';
+  } else if (figure) {
+    // Le curseur ne bouge pas : il ferait réapparaître le Markdown de l'image sous le menu.
+    position = editor.posAtDOM(figure);
   } else {
     const at = editor.posAtCoords({ x: event.clientX, y: event.clientY }) ?? main.head;
     if (!main.empty && at >= main.from && at <= main.to) {
@@ -248,6 +307,8 @@ function targetOf(editor: EditorView, event: MouseEvent): MenuTarget {
     }
   }
   const block = blocks.find((entry) => position >= entry.from && position <= entry.to) ?? null;
+  const shown = box ? live.blockAt(editor.state, position) : undefined;
+  const rendered = shown ? { from: editor.state.doc.lineAt(shown.from).from, to: editor.state.doc.lineAt(shown.to).to } : null;
   const checkbox = box ? (element.closest('li')?.querySelector<HTMLInputElement>(':scope > input[type="checkbox"]') ?? null) : null;
   const task = box ? (checkbox && block ? taskLine(editor, position, block, [...box.querySelectorAll('input[type="checkbox"]')].indexOf(checkbox)) : null) : taskLine(editor, position);
   return {
@@ -259,6 +320,9 @@ function targetOf(editor: EditorView, event: MouseEvent): MenuTarget {
     link: box ? renderedLink(element, event) : sourceLink(editor, position),
     task,
     code: block?.type === 'code' ? text.slice(block.from, block.to).replace(/^[`~]{3,}[^\n]*\n|\n?[`~]{3,}\s*$/g, '') : null,
+    rendered,
+    cell: box ? tableCellAt(element) : null,
+    image: picture && (figure || box) ? { src: picture.currentSrc || picture.src, alt: picture.alt, edit: figure ? () => editImageSource(editor, figure) : null } : null,
   };
 }
 
@@ -319,7 +383,7 @@ onMounted(() => {
     state: EditorState.create({
       doc: text.toString(),
       extensions: [
-        ...(props.live ? [live.extension] : [lineNumbers(), highlightActiveLine()]),
+        ...(props.live ? [live.extension, inline] : [lineNumbers(), highlightActiveLine()]),
         docComments,
         drawSelection(),
         dropCursor(),
@@ -327,8 +391,8 @@ onMounted(() => {
         bracketMatching(),
         closeBrackets(),
         highlightSelectionMatches(),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-        markdown(),
+        syntaxHighlighting(docHighlight),
+        markdown({ base: markdownLanguage }),
         EditorView.lineWrapping,
         placeholder(t('Écrivez en Markdown… @ pour mentionner, / pour insérer un élément.')),
         autocompletion({ override: [mentions, wikiLinks, slashCommands(handlers)], addToOptions: [{ render: completionIcon, position: 20 }] }),
@@ -376,11 +440,81 @@ onMounted(() => {
           '.cm-doc-comment': { borderRadius: '2px', backgroundColor: 'color-mix(in srgb, #f59e0b 28%, transparent)' },
           ...(props.live
             ? {
-                '.cm-scroller': { fontFamily: 'inherit', fontSize: '1rem', lineHeight: '1.6' },
-                '.cm-content': { boxSizing: 'border-box', width: '100%', maxWidth: '55rem', margin: '0 auto', padding: '1.25rem 1.5rem 3rem' },
-                '.cm-line': { padding: '0', fontFamily: FONT_MONO, fontSize: '0.9rem' },
+                '.cm-scroller': { fontFamily: 'inherit', fontSize: '1rem', lineHeight: '1.65' },
+                '.cm-content': { boxSizing: 'border-box', width: '100%', maxWidth: '55rem', margin: '0 auto', padding: '1.25rem 1.5rem 4rem' },
+                '.cm-line': { padding: '0' },
+                '.cm-lp-source': { fontFamily: FONT_MONO, fontSize: '0.88rem' },
+                '.cm-lp-h1': { fontSize: '1.6em', fontWeight: '700', lineHeight: '1.3', paddingTop: '0.35em' },
+                '.cm-lp-h2': { fontSize: '1.35em', fontWeight: '700', lineHeight: '1.3', paddingTop: '0.3em' },
+                '.cm-lp-h3': { fontSize: '1.17em', fontWeight: '700', paddingTop: '0.2em' },
+                '.cm-lp-h4': { fontSize: '1.05em', fontWeight: '700' },
+                '.cm-lp-h5': { fontWeight: '700' },
+                '.cm-lp-h6': { fontWeight: '700', color: 'var(--fb-muted)' },
+                '.cm-lp-strong': { fontWeight: '700' },
+                '.cm-lp-em': { fontStyle: 'italic' },
+                '.cm-lp-strike': { textDecoration: 'line-through' },
+                '.cm-lp-code': { fontFamily: FONT_MONO, fontSize: '0.88em', padding: '0.05em 0.25em', borderRadius: '4px', backgroundColor: 'color-mix(in srgb, var(--fb-text) 9%, transparent)' },
+                '.cm-lp-link': { color: 'var(--fb-accent)', textDecoration: 'underline', textUnderlineOffset: '2px', cursor: 'pointer' },
+                '.cm-lp-syntax': { color: 'var(--fb-muted)' },
+                '.cm-lp-quote': { borderLeft: '3px solid var(--fb-border)', paddingLeft: '0.85rem !important', color: 'var(--fb-muted)' },
+                '.cm-lp-bullet': { display: 'inline-block', minWidth: '0.9em', color: 'var(--fb-muted)', fontWeight: '700' },
+                '.cm-lp-ordinal': { color: 'var(--fb-muted)' },
+                '.cm-lp-task': { margin: '0 0.45em 0 0', verticalAlign: 'middle', cursor: 'pointer' },
+                '.cm-lp-done': { color: 'var(--fb-muted)', textDecoration: 'line-through' },
+                '.cm-lp-hr-line': { position: 'relative' },
+                '.cm-lp-hr': { display: 'inline-block', width: '100%', borderTop: '1px solid var(--fb-border)', verticalAlign: 'middle' },
+                '.cm-lp-figure': { position: 'relative', display: 'inline-block', maxWidth: '100%', verticalAlign: 'middle' },
+                '.cm-lp-image': { display: 'block', maxWidth: '100%', borderRadius: '6px' },
+                '.cm-lp-image-tools': { position: 'absolute', top: '0.4rem', right: '0.4rem', display: 'flex', gap: '0.25rem', opacity: '0', transition: 'opacity 0.15s' },
+                '.cm-lp-figure:hover .cm-lp-image-tools': { opacity: '1' },
+                '.cm-lp-image-tools button': {
+                  display: 'grid',
+                  placeItems: 'center',
+                  width: '1.9rem',
+                  height: '1.9rem',
+                  padding: '0',
+                  border: '0',
+                  borderRadius: '6px',
+                  backgroundColor: 'rgb(15 18 24 / 0.62)',
+                  color: '#fff',
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  backdropFilter: 'blur(4px)',
+                },
+                '.cm-lp-image-tools button:hover': { backgroundColor: 'rgb(15 18 24 / 0.85)' },
+                '.cm-lp-mention, .cm-lp-embed': { padding: '0.05em 0.45em', borderRadius: '999px', backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)', fontWeight: '600', cursor: 'pointer' },
+                '.cm-lp-embed::before': { content: '"\\e9c3"', marginRight: '0.3em', fontFamily: 'primeicons', fontSize: '0.8em', fontWeight: 'normal' },
+                '.cm-lp-highlight': { borderRadius: '3px', backgroundColor: 'color-mix(in srgb, #facc15 38%, transparent)' },
+                '.cm-lp-comment': { color: 'var(--fb-muted)', fontStyle: 'italic' },
+                '.cm-lp-tag': { padding: '0 0.4em', borderRadius: '999px', backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)', fontSize: '0.9em' },
+                '.cm-lp-footnote': { color: 'var(--fb-accent)', fontSize: '0.75em', verticalAlign: 'super' },
                 '.cm-live-block': { padding: '0.15rem 0.35rem', margin: '0 -0.35rem', borderRadius: '6px', cursor: 'text', whiteSpace: 'normal' },
                 '.cm-live-block:hover': { backgroundColor: 'color-mix(in srgb, var(--fb-text) 4%, transparent)' },
+                '.cm-table-editor': { position: 'relative', padding: '0.15rem 1.4rem 1.4rem 0', whiteSpace: 'normal' },
+                '.cm-table-scroll': { overflowX: 'auto' },
+                '.cm-table-editor table': { margin: '0' },
+                '.cm-table-editor th, .cm-table-editor td': { padding: '0', verticalAlign: 'top' },
+                '.cm-table-cell': { minWidth: '3rem', minHeight: '1.6em', padding: '0.35rem 0.6rem', outline: 'none', cursor: 'text', whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
+                '.cm-table-editor td.editing, .cm-table-editor th.editing': { boxShadow: 'inset 0 0 0 2px var(--fb-accent)' },
+                '.cm-table-editor .editing .cm-table-cell': { fontFamily: FONT_MONO, fontSize: '0.86em' },
+                '.cm-table-add': {
+                  position: 'absolute',
+                  display: 'grid',
+                  placeItems: 'center',
+                  padding: '0',
+                  border: '0',
+                  borderRadius: '5px',
+                  backgroundColor: 'color-mix(in srgb, var(--fb-text) 6%, transparent)',
+                  color: 'var(--fb-muted)',
+                  fontSize: '0.65rem',
+                  cursor: 'pointer',
+                  opacity: '0',
+                  transition: 'opacity 0.15s',
+                },
+                '.cm-table-add.row': { left: '0', right: '1.4rem', bottom: '0.1rem', height: '1.1rem' },
+                '.cm-table-add.col': { top: '0.15rem', right: '0.1rem', bottom: '1.4rem', width: '1.1rem' },
+                '.cm-table-editor:hover .cm-table-add, .cm-table-editor:focus-within .cm-table-add': { opacity: '1' },
+                '.cm-table-add:hover': { backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)' },
               }
             : {}),
         }),

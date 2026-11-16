@@ -29,7 +29,10 @@ export function docOutline(text: string): DocHeading[] {
     if (title) headings.push({ level, title, line });
   };
   let fence: string | null = null;
+  // Propriétés en tête de note (---…---) : ni filet ni titre souligné.
+  const front = /^﻿?---\s*$/.test(lines[0] ?? '') ? lines.findIndex((entry, index) => index > 0 && /^---\s*$/.test(entry)) : -1;
   lines.forEach((raw, index) => {
+    if (index <= front) return;
     const line = raw.replace(/\r$/, '');
     const marker = FENCE.exec(line)?.[1];
     if (fence) {

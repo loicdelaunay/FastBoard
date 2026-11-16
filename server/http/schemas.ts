@@ -2,12 +2,12 @@
  * Tous les schémas de validation des requêtes. Ils servent à la fois à valider les routes et à générer
  * la documentation OpenAPI (`server/openapi`) : une seule source de vérité.
  */
-import { AI_LIMITS, REASONING_LEVELS } from '../../shared/ai.ts';
+import { AI_CONTEXT_KINDS, AI_LIMITS, REASONING_LEVELS } from '../../shared/ai.ts';
 import { parseRetentionRules } from '../../shared/backup.ts';
 import { LIMITS, TICKET_STATUSES } from '../../shared/constants.ts';
 import { isISODate } from '../../shared/dates.ts';
 import { DOC_COMMENT_LIMITS } from '../../shared/docComments.ts';
-import { DOC_LIMITS, DOC_ROLES } from '../../shared/docs.ts';
+import { DOC_LIMITS, DOC_ROLES, DOC_SITE_VISIBILITIES } from '../../shared/docs.ts';
 import { LDAP_LIMITS, LDAP_PROFILES, LDAP_SECURITY, LDAP_USER_TOKEN } from '../../shared/ldap.ts';
 import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
@@ -367,6 +367,11 @@ const aiContextSchema = z
     ticketId: id.nullable().optional(),
     docSpaceId: id.nullable().optional().describe('Espace de documentation ouvert.'),
     docNodeId: id.nullable().optional().describe('Note ouverte.'),
+    items: z
+      .array(z.object({ kind: z.enum(AI_CONTEXT_KINDS), id }))
+      .max(AI_LIMITS.contextItems)
+      .optional()
+      .describe('Autres projets, tickets, espaces ou notes ajoutés au contexte.'),
   })
   .default({});
 
@@ -497,6 +502,7 @@ export const docSettingsSchema = z.object({ enabled: z.boolean() });
 export const docSpaceSchema = z.object({
   name: z.string().trim().min(1, 'Donnez un nom à l’espace.').max(DOC_LIMITS.nameMax),
   description: z.string().trim().max(DOC_LIMITS.descriptionMax).default(''),
+  obsidian: z.boolean().optional().describe('Syntaxe propre à Obsidian : callouts, `==surlignage==`, `%%commentaires%%`, `#étiquettes`, notes de bas de page, propriétés… (vrai par défaut).'),
 });
 export const docSpaceUpdateSchema = docSpaceSchema.partial();
 
@@ -510,6 +516,11 @@ export const docNodeSchema = z.object({
 });
 export const docMoveSchema = z.object({ path: z.string().min(1).max(1000).describe('Nouveau chemin (renommage ou déplacement).') });
 export const docContentSchema = z.object({ content: z.string().max(DOC_LIMITS.fileChars) });
+export const docMemoSchema = z.object({ memo: z.string().max(DOC_LIMITS.memoMax).describe('À quoi sert ce fichier ou ce dossier (vide pour effacer).') });
+export const docSiteSchema = z.object({
+  visibility: z.enum(DOC_SITE_VISIBILITIES).describe('`members` : membres de l’espace ; `people` : personnes choisies et propriétaires ; `public` : tout le monde, sans compte.'),
+  people: z.array(id).max(200).default([]).describe('Personnes qui peuvent lire le site (`people`).'),
+});
 export const docRestoreSchema = z.object({ content: z.string().max(DOC_LIMITS.fileChars).optional().describe('Texte final, si l’on ne reprend qu’une partie de la version ; absent : la version entière.') });
 export const docImportCompareSchema = z.object({ path: z.string().min(1).max(1000).describe('Chemin du fichier, tel que renvoyé par l’analyse.') });
 export const docCommentSchema = z.object({

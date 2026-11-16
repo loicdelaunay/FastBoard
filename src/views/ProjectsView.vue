@@ -104,6 +104,7 @@ const archivedCount = computed(() => store.projects.filter((project) => project.
       </template>
     </div>
 
+    <div class="fill"></div>
     <footer class="foot muted small">
       <i class="pi pi-code"></i>
       <span>{{ $t('Automatisez FastBoard avec l’API REST :') }}</span>
@@ -119,13 +120,23 @@ const archivedCount = computed(() => store.projects.filter((project) => project.
 </template>
 
 <style scoped>
+/* Le pied de page reste en bas de l'écran quand la liste est courte. */
+.page {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  padding-bottom: 1rem;
+}
+.fill {
+  flex: 1;
+  min-height: 3rem;
+}
 .foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  margin-top: 3rem;
   padding-top: 1rem;
   border-top: 1px solid var(--fb-border);
 }

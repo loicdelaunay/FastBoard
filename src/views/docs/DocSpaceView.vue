@@ -3,10 +3,11 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import { useRoute, useRouter } from 'vue-router';
 import { useConfirm } from 'primevue/useconfirm';
 import Button from 'primevue/button';
+import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
-import SelectButton from 'primevue/selectbutton';
-import ToggleSwitch from 'primevue/toggleswitch';
+import Menu from 'primevue/menu';
+import type { MenuItem } from 'primevue/menuitem';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
 import { docBaseName, docParent, docTitle, type DocLinksDTO, type DocNodeDTO } from '@shared/docs';
 import { docOutline } from '@shared/docOutline';
@@ -17,21 +18,27 @@ import DocEditor from '@/components/docs/DocEditor.vue';
 import DocHistoryDialog from '@/components/docs/DocHistoryDialog.vue';
 import DocImportDialog from '@/components/docs/DocImportDialog.vue';
 import DocMembersDialog from '@/components/docs/DocMembersDialog.vue';
+import DocNodeInfoDialog from '@/components/docs/DocNodeInfoDialog.vue';
 import DocOutline from '@/components/docs/DocOutline.vue';
 import DocPreview from '@/components/docs/DocPreview.vue';
 import DocSidePanel from '@/components/docs/DocSidePanel.vue';
+import DocSiteDialog from '@/components/docs/DocSiteDialog.vue';
 import DocSpaceDialog from '@/components/docs/DocSpaceDialog.vue';
 import DocTrashDialog from '@/components/docs/DocTrashDialog.vue';
 import DocTree from '@/components/docs/DocTree.vue';
+import { useDocTabs } from '@/composables/useDocTabs';
 import { DocSession, type DocPresence } from '@/realtime/docSession';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
 import { downloadFrom } from '@/utils/files';
-import { formatDateTime } from '@/utils/format';
+import { formatDateTime, formatRelative } from '@/utils/format';
 import { notify, notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
-/** Espace de documentation : arbre à gauche, note au centre, en lecture ou en écriture à plusieurs. */
+/**
+ * Espace de documentation, façon Obsidian : arbre à gauche avec l'espace en bas, onglets au-dessus de la note, et les
+ * liens, rétroliens, commentaires et le compte des mots en bas à droite, dans un panneau flottant.
+ */
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
@@ -39,30 +46,93 @@ const store = useDocsStore();
 const confirm = useConfirm();
 
 const spaceId = computed(() => Number(route.params.spaceId));
-const fileId = computed(() => {
-  const value = Number(route.query.file);
-  return Number.isInteger(value) && value > 0 ? value : null;
-});
-const selected = computed(() => store.nodes.find((node) => node.id === fileId.value) ?? null);
 const users = ref<UserSummaryDTO[]>([]);
 const failed = ref(false);
 
+// --- Onglets, et leur reflet dans l'adresse (précédent / suivant du navigateur) ---
+const tabsState = useDocTabs(spaceId);
+const { tabs, active } = tabsState;
+const fileId = computed(() => active.value.nodeId);
+const selected = computed(() => store.nodes.find((node) => node.id === fileId.value) ?? null);
+/** Prêt quand l'arbre est chargé : avant, un fichier de l'adresse ne peut pas être vérifié. */
+const ready = ref(false);
+
+const queryFile = (): number | null => {
+  const value = Number(route.query.file);
+  return Number.isInteger(value) && value > 0 ? value : null;
+};
+
 onMounted(() => {
   void api.directory().then((result) => (users.value = result.users), () => undefined);
+  void store.loadBookmarks().catch(() => undefined);
 });
 
 watch(
   spaceId,
   async (id) => {
     failed.value = false;
+    ready.value = false;
     try {
       await store.openSpace(id);
+      tabsState.prune(new Set(store.nodes.map((node) => node.id)));
+      const wanted = queryFile();
+      if (wanted !== null && store.nodes.some((node) => node.id === wanted)) tabsState.show(wanted);
+      ready.value = true;
+      // L'adresse reprend l'onglet retrouvé, sans ajouter d'étape à l'historique du navigateur.
+      if (queryFile() !== fileId.value) void router.replace({ query: fileId.value ? { file: String(fileId.value) } : {} });
     } catch {
       failed.value = true;
     }
   },
   { immediate: true },
 );
+
+// Chaque fichier affiché est une étape du navigateur : précédent et suivant passent d'une note à l'autre.
+watch(fileId, (id) => {
+  if (!ready.value || queryFile() === id) return;
+  void router.push({ query: id ? { file: String(id) } : {} });
+});
+watch(
+  () => route.query.file,
+  () => {
+    if (!ready.value) return;
+    const wanted = queryFile();
+    if (wanted === fileId.value) return;
+    if (wanted === null || store.nodes.some((node) => node.id === wanted)) tabsState.show(wanted);
+  },
+);
+
+// Fichiers supprimés ou déplacés hors de l'espace : leurs onglets se ferment.
+watch(
+  () => store.nodes,
+  (nodes) => ready.value && tabsState.prune(new Set(nodes.map((node) => node.id))),
+);
+
+function openNode(node: DocNodeDTO, newTab = false): void {
+  if (newTab) tabsState.openInNewTab(node.id);
+  else tabsState.navigate(node.id);
+}
+
+function tabTitle(nodeId: number | null): string {
+  const node = store.nodes.find((entry) => entry.id === nodeId);
+  if (!node) return t('Nouvel onglet');
+  return node.kind === 'markdown' ? docTitle(node.path) : docBaseName(node.path);
+}
+
+function tabIcon(nodeId: number | null): string {
+  const node = store.nodes.find((entry) => entry.id === nodeId);
+  return !node ? 'pi pi-plus-circle' : node.kind === 'image' ? 'pi pi-image' : 'pi pi-file';
+}
+
+const tabMenu = ref<InstanceType<typeof ContextMenu> | null>(null);
+const tabMenuItems = ref<MenuItem[]>([]);
+function openTabMenu(event: MouseEvent, id: string): void {
+  tabMenuItems.value = [
+    { label: t('Fermer l’onglet'), icon: 'pi pi-times', command: () => tabsState.close(id) },
+    { label: t('Fermer les autres onglets'), icon: 'pi pi-clone', disabled: tabs.value.length < 2, command: () => tabsState.closeOthers(id) },
+  ];
+  tabMenu.value?.show(event);
+}
 
 // --- Session d'édition du fichier ouvert ---
 const session = shallowRef<DocSession | null>(null);
@@ -72,6 +142,7 @@ const synced = computed(() => session.value?.synced.value ?? false);
 const canWrite = computed(() => store.canEdit && (session.value?.canWrite.value ?? false));
 const savedAt = computed(() => session.value?.savedAt.value ?? null);
 const closed = computed(() => session.value?.closed.value ?? null);
+const obsidian = computed(() => store.space?.obsidian ?? true);
 
 type DocMode = 'read' | 'live' | 'write';
 const MODE_KEY = 'fb.docs.mode';
@@ -85,10 +156,10 @@ function storedMode(): DocMode {
 }
 const mode = ref<DocMode>(storedMode());
 const showPreview = ref(true);
-const modeOptions = computed(() => [
+const modeOptions = computed<Array<{ value: DocMode; label: string; icon: string }>>(() => [
   { value: 'read', label: t('Lecture'), icon: 'pi pi-eye' },
   { value: 'live', label: t('Lecture et écriture'), icon: 'pi pi-file-edit' },
-  { value: 'write', label: t('Écriture'), icon: 'pi pi-pencil' },
+  { value: 'write', label: t('Écriture'), icon: 'pi pi-code' },
 ]);
 /** Le texte se modifie, soit en source, soit directement dans le rendu. */
 const writing = computed(() => mode.value !== 'read' && canWrite.value);
@@ -113,6 +184,24 @@ function storedOutline(): boolean {
   }
 }
 const outlineOpen = ref(storedOutline());
+
+// --- Colonne des fichiers, repliable ---
+const TREE_KEY = 'fb.docs.treeHidden';
+function storedTreeHidden(): boolean {
+  try {
+    return localStorage.getItem(TREE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+const treeHidden = ref(storedTreeHidden());
+watch(treeHidden, (hidden) => {
+  try {
+    localStorage.setItem(TREE_KEY, hidden ? '1' : '0');
+  } catch {
+    // Stockage indisponible : le choix vaut pour cette page seulement.
+  }
+});
 const outlineAvailable = computed(() => !writing.value || live.value);
 const showOutline = computed(() => outlineOpen.value && outlineAvailable.value);
 const headings = computed(() => docOutline(content.value));
@@ -195,6 +284,7 @@ function openSession(nodeId: number): void {
 watch(
   () => (selected.value?.kind === 'markdown' ? selected.value.id : null),
   (nodeId) => (nodeId === null ? closeSession() : openSession(nodeId)),
+  { immediate: true },
 );
 
 // Espace quitté ou droits retirés : plus rien à afficher.
@@ -207,37 +297,21 @@ watch(
     void router.replace({ name: 'docs' });
   },
 );
-// --- Panneau de la note : liens et commentaires ---
-const SIDE_KEY = 'fb.docs.side';
-function storedSide(): 'links' | 'comments' | null {
-  try {
-    const value = localStorage.getItem(SIDE_KEY);
-    return value === 'links' || value === 'comments' ? value : null;
-  } catch {
-    return null;
-  }
-}
-const stored = storedSide();
-const sideOpen = ref(stored !== null);
-const sideTab = ref<'links' | 'comments'>(stored ?? 'links');
+
+// --- Panneau flottant : liens, rétroliens et commentaires ---
+const sideOpen = ref(false);
+const sideTab = ref<'links' | 'comments'>('links');
 const links = ref<DocLinksDTO | null>(null);
 const draft = ref<DocQuote | null>(null);
 const focusedComment = ref<number | null>(null);
 const editor = ref<InstanceType<typeof DocEditor> | null>(null);
-
-watch([sideOpen, sideTab], ([open, tab]) => {
-  try {
-    localStorage.setItem(SIDE_KEY, open ? tab : '');
-  } catch {
-    // Stockage indisponible : le choix vaut pour cette page seulement.
-  }
-});
 
 const noteId = computed(() => (selected.value?.kind === 'markdown' ? selected.value.id : null));
 const openComments = computed(() => store.comments.filter((comment) => comment.parentId === null && !comment.resolvedAt).length);
 const linkCount = computed(() => (links.value ? links.value.outgoing.notes.length + links.value.outgoing.tickets.length : 0));
 const backlinkCount = computed(() => (links.value ? links.value.backlinks.notes.length + links.value.backlinks.tickets.length : 0));
 const members = computed(() => users.value.filter((user) => store.members.some((member) => member.userId === user.id)));
+const words = computed(() => content.value.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu)?.length ?? 0);
 
 function showSide(tab: 'links' | 'comments'): void {
   sideOpen.value = !(sideOpen.value && sideTab.value === tab);
@@ -296,7 +370,7 @@ function revealComment(comment: DocCommentDTO): void {
 }
 
 watch(closed, (reason) => {
-  if (reason === 'deleted') void router.replace({ query: {} });
+  if (reason === 'deleted') tabsState.prune(new Set(store.nodes.filter((node) => node.id !== session.value?.nodeId).map((node) => node.id)));
   else if (reason === 'revoked' && !store.revoked) void store.reload(spaceId.value).catch(() => undefined);
 });
 
@@ -307,10 +381,6 @@ onBeforeUnmount(() => {
   void store.loadComments(null);
   store.closeSpace();
 });
-
-function openNode(node: DocNodeDTO): void {
-  void router.replace({ query: { file: String(node.id) } });
-}
 
 // --- Arbre : créer, renommer, déplacer, supprimer ---
 const nameDialog = ref<{ kind: 'create-note' | 'create-folder' | 'rename'; folder: string; node: DocNodeDTO | null } | null>(null);
@@ -342,7 +412,7 @@ async function submitName(): Promise<void> {
       const { node } = await api.docCreateNode(spaceId.value, inFolder(dialog.folder, name), dialog.kind === 'create-folder' ? 'folder' : 'markdown');
       if (node.kind === 'markdown') {
         store.nodes = [...store.nodes.filter((entry) => entry.id !== node.id), node];
-        if (mode.value === 'read') chooseMode('write');
+        if (mode.value === 'read') chooseMode('live');
         openNode(node);
       }
     }
@@ -381,6 +451,16 @@ function askRemove(node: DocNodeDTO): void {
   });
 }
 
+// --- Infos et note d'un fichier ou d'un dossier ---
+const infoNode = ref<DocNodeDTO | null>(null);
+const infoMode = ref<'info' | 'memo'>('info');
+const infoOpen = ref(false);
+function showInfo(node: DocNodeDTO, view: 'info' | 'memo'): void {
+  infoNode.value = node;
+  infoMode.value = view;
+  infoOpen.value = true;
+}
+
 // --- Export et réimport ---
 const importOpen = ref(false);
 const importNode = ref<DocNodeDTO | null>(null);
@@ -394,11 +474,56 @@ function askImport(node: DocNodeDTO | null): void {
   importOpen.value = true;
 }
 
-// --- Réglages de l'espace ---
+// --- Note : menu « ⋯ » ---
+const noteMenu = ref<InstanceType<typeof Menu> | null>(null);
+const noteMenuItems = computed<MenuItem[]>(() => {
+  const node = selected.value;
+  if (!node) return [];
+  return [
+    { label: t('Historique'), icon: 'pi pi-history', command: () => (historyOpen.value = true) },
+    { label: t('Infos'), icon: 'pi pi-info-circle', command: () => showInfo(node, 'info') },
+    ...(store.canEdit ? [{ label: node.memo ? t('Modifier la note') : t('Ajouter une note'), icon: 'pi pi-comment', command: () => showInfo(node, 'memo') }] : []),
+    { separator: true },
+    { label: t('Exporter en .md'), icon: 'pi pi-download', command: () => exportNode(node) },
+    ...(store.canEdit ? [{ label: t('Importer un .md'), icon: 'pi pi-upload', command: () => askImport(node) }] : []),
+    ...(store.canEdit ? [{ separator: true }, { label: t('Renommer'), icon: 'pi pi-pencil', command: () => askRename(node) }, { label: t('Supprimer'), icon: 'pi pi-trash', command: () => askRemove(node) }] : []),
+  ];
+});
+
+// --- Espace : en bas de l'arbre, comme le coffre d'Obsidian ---
 const membersOpen = ref(false);
 const trashOpen = ref(false);
 const historyOpen = ref(false);
 const settingsOpen = ref(false);
+const siteOpen = ref(false);
+const spaceMenu = ref<InstanceType<typeof Menu> | null>(null);
+const switchMenu = ref<InstanceType<typeof Menu> | null>(null);
+
+const spaceMenuItems = computed<MenuItem[]>(() => [
+  ...(store.isOwner
+    ? [
+        { label: t('Modifier l’espace'), icon: 'pi pi-cog', command: () => (settingsOpen.value = true) },
+        { label: store.space?.site ? t('Site web…') : t('Activer le site web'), icon: 'pi pi-globe', command: () => (siteOpen.value = true) },
+      ]
+    : []),
+  ...(store.space?.site ? [{ label: t('Ouvrir le site web'), icon: 'pi pi-external-link', command: () => window.open(`/wiki/${store.space!.site!.slug}`, '_blank', 'noopener') }] : []),
+  { separator: true },
+  { label: t('Exporter l’espace en ZIP'), icon: 'pi pi-download', command: () => exportNode(null) },
+  ...(store.canEdit ? [{ label: t('Importer un .md ou un ZIP'), icon: 'pi pi-upload', command: () => askImport(null) }] : []),
+  { label: t('Corbeille'), icon: 'pi pi-trash', command: () => (trashOpen.value = true) },
+  ...(store.isOwner ? [{ separator: true }, { label: t('Supprimer l’espace'), icon: 'pi pi-times', class: 'danger-item', command: askDeleteSpace }] : []),
+]);
+
+const switchItems = computed<MenuItem[]>(() => [
+  ...store.spaces.filter((space) => space.id !== spaceId.value).map((space) => ({ label: space.name, icon: 'pi pi-book', command: () => void router.push({ name: 'doc-space', params: { spaceId: space.id } }) })),
+  ...(store.spaces.length > 1 ? [{ separator: true }] : []),
+  { label: t('Toutes les documentations'), icon: 'pi pi-th-large', command: () => void router.push({ name: 'docs' }) },
+]);
+
+async function openSwitcher(event: MouseEvent): Promise<void> {
+  switchMenu.value?.toggle(event);
+  if (!store.loaded) await store.fetchSpaces().catch(() => undefined);
+}
 
 function askDeleteSpace(): void {
   confirm.require({
@@ -419,6 +544,15 @@ function askDeleteSpace(): void {
     },
   });
 }
+
+// --- Page d'un nouvel onglet : favoris de l'espace et notes récentes ---
+const spaceBookmarks = computed(() => store.bookmarks.filter((entry) => entry.spaceId === spaceId.value).slice(0, 8));
+const recent = computed(() =>
+  [...store.nodes]
+    .filter((node) => node.kind === 'markdown')
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, 8),
+);
 </script>
 
 <template>
@@ -431,108 +565,202 @@ function askDeleteSpace(): void {
     </div>
   </div>
 
-  <div v-else-if="store.space" class="doc-space">
-    <header class="space-head">
-      <Button v-tooltip.bottom="$t('Retour aux documentations')" icon="pi pi-arrow-left" text rounded size="small" severity="secondary" :aria-label="$t('Retour aux documentations')" @click="router.push({ name: 'docs' })" />
-      <strong class="truncate space-name">{{ store.space.name }}</strong>
-      <span class="spacer"></span>
-      <Button v-tooltip.bottom="$t('Membres')" icon="pi pi-users" text rounded size="small" severity="secondary" :aria-label="$t('Membres')" @click="membersOpen = true" />
-      <Button v-tooltip.bottom="$t('Exporter l’espace en ZIP')" icon="pi pi-download" text rounded size="small" severity="secondary" :aria-label="$t('Exporter l’espace en ZIP')" @click="exportNode(null)" />
-      <Button v-if="store.canEdit" v-tooltip.bottom="$t('Importer un .md ou un ZIP')" icon="pi pi-upload" text rounded size="small" severity="secondary" :aria-label="$t('Importer un .md ou un ZIP')" @click="askImport(null)" />
-      <Button v-tooltip.bottom="$t('Corbeille')" icon="pi pi-trash" text rounded size="small" severity="secondary" :aria-label="$t('Corbeille')" @click="trashOpen = true" />
-      <template v-if="store.isOwner">
-        <Button v-tooltip.bottom="$t('Modifier l’espace')" icon="pi pi-cog" text rounded size="small" severity="secondary" :aria-label="$t('Modifier l’espace')" @click="settingsOpen = true" />
-        <Button v-tooltip.bottom="$t('Supprimer l’espace')" icon="pi pi-times" text rounded size="small" severity="danger" :aria-label="$t('Supprimer l’espace')" @click="askDeleteSpace" />
-      </template>
-    </header>
+  <div v-else-if="store.space" class="doc-space" :class="{ 'tree-hidden': treeHidden }">
+    <aside v-show="!treeHidden" class="tree-col">
+      <DocTree
+        class="tree"
+        :nodes="store.nodes"
+        :selected-id="fileId"
+        :editable="store.canEdit"
+        :space-id="spaceId"
+        @open="openNode"
+        @create="askCreate"
+        @rename="askRename"
+        @remove="askRemove"
+        @move="moveNode"
+        @export="exportNode"
+        @import="askImport"
+        @info="showInfo($event, 'info')"
+        @memo="showInfo($event, 'memo')"
+        @collapse="treeHidden = true"
+      />
+      <footer class="space-foot">
+        <button v-tooltip.top="$t('Changer d’espace')" type="button" class="space-switch" aria-haspopup="true" @click="openSwitcher">
+          <i class="pi pi-sort-alt muted"></i>
+          <strong class="truncate">{{ store.space.name }}</strong>
+          <i v-if="store.space.site" v-tooltip.top="$t('Site web activé')" class="pi pi-globe site" :class="store.space.site.visibility"></i>
+        </button>
+        <Button v-tooltip.top="$t('Membres')" icon="pi pi-users" text rounded size="small" severity="secondary" :aria-label="$t('Membres')" @click="membersOpen = true" />
+        <Button v-tooltip.top="$t('Réglages de l’espace')" icon="pi pi-cog" text rounded size="small" severity="secondary" :aria-label="$t('Réglages de l’espace')" aria-haspopup="true" @click="spaceMenu?.toggle($event)" />
+        <Menu ref="switchMenu" :model="switchItems" popup />
+        <Menu ref="spaceMenu" :model="spaceMenuItems" popup />
+      </footer>
+    </aside>
 
-    <div class="body">
-      <aside class="tree">
-        <DocTree :nodes="store.nodes" :selected-id="fileId" :editable="store.canEdit" :space-id="spaceId" @open="openNode" @create="askCreate" @rename="askRename" @remove="askRemove" @move="moveNode" @export="exportNode" @import="askImport" />
-      </aside>
+    <main class="note-col">
+      <div class="tabbar" role="tablist" :aria-label="$t('Onglets')">
+        <button v-if="treeHidden" v-tooltip.bottom="$t('Afficher les fichiers')" type="button" class="tab-add tree-show" :aria-label="$t('Afficher les fichiers')" @click="treeHidden = false"><i class="pi pi-angle-double-right"></i></button>
+        <div
+          v-for="tab in tabs"
+          :key="tab.id"
+          class="tab"
+          :class="{ active: tab.id === active.id }"
+          role="tab"
+          :aria-selected="tab.id === active.id"
+          tabindex="0"
+          :title="store.nodes.find((node) => node.id === tab.nodeId)?.path ?? $t('Nouvel onglet')"
+          @click="tabsState.activate(tab.id)"
+          @keydown.enter="tabsState.activate(tab.id)"
+          @auxclick.prevent="$event.button === 1 && tabsState.close(tab.id)"
+          @contextmenu.prevent="openTabMenu($event, tab.id)"
+        >
+          <i :class="tabIcon(tab.nodeId)" class="tab-icon"></i>
+          <span class="tab-title truncate">{{ tabTitle(tab.nodeId) }}</span>
+          <button type="button" class="tab-close" :aria-label="$t('Fermer l’onglet')" @click.stop="tabsState.close(tab.id)"><i class="pi pi-times"></i></button>
+        </div>
+        <button v-tooltip.bottom="$t('Nouvel onglet')" type="button" class="tab-add" :aria-label="$t('Nouvel onglet')" @click="tabsState.openInNewTab(null)"><i class="pi pi-plus"></i></button>
+        <ContextMenu ref="tabMenu" :model="tabMenuItems" />
+      </div>
 
-      <main class="note">
-        <template v-if="selected?.kind === 'markdown'">
-          <header class="note-head">
-            <div class="crumbs truncate">
-              <span v-if="docParent(selected.path)" class="muted">{{ docParent(selected.path) }} / </span>
-              <strong>{{ docTitle(selected.path) }}</strong>
-            </div>
-            <div class="people">
-              <span v-for="person in presence" :key="person.id" v-tooltip.bottom="$t('{name} est sur cette note', { name: person.name })" class="person" :style="{ '--ring': person.color }">
-                <UserAvatar :user="users.find((user) => user.id === person.id) ?? { id: person.id, name: person.name, avatarVersion: 0 }" size="small" />
-              </span>
-            </div>
-            <div class="counters">
-              <button v-if="outlineAvailable" v-tooltip.bottom="$t('Sommaire')" type="button" class="counter outline-toggle" :class="{ active: outlineOpen }" :aria-label="$t('Sommaire')" :aria-pressed="outlineOpen" @click="outlineOpen = !outlineOpen">
-                <i class="pi pi-list"></i>
-              </button>
-              <button v-tooltip.bottom="$t('Liens et rétroliens')" type="button" class="counter" :class="{ active: sideOpen && sideTab === 'links' }" :aria-label="$t('Liens et rétroliens')" @click="showSide('links')">
-                <i class="pi pi-link"></i>{{ linkCount }}<i class="pi pi-reply back"></i>{{ backlinkCount }}
-              </button>
-              <button v-tooltip.bottom="$t('Commentaires')" type="button" class="counter" :class="{ active: sideOpen && sideTab === 'comments' }" :aria-label="$t('Commentaires')" @click="showSide('comments')">
-                <i class="pi pi-comments"></i>{{ openComments }}
+      <template v-if="selected">
+        <header class="note-nav">
+          <Button v-tooltip.bottom="$t('Précédent')" icon="pi pi-arrow-left" text rounded size="small" severity="secondary" :disabled="!active.back.length" :aria-label="$t('Précédent')" @click="tabsState.goBack()" />
+          <Button v-tooltip.bottom="$t('Suivant')" icon="pi pi-arrow-right" text rounded size="small" severity="secondary" :disabled="!active.forward.length" :aria-label="$t('Suivant')" @click="tabsState.goForward()" />
+          <div class="crumbs truncate">
+            <span v-if="docParent(selected.path)" class="muted">{{ docParent(selected.path).replaceAll('/', ' / ') }} / </span>
+            <strong>{{ selected.kind === 'markdown' ? docTitle(selected.path) : docBaseName(selected.path) }}</strong>
+          </div>
+          <div class="people">
+            <span v-for="person in presence" :key="person.id" v-tooltip.bottom="$t('{name} est sur cette note', { name: person.name })" class="person" :style="{ '--ring': person.color }">
+              <UserAvatar :user="users.find((user) => user.id === person.id) ?? { id: person.id, name: person.name, avatarVersion: 0 }" size="small" />
+            </span>
+          </div>
+          <template v-if="selected.kind === 'markdown'">
+            <span v-if="writing && savedAt" v-tooltip.bottom="formatDateTime(savedAt)" class="muted small saved"><i class="pi pi-check"></i> {{ $t('Enregistré') }}</span>
+            <span v-else-if="synced && !canWrite" class="muted small saved"><i class="pi pi-lock"></i> {{ $t('Lecture seule') }}</span>
+            <div v-if="canWrite" class="modes" role="radiogroup" :aria-label="$t('Mode d’affichage')">
+              <button v-for="option in modeOptions" :key="option.value" v-tooltip.bottom="option.label" type="button" class="mode" :class="{ active: mode === option.value }" role="radio" :aria-checked="mode === option.value" :aria-label="option.label" @click="chooseMode(option.value)">
+                <i :class="option.icon"></i>
               </button>
             </div>
-            <span v-if="writing && savedAt" class="muted small saved" :title="formatDateTime(savedAt)"><i class="pi pi-check"></i> {{ $t('Enregistré') }}</span>
-            <label v-if="writing && !live" class="row preview-toggle small">
-              <ToggleSwitch v-model="showPreview" class="mini-switch" :aria-label="$t('Aperçu')" />
-              <span>{{ $t('Aperçu') }}</span>
-            </label>
-            <SelectButton v-if="canWrite" :model-value="mode" :options="modeOptions" option-value="value" option-label="label" size="small" :allow-empty="false" :aria-label="$t('Mode d’affichage')" @update:model-value="chooseMode">
-              <template #option="{ option }"><i :class="option.icon"></i><span>{{ option.label }}</span></template>
-            </SelectButton>
-            <span v-else-if="synced" class="muted small"><i class="pi pi-eye"></i> {{ $t('Lecture seule') }}</span>
-            <Button v-tooltip.bottom="$t('Historique')" icon="pi pi-history" text rounded size="small" severity="secondary" :aria-label="$t('Historique')" @click="historyOpen = true" />
-          </header>
+            <Button v-if="writing && !live" v-tooltip.bottom="showPreview ? $t('Masquer l’aperçu') : $t('Afficher l’aperçu')" icon="pi pi-objects-column" text rounded size="small" :severity="showPreview ? undefined : 'secondary'" :aria-pressed="showPreview" :aria-label="$t('Aperçu')" @click="showPreview = !showPreview" />
+            <Button v-if="outlineAvailable" v-tooltip.bottom="$t('Sommaire')" icon="pi pi-list" text rounded size="small" :severity="outlineOpen ? undefined : 'secondary'" :aria-pressed="outlineOpen" :aria-label="$t('Sommaire')" class="outline-toggle" @click="outlineOpen = !outlineOpen" />
+          </template>
+          <Button
+            v-tooltip.bottom="store.bookmarked.has(selected.id) ? $t('Retirer des favoris') : $t('Ajouter aux favoris')"
+            :icon="store.bookmarked.has(selected.id) ? 'pi pi-star-fill' : 'pi pi-star'"
+            text
+            rounded
+            size="small"
+            :severity="store.bookmarked.has(selected.id) ? 'warn' : 'secondary'"
+            :aria-pressed="store.bookmarked.has(selected.id)"
+            :aria-label="$t('Favori')"
+            @click="store.toggleBookmark(selected.id)"
+          />
+          <Button v-tooltip.bottom="$t('Plus d’actions')" icon="pi pi-ellipsis-v" text rounded size="small" severity="secondary" :aria-label="$t('Plus d’actions')" aria-haspopup="true" @click="noteMenu?.toggle($event)" />
+          <Menu ref="noteMenu" :model="noteMenuItems" popup />
+        </header>
 
+        <template v-if="selected.kind === 'markdown'">
           <div v-if="!synced" class="waiting muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
-          <div v-else class="note-body" :class="{ 'with-side': sideOpen, 'with-outline': showOutline }">
+          <div v-else class="note-body" :class="{ 'with-outline': showOutline }">
             <DocOutline v-if="showOutline" class="outline" :headings="headings" :active="activeHeading" @go="goToHeading" @close="outlineOpen = false" />
             <div class="panes" :class="{ split: writing && !live && showPreview }">
               <div v-if="writing && session" class="pane editor">
-                <DocEditor :key="`${session.nodeId}-${mode}`" ref="editor" :session="session" :space-id="spaceId" :note-path="selected.path" :users="users" :nodes="store.nodes" :comments="store.comments" :live="live" :readonly="false" @open="openNode" @comment="startComment" @focus-comment="focusComment" @top-line="onEditorLine" />
+                <DocEditor
+                  :key="`${session.nodeId}-${mode}`"
+                  ref="editor"
+                  :session="session"
+                  :space-id="spaceId"
+                  :note-path="selected.path"
+                  :users="users"
+                  :nodes="store.nodes"
+                  :comments="store.comments"
+                  :live="live"
+                  :obsidian="obsidian"
+                  :readonly="false"
+                  @open="openNode"
+                  @comment="startComment"
+                  @focus-comment="focusComment"
+                  @top-line="onEditorLine"
+                />
               </div>
               <div v-if="!writing || (showPreview && !live)" ref="previewPane" class="pane preview" @scroll.passive="onPreviewScroll">
-                <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" @open="openNode" @comment="startComment" @focus-comment="focusComment" />
+                <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" :obsidian="obsidian" @open="openNode" @comment="startComment" @focus-comment="focusComment" />
                 <p v-else class="muted empty-note">{{ canWrite ? $t('Cette note est vide. Passez en écriture pour la rédiger.') : $t('Cette note est vide.') }}</p>
               </div>
             </div>
-            <DocSidePanel
-              v-if="sideOpen"
-              v-model:tab="sideTab"
-              v-model:focused="focusedComment"
-              :node-id="selected.id"
-              :nodes="store.nodes"
-              :text="content"
-              :links="links"
-              :comments="store.comments"
-              :members="members"
-              :users="users"
-              :draft="draft"
-              :is-owner="store.isOwner"
-              @close="sideOpen = false"
-              @open="openNode"
-              @reveal="revealComment"
-              @cancel-draft="draft = null"
-            />
           </div>
+
+          <div class="status" role="toolbar" :aria-label="$t('Liens et commentaires')">
+            <button v-tooltip.top="$t('Notes et tickets qui citent cette note')" type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'links' }" @click="showSide('links')">
+              <i class="pi pi-reply"></i> {{ $t('{n} rétrolien|{n} rétroliens', { n: backlinkCount }) }}
+            </button>
+            <button v-tooltip.top="$t('Ce que cite cette note')" type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'links' }" @click="showSide('links')">
+              <i class="pi pi-link"></i> {{ $t('{n} lien|{n} liens', { n: linkCount }) }}
+            </button>
+            <button type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'comments' }" @click="showSide('comments')">
+              <i class="pi pi-comments"></i> {{ $t('{n} commentaire|{n} commentaires', { n: openComments }) }}
+            </button>
+            <span class="status-item plain">{{ $t('{n} mot|{n} mots', { n: words }) }} · {{ $t('{n} caractère|{n} caractères', { n: content.length }) }}</span>
+          </div>
+          <Transition name="float">
+            <div v-if="sideOpen" class="floating-panel">
+              <DocSidePanel
+                v-model:tab="sideTab"
+                v-model:focused="focusedComment"
+                :node-id="selected.id"
+                :nodes="store.nodes"
+                :text="content"
+                :links="links"
+                :comments="store.comments"
+                :members="members"
+                :users="users"
+                :draft="draft"
+                :is-owner="store.isOwner"
+                @close="sideOpen = false"
+                @open="openNode"
+                @reveal="revealComment"
+                @cancel-draft="draft = null"
+              />
+            </div>
+          </Transition>
         </template>
 
-        <div v-else-if="selected?.kind === 'image'" class="image-view">
-          <p class="muted small">{{ selected.path }}</p>
+        <div v-else class="image-view">
           <img :src="`/api/documentation/nodes/${selected.id}/raw`" :alt="docBaseName(selected.path)" />
         </div>
+      </template>
 
-        <div v-else class="welcome">
+      <div v-else class="welcome">
+        <div class="welcome-head">
           <i class="pi pi-book"></i>
           <h3>{{ store.space.name }}</h3>
           <p v-if="store.space.description" class="muted">{{ store.space.description }}</p>
-          <p class="muted">{{ store.nodes.length ? $t('Choisissez une note dans l’arbre.') : store.canEdit ? $t('Créez une première note pour commencer.') : $t('Cet espace est vide.') }}</p>
+        </div>
+        <div class="welcome-actions">
           <Button v-if="store.canEdit" :label="$t('Nouvelle note')" icon="pi pi-file-plus" @click="askCreate('markdown', '')" />
         </div>
-      </main>
-    </div>
+        <div v-if="spaceBookmarks.length || recent.length" class="welcome-lists">
+          <section v-if="spaceBookmarks.length">
+            <h4><i class="pi pi-star-fill star"></i> {{ $t('Favoris') }}</h4>
+            <button v-for="entry in spaceBookmarks" :key="entry.nodeId" type="button" class="welcome-link" @click="tabsState.navigate(entry.nodeId)">
+              <i :class="entry.kind === 'image' ? 'pi pi-image' : 'pi pi-file'" class="muted"></i>
+              <span class="truncate">{{ docTitle(entry.path) }}</span>
+            </button>
+          </section>
+          <section v-if="recent.length">
+            <h4><i class="pi pi-clock"></i> {{ $t('Modifiées récemment') }}</h4>
+            <button v-for="node in recent" :key="node.id" type="button" class="welcome-link" @click="openNode(node)">
+              <i class="pi pi-file muted"></i>
+              <span class="truncate">{{ docTitle(node.path) }}</span>
+              <span class="muted small when">{{ formatRelative(node.updatedAt) }}</span>
+            </button>
+          </section>
+        </div>
+        <p v-else class="muted">{{ store.canEdit ? $t('Créez une première note pour commencer.') : $t('Cet espace est vide.') }}</p>
+      </div>
+    </main>
 
     <Dialog :visible="nameDialog !== null" modal :header="nameTitle" :style="{ width: 'min(26rem, calc(100vw - 2rem))' }" @update:visible="nameDialog = null">
       <form class="name-form" @submit.prevent="submitName">
@@ -550,6 +778,8 @@ function askDeleteSpace(): void {
     <DocTrashDialog v-model:visible="trashOpen" :space-id="spaceId" />
     <DocHistoryDialog v-if="selected?.kind === 'markdown'" v-model:visible="historyOpen" :node="selected" :nodes="store.nodes" :users="users" :can-restore="canWrite" :current="content" />
     <DocSpaceDialog v-model:visible="settingsOpen" :space="store.space" @saved="store.reload(spaceId)" />
+    <DocSiteDialog v-model:visible="siteOpen" :space="store.space" @saved="store.reload(spaceId)" />
+    <DocNodeInfoDialog v-model:visible="infoOpen" :node="infoNode" :mode="infoMode" :can-edit="store.canEdit" />
   </div>
 
   <div v-else class="page muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
@@ -557,54 +787,173 @@ function askDeleteSpace(): void {
 
 <style scoped>
 .doc-space {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-}
-.space-head {
-  display: flex;
-  align-items: center;
-  gap: 0.2rem;
-  padding: 0.3rem 0.75rem;
-  border-bottom: 1px solid var(--fb-border);
-  background: var(--fb-panel);
-}
-.space-name {
-  min-width: 0;
-  margin-left: 0.25rem;
-}
-.spacer {
-  flex: 1;
-}
-.body {
   display: grid;
   flex: 1;
   grid-template-columns: 17rem minmax(0, 1fr);
   min-height: 0;
 }
-.tree {
+.doc-space.tree-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+.tree-show {
+  margin-right: 0.25rem;
+}
+.tree-col {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   border-right: 1px solid var(--fb-border);
   background: var(--fb-panel);
 }
-.note {
+.tree {
+  flex: 1;
+  min-height: 0;
+}
+.space-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.3rem 0.35rem;
+  border-top: 1px solid var(--fb-border);
+}
+.space-switch {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fb-text);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+.space-switch:hover {
+  background: var(--fb-panel-alt);
+}
+.site {
+  margin-left: auto;
+  color: var(--fb-muted);
+  font-size: 0.75rem;
+}
+.site.public {
+  color: #f59e0b;
+}
+.note-col {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
 }
-.note-head {
+.tabbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.15rem;
+  min-height: 2.35rem;
+  padding: 0.3rem 0.5rem 0;
+  border-bottom: 1px solid var(--fb-border);
+  background: var(--fb-panel-alt);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tab {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  min-height: 2.8rem;
-  padding: 0.3rem 0.75rem;
+  gap: 0.4rem;
+  min-width: 7rem;
+  max-width: 13rem;
+  flex: 0 1 13rem;
+  height: 2rem;
+  padding: 0 0.3rem 0 0.7rem;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  color: var(--fb-muted);
+  font-size: 0.84rem;
+  cursor: pointer;
+  user-select: none;
+}
+.tab:hover {
+  background: color-mix(in srgb, var(--fb-text) 5%, transparent);
+  color: var(--fb-text);
+}
+.tab.active {
+  position: relative;
+  bottom: -1px;
+  border-color: var(--fb-border);
+  background: var(--fb-bg);
+  color: var(--fb-text);
+  font-weight: 600;
+}
+.tab:focus-visible {
+  outline: 2px solid var(--fb-accent);
+  outline-offset: -2px;
+}
+.tab-icon {
+  font-size: 0.75rem;
+  color: var(--fb-muted);
+}
+.tab-title {
+  flex: 1;
+  min-width: 0;
+}
+.tab-close,
+.tab-add {
+  display: grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--fb-muted);
+  font-size: 0.65rem;
+  cursor: pointer;
+}
+.tab-close {
+  opacity: 0;
+}
+.tab:hover .tab-close,
+.tab.active .tab-close,
+.tab-close:focus-visible {
+  opacity: 1;
+}
+.tab-close:hover,
+.tab-add:hover {
+  background: color-mix(in srgb, var(--fb-text) 10%, transparent);
+  color: var(--fb-text);
+}
+.tab-add {
+  align-self: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  font-size: 0.75rem;
+}
+@media (hover: none) {
+  .tab-close {
+    opacity: 1;
+  }
+}
+.note-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 2.5rem;
+  padding: 0.15rem 0.5rem;
   border-bottom: 1px solid var(--fb-border);
 }
 .crumbs {
   flex: 1;
   min-width: 0;
+  margin-left: 0.35rem;
+  font-size: 0.9rem;
 }
 .people {
   display: flex;
@@ -615,52 +964,35 @@ function askDeleteSpace(): void {
   border-radius: 50%;
   box-shadow: 0 0 0 2px var(--ring);
 }
-.counters {
-  display: flex;
-  gap: 0.15rem;
+.saved {
+  margin: 0 0.35rem;
+  white-space: nowrap;
 }
-.counter {
+.modes {
   display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.2rem 0.45rem;
+  padding: 0.12rem;
+  border-radius: 8px;
+  background: var(--fb-panel-alt);
+}
+.mode {
+  display: grid;
+  place-items: center;
+  width: 1.85rem;
+  height: 1.6rem;
   border: 0;
   border-radius: 6px;
   background: none;
   color: var(--fb-muted);
-  font: inherit;
   font-size: 0.8rem;
   cursor: pointer;
 }
-.counter:hover {
-  background: var(--fb-panel-alt);
+.mode:hover {
   color: var(--fb-text);
 }
-.counter.active {
-  background: var(--fb-accent-soft);
+.mode.active {
+  background: var(--fb-panel);
+  box-shadow: var(--fb-shadow);
   color: var(--fb-accent);
-}
-.counter .pi {
-  font-size: 0.75rem;
-}
-.counter .back {
-  margin-left: 0.3rem;
-}
-.saved {
-  white-space: nowrap;
-}
-.preview-toggle {
-  gap: 0.35rem;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.mini-switch {
-  --p-toggleswitch-width: 1.75rem;
-  --p-toggleswitch-height: 1rem;
-  --p-toggleswitch-handle-size: 0.7rem;
-}
-.note-head :deep(.p-togglebutton-content) {
-  gap: 0.35rem;
 }
 .waiting {
   padding: 2rem;
@@ -672,14 +1004,8 @@ function askDeleteSpace(): void {
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
 }
-.note-body.with-side {
-  grid-template-columns: minmax(0, 1fr) 20rem;
-}
 .note-body.with-outline {
   grid-template-columns: 14rem minmax(0, 1fr);
-}
-.note-body.with-outline.with-side {
-  grid-template-columns: 14rem minmax(0, 1fr) 20rem;
 }
 .panes {
   display: grid;
@@ -702,13 +1028,84 @@ function askDeleteSpace(): void {
   border-right: 1px solid var(--fb-border);
 }
 .pane.preview {
-  padding: 1.25rem 1.5rem 3rem;
+  padding: 1.25rem 1.5rem 3.5rem;
 }
 .pane.preview :deep(.markdown > :is(h1, h2, h3, h4, h5, h6)) {
   scroll-margin-top: 0.75rem;
 }
 .empty-note {
   text-align: center;
+}
+/* Barre d'état flottante, en bas à droite, comme dans Obsidian. */
+.status {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.6rem;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.15rem;
+  border: 1px solid var(--fb-border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fb-panel) 92%, transparent);
+  box-shadow: var(--fb-shadow);
+  backdrop-filter: blur(4px);
+}
+.status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fb-muted);
+  font: inherit;
+  font-size: 0.76rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.status-item .pi {
+  font-size: 0.7rem;
+}
+.status-item:hover:not(.plain) {
+  background: var(--fb-panel-alt);
+  color: var(--fb-text);
+}
+.status-item.active {
+  background: var(--fb-accent-soft);
+  color: var(--fb-accent);
+}
+.status-item.plain {
+  cursor: default;
+}
+.floating-panel {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 2.9rem;
+  z-index: 6;
+  display: flex;
+  width: min(23rem, calc(100% - 1.5rem));
+  height: min(32rem, calc(100% - 6rem));
+  border: 1px solid var(--fb-border);
+  border-radius: 12px;
+  background: var(--fb-panel);
+  box-shadow: var(--fb-shadow-lg);
+  overflow: hidden;
+}
+.floating-panel > * {
+  flex: 1;
+  min-width: 0;
+}
+.float-enter-active,
+.float-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.float-enter-from,
+.float-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 .image-view {
   flex: 1;
@@ -720,17 +1117,24 @@ function askDeleteSpace(): void {
   max-width: 100%;
   border-radius: 8px;
 }
-.welcome,
-.empty {
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  margin: 0 auto;
+  padding: 3rem 1rem;
+  width: min(40rem, 100%);
+  overflow-y: auto;
+}
+.welcome-head {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.4rem;
-  margin: auto;
-  padding: 2rem 1rem;
   text-align: center;
 }
-.welcome > .pi,
+.welcome-head > .pi,
 .empty > .pi {
   color: var(--fb-accent);
   font-size: 2rem;
@@ -740,6 +1144,60 @@ function askDeleteSpace(): void {
 .empty h3,
 .empty p {
   margin: 0;
+}
+.welcome-lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+  width: 100%;
+}
+.welcome-lists h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fb-muted);
+}
+.star {
+  color: #eab308;
+}
+.welcome-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fb-text);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+.welcome-link:hover {
+  background: var(--fb-panel-alt);
+}
+.welcome-link .truncate {
+  flex: 1;
+  min-width: 0;
+}
+.when {
+  flex: none;
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  margin: auto;
+  padding: 2rem 1rem;
+  text-align: center;
 }
 .name-form {
   display: flex;
@@ -754,35 +1212,25 @@ function askDeleteSpace(): void {
   justify-content: flex-end;
   gap: 0.5rem;
 }
-/* Trop étroit pour trois colonnes : le panneau ouvert à la main passe avant le sommaire. */
-@media (max-width: 1100px) {
-  .note-body.with-outline.with-side {
-    grid-template-columns: minmax(0, 1fr) 20rem;
+@media (max-width: 1000px) {
+  .note-body.with-outline {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .note-body.with-side .outline {
+  .outline {
     display: none;
   }
 }
 @media (max-width: 760px) {
-  .outline,
-  .outline-toggle {
-    display: none;
-  }
-  .note-body.with-outline {
-    grid-template-columns: 1fr;
-  }
-  .body {
+  .doc-space {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 13rem) minmax(0, 1fr);
   }
-  .tree {
+  .doc-space.tree-hidden {
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .tree-col {
     border-right: 0;
     border-bottom: 1px solid var(--fb-border);
-  }
-  .note-body.with-side,
-  .note-body.with-outline.with-side {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
   }
   .panes.split {
     grid-template-columns: 1fr;
@@ -792,8 +1240,12 @@ function askDeleteSpace(): void {
     border-right: 0;
     border-bottom: 1px solid var(--fb-border);
   }
-  .note-head {
-    flex-wrap: wrap;
+  .outline-toggle,
+  .crumbs .muted {
+    display: none;
+  }
+  .status-item.plain {
+    display: none;
   }
 }
 </style>

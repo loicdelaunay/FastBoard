@@ -2,12 +2,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
-import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { syntaxHighlighting } from '@codemirror/language';
 import { EditorState, Transaction } from '@codemirror/state';
 import { drawSelection, EditorView, keymap, lineNumbers } from '@codemirror/view';
 import Button from 'primevue/button';
 import Checkbox from 'primevue/checkbox';
 import { composeMerge, defaultPick, diffParts, hunkRows, mergedText, pickedText, type DiffHunk, type DiffKind, type DiffPick, type DiffRow, type DiffSide, type DiffSpan } from '@shared/docDiff';
+import { docHighlight } from './editor/highlight';
 import { mergeBlocks, mergeResult, setBlocks, type MergeBlock } from './editor/mergeResult';
 
 import { t } from '@/i18n';
@@ -201,7 +202,7 @@ onMounted(() => {
           history(),
           drawSelection(),
           markdown(),
-          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+          syntaxHighlighting(docHighlight),
           EditorView.lineWrapping,
           EditorView.contentAttributes.of({ 'aria-label': t('Résultat') }),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),

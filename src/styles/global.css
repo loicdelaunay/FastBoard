@@ -13,7 +13,13 @@
   --fb-radius: 10px;
   --fb-shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 1px 3px rgb(15 23 42 / 8%);
   --fb-shadow-lg: 0 8px 24px rgb(15 23 42 / 14%);
-  --fb-header-h: 56px;
+  /* Coloration du source Markdown : lisible sur fond clair. */
+  --fb-hl-string: #b45309;
+  --fb-hl-code: #be185d;
+  --fb-hl-keyword: #7c3aed;
+  --fb-hl-number: #0f766e;
+  --fb-hl-type: #2563eb;
+  --fb-hl-property: #0369a1;
   /* Polices réglables dans Mon compte → Apparence (variables posées par themeManager). */
   font-family: var(--fb-font, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
   font-size: var(--fb-font-size, 15px);
@@ -22,6 +28,13 @@
 
 :root.app-dark {
   --fb-bg: var(--p-surface-950);
+  /* … et sur fond noir. */
+  --fb-hl-string: #fbbf24;
+  --fb-hl-code: #f9a8d4;
+  --fb-hl-keyword: #c4b5fd;
+  --fb-hl-number: #5eead4;
+  --fb-hl-type: #93c5fd;
+  --fb-hl-property: #7dd3fc;
   --fb-panel-alt: var(--p-surface-800);
   --fb-shadow: 0 1px 2px rgb(0 0 0 / 30%);
   --fb-shadow-lg: 0 8px 24px rgb(0 0 0 / 45%);
@@ -219,4 +232,78 @@ button {
   content: 'I';
   font-style: italic;
   font-weight: 700;
+}
+
+/* Visionneuse d'image plein écran (documentation, sites web). */
+.fb-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  background: rgb(8 10 14 / 0.88);
+  outline: none;
+  animation: fb-lightbox-in 0.15s ease-out;
+}
+.fb-lightbox-stage {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: 3.5rem 1.5rem 1.5rem;
+}
+.fb-lightbox-stage img {
+  max-width: 100%;
+  max-height: calc(100vh - 5rem);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.45);
+  cursor: zoom-in;
+}
+.fb-lightbox.full .fb-lightbox-stage {
+  place-items: start center;
+}
+.fb-lightbox.full .fb-lightbox-stage img {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+.fb-lightbox-bar {
+  position: absolute;
+  top: 0.6rem;
+  left: 1rem;
+  right: 0.6rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  pointer-events: none;
+}
+.fb-lightbox-caption {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(255 255 255 / 0.8);
+  font-size: 0.85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-lightbox-button {
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.fb-lightbox-button:hover,
+.fb-lightbox-button:focus-visible {
+  background: rgb(255 255 255 / 0.24);
+}
+@keyframes fb-lightbox-in {
+  from {
+    opacity: 0;
+  }
 }

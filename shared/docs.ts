@@ -20,8 +20,81 @@ export interface DocSpaceDTO {
   role: DocRole;
   fileCount: number;
   memberCount: number;
+  /** Syntaxe propre à Obsidian (callouts, surlignage, commentaires, étiquettes, notes de bas de page…). */
+  obsidian: boolean;
+  /** Site web de l'espace, s'il est activé. */
+  site: { slug: string; visibility: DocSiteVisibility } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** `members` : membres de l'espace ; `people` : personnes choisies ; `public` : tout le monde, sans compte. */
+export const DOC_SITE_VISIBILITIES = ['members', 'people', 'public'] as const;
+export type DocSiteVisibility = (typeof DOC_SITE_VISIBILITIES)[number];
+
+export interface DocSiteDTO {
+  slug: string;
+  visibility: DocSiteVisibility;
+  /** Personnes qui peuvent lire le site (`people`) ; les propriétaires de l'espace le peuvent toujours. */
+  people: number[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Le site web d'un espace, tel que le lit son public. */
+export interface WikiDTO {
+  slug: string;
+  name: string;
+  description: string;
+  obsidian: boolean;
+  nodes: Array<Pick<DocNodeDTO, 'id' | 'path' | 'kind'>>;
+  updatedAt: string;
+  /** Espace à ouvrir pour « Modifier cette page » : seulement pour qui peut y écrire. */
+  editSpaceId: number | null;
+}
+
+/** Résultat de la recherche dans un site web. */
+export interface WikiSearchHitDTO {
+  id: number;
+  path: string;
+  title: string;
+  /** Ligne du texte où figure la recherche (vide si seul le titre correspond). */
+  excerpt: string;
+}
+
+export interface WikiPageDTO {
+  id: number;
+  path: string;
+  content: string;
+  updatedAt: string;
+}
+
+/** Note ou image mise en favori par la personne. */
+export interface DocBookmarkDTO {
+  nodeId: number;
+  spaceId: number;
+  spaceName: string;
+  path: string;
+  kind: 'markdown' | 'image';
+  createdAt: string;
+}
+
+/** Ce que dit « Infos » d'un fichier ou d'un dossier. */
+export interface DocNodeInfoDTO {
+  node: DocNodeDTO;
+  createdAt: string;
+  /** Dernière personne à l'avoir modifié. */
+  updatedByName: string | null;
+  /** Octets, contenu compris pour un dossier. */
+  size: number;
+  /** Pour un dossier : fichiers et sous-dossiers qu'il contient, à toute profondeur. */
+  files: number;
+  folders: number;
+  /** Pour une note. */
+  words: number | null;
+  chars: number | null;
+  lines: number | null;
+  versions: number;
 }
 
 /** Dossier, fichier Markdown ou image d'un espace ; son identifiant survit aux renommages et déplacements. */
@@ -36,6 +109,8 @@ export interface DocNodeDTO {
   updatedBy: number | null;
   /** Date de mise à la corbeille (`null` : fichier actif). */
   deletedAt: string | null;
+  /** Note libre : à quoi sert ce fichier ou ce dossier. */
+  memo: string;
 }
 
 export interface DocMemberDTO {
@@ -122,6 +197,7 @@ export type DocImportAction = 'auto' | 'keep' | 'incoming' | 'both' | 'delete';
 
 export const DOC_LIMITS = {
   nameMax: 120,
+  memoMax: 1000,
   descriptionMax: 500,
   segmentMax: 120,
   depthMax: 12,

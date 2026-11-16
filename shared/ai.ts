@@ -93,12 +93,40 @@ export interface AiMessage {
   files?: AiFile[];
 }
 
-/** Contexte ouvert dans l'interface : le projet et le ticket affichés, ou l'espace de documentation et sa note. */
+export const AI_CONTEXT_KINDS = ['project', 'ticket', 'space', 'note'] as const;
+export type AiContextKind = (typeof AI_CONTEXT_KINDS)[number];
+
+/** Élément ajouté à la main au contexte de l'assistant. */
+export interface AiContextItem {
+  kind: AiContextKind;
+  id: number;
+}
+
+/**
+ * Contexte de l'assistant : le projet et le ticket affichés, ou l'espace de documentation et sa note, et les éléments
+ * que la personne y a ajoutés à la main (`items`).
+ */
 export interface AiContext {
   projectId?: number | null;
   ticketId?: number | null;
   docSpaceId?: number | null;
   docNodeId?: number | null;
+  items?: AiContextItem[];
+}
+
+/**
+ * Contexte envoyé au serveur depuis une liste d'éléments choisis : le premier ticket et la première note deviennent
+ * « ce ticket » et « cette note » (avec leur projet et leur espace, `parentId`), le reste va dans `items`.
+ */
+export function contextOfItems(entries: ReadonlyArray<AiContextItem & { parentId?: number | null }>): AiContext {
+  const ticket = entries.find((entry) => entry.kind === 'ticket');
+  const note = entries.find((entry) => entry.kind === 'note');
+  const projectId = ticket?.parentId ?? entries.find((entry) => entry.kind === 'project')?.id ?? null;
+  const spaceId = note?.parentId ?? entries.find((entry) => entry.kind === 'space')?.id ?? null;
+  const primary = (entry: AiContextItem): boolean =>
+    entry === ticket || entry === note || (entry.kind === 'project' && entry.id === projectId) || (entry.kind === 'space' && entry.id === spaceId);
+  const items = entries.filter((entry) => !primary(entry)).map(({ kind, id }) => ({ kind, id }));
+  return { projectId, ticketId: ticket?.id ?? null, docSpaceId: spaceId, docNodeId: note?.id ?? null, ...(items.length ? { items } : {}) };
 }
 
 /** `apply` : l'assistant modifie directement ; `propose` : il propose des modifications que la personne valide. */
@@ -186,6 +214,8 @@ export const AI_LIMITS = {
   timeoutSeconds: 120,
   timeoutMax: 900,
   imagesPerMessage: 4,
+  /** Éléments ajoutés à la main au contexte. */
+  contextItems: 12,
   /** Taille maximale d'une image jointe (URL data, en caractères). */
   imageChars: 3_000_000,
   filesPerMessage: 5,

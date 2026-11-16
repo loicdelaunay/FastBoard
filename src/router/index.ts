@@ -31,6 +31,8 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
+    // Site web d'un espace de documentation : sans la navigation, et sans compte s'il est public.
+    { path: '/wiki/:slug/:nodeId(\\d+)?', name: 'wiki', component: () => import('@/views/WikiView.vue'), meta: { public: true, bare: true } },
     { path: '/', name: 'projects', component: () => import('@/views/ProjectsView.vue') },
     { path: '/documentation', name: 'docs', component: () => import('@/views/docs/DocSpacesView.vue'), meta: { docs: true } },
     { path: '/documentation/f/:nodeId(\\d+)', name: 'doc-file', component: () => import('@/views/docs/DocFileRedirect.vue'), meta: { docs: true } },

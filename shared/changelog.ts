@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.1.0';
+export const APP_VERSION = '2.2.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,33 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.2.0',
+    date: '2026-11-16',
+    changes: [
+      { category: 'Nouveauté', text: 'Navigation : une barre latérale remplace la barre du haut, pour laisser toute la hauteur au contenu. Le compte est en bas, l’assistant et les notifications aussi.' },
+      { category: 'Nouveauté', text: 'Recherche : une palette au centre de l’écran (Ctrl K), qui propose vos favoris avant même de taper.' },
+      { category: 'Nouveauté', text: 'Documentation : des onglets comme dans Obsidian, chacun avec ses flèches précédent et suivant, et une page d’accueil avec vos favoris et les notes récentes.' },
+      { category: 'Nouveauté', text: 'Documentation : les favoris, sur une note ou d’un clic droit, se retrouvent en tête de la page Documentations et dans la recherche.' },
+      { category: 'Nouveauté', text: 'Documentation : « Lecture et écriture » fonctionne comme Obsidian : le texte reste rendu, et seule la syntaxe sous le curseur réapparaît.' },
+      {
+        category: 'Nouveauté',
+        text: 'Documentation : support du Markdown Obsidian, réglable par espace et activé d’office : callouts, ==surlignage==, %%commentaires%%, #étiquettes, notes de bas de page, propriétés et notes intégrées.',
+      },
+      { category: 'Nouveauté', text: 'Documentation : un espace peut devenir un site web en lecture seule, ouvert à ses membres, à des personnes choisies ou à tout le monde, avec sa page d’accueil, sa recherche (Ctrl K), son sommaire et un thème sombre.' },
+      { category: 'Nouveauté', text: 'Documentation : les tableaux s’écrivent directement dans leurs cellules en « Lecture et écriture », comme dans Obsidian ; Tab et Entrée passent d’une cellule à l’autre, le clic droit ajoute, déplace ou aligne lignes et colonnes.' },
+      { category: 'Nouveauté', text: 'Assistant IA : « Éditer », à côté du contexte, choisit à la main les projets, tickets, espaces et notes à lui donner, avec des suggestions (éléments parents et en lien) et une recherche.' },
+      { category: 'Amélioration', text: 'Documentation : rétroliens, liens, commentaires et compte des mots sont réunis en bas à droite, et s’ouvrent dans un panneau flottant.' },
+      { category: 'Amélioration', text: 'Documentation : un clic sur un dossier le sélectionne, la flèche le déplie ; le clic droit donne ses infos (taille totale comprise) et une note sur son rôle.' },
+      { category: 'Amélioration', text: 'Documentation : le clic droit sur un bloc rendu (tableau, code, callout…) propose « Modifier le Markdown ».' },
+      { category: 'Amélioration', text: 'Documentation : les images s’ouvrent en plein écran ; au survol ou au clic droit, deux boutons pour les agrandir ou modifier leur Markdown.' },
+      { category: 'Amélioration', text: 'Documentation : un ticket mentionné montre son aperçu au survol, aussi en « Lecture et écriture ».' },
+      { category: 'Amélioration', text: 'Documentation : la colonne des fichiers se replie pour laisser toute la largeur à la note.' },
+      { category: 'Correction', text: 'Documentation : précédent et suivant du navigateur passent d’une note à l’autre au lieu de quitter la page.' },
+      { category: 'Correction', text: 'Projets : les liens vers l’API restent en bas de la page.' },
+      { category: 'Correction', text: 'Documentation : la coloration du source reste lisible sur fond sombre.' },
+    ],
+  },
   {
     version: '2.1.0',
     date: '2026-11-05',

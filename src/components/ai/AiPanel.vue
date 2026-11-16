@@ -6,16 +6,17 @@ import Popover from 'primevue/popover';
 import Select from 'primevue/select';
 import SelectButton from 'primevue/selectbutton';
 import ToggleSwitch from 'primevue/toggleswitch';
-import { AI_LIMITS, REASONING_LEVELS, type AiFile, type AiWriteMode, type ReasoningLevel } from '@shared/ai';
+import { AI_LIMITS, contextOfItems, REASONING_LEVELS, type AiFile, type AiWriteMode, type ReasoningLevel } from '@shared/ai';
 import { docTitle } from '@shared/docs';
 import { AI_FILE_ACCEPT, fileIcon, fileInfo, isImage, readForAi } from '@/utils/aiFiles';
 import { imageToDataUrl } from '@/utils/image';
 import { notify, notifyError } from '@/utils/notify';
 import MarkdownView from '@/components/common/MarkdownView.vue';
 import AiChanges from './AiChanges.vue';
+import AiContextPicker from './AiContextPicker.vue';
 import AiHistory from './AiHistory.vue';
 import AiSteps from './AiSteps.vue';
-import { useAiStore } from '@/stores/ai';
+import { useAiStore, type AiContextEntry } from '@/stores/ai';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
 import { useProjectStore } from '@/stores/project';
@@ -155,11 +156,45 @@ const note = computed(() => {
   return inDocs.value && id ? docs.nodes.find((node) => node.id === id && node.kind === 'markdown') : undefined;
 });
 const pageContext = computed(() => (ai.turns.length ? ai.conversationContext : { projectId: queryId('project'), ticketId: queryId('ticket'), docSpaceId: queryId('space'), docNodeId: queryId('note') }));
-const context = computed(() =>
+const automaticContext = computed(() =>
   page.value
     ? pageContext.value
     : { projectId: inProject.value ? routeProjectId.value : null, ticketId: ticket.value?.id ?? null, docSpaceId: inDocs.value ? (docs.space?.id ?? null) : null, docNodeId: note.value?.id ?? null },
 );
+/** Contexte de la page ouverte, en éléments affichables. */
+const pageEntries = computed<AiContextEntry[]>(() => {
+  if (page.value) {
+    const value = pageContext.value;
+    const entries: AiContextEntry[] = [];
+    if (value.docNodeId) entries.push({ kind: 'note', id: value.docNodeId, label: t('Note de la documentation'), parentId: value.docSpaceId ?? null });
+    else if (value.docSpaceId) entries.push({ kind: 'space', id: value.docSpaceId, label: docs.spaces.find((space) => space.id === value.docSpaceId)?.name ?? t('Espace de documentation') });
+    if (value.ticketId) entries.push({ kind: 'ticket', id: value.ticketId, label: t('Ticket ouvert'), parentId: value.projectId ?? null });
+    else if (value.projectId) entries.push({ kind: 'project', id: value.projectId, label: projects.projects.find((entry) => entry.id === value.projectId)?.name ?? t('Projet') });
+    return entries;
+  }
+  if (note.value) return [{ kind: 'note', id: note.value.id, label: docTitle(note.value.path), parentId: note.value.spaceId, detail: docs.space?.name }];
+  if (inDocs.value && docs.space) return [{ kind: 'space', id: docs.space.id, label: docs.space.name }];
+  if (ticket.value) return [{ kind: 'ticket', id: ticket.value.id, label: `${ticketKey(project.project, ticket.value)} — ${ticket.value.title}`, parentId: ticket.value.projectId, detail: project.project?.name }];
+  if (inProject.value && project.project) return [{ kind: 'project', id: project.project.id, label: project.project.name }];
+  return [];
+});
+/** Ce que l'assistant connaît : le contexte choisi à la main, sinon celui de la page. */
+const contextEntries = computed(() => ai.contextEntries ?? pageEntries.value);
+const context = computed(() => (ai.contextEntries ? contextOfItems(ai.contextEntries) : automaticContext.value));
+const CONTEXT_ICONS: Record<AiContextEntry['kind'], string> = { project: 'pi pi-folder', ticket: 'pi pi-ticket', space: 'pi pi-book', note: 'pi pi-file' };
+
+const pickerPanel = ref<InstanceType<typeof Popover> | null>(null);
+const contextPicker = ref<InstanceType<typeof AiContextPicker> | null>(null);
+function setContext(entries: AiContextEntry[]): void {
+  ai.contextEntries = entries;
+}
+function removeEntry(entry: AiContextEntry): void {
+  setContext(contextEntries.value.filter((other) => other.kind !== entry.kind || other.id !== entry.id));
+}
+function followPage(): void {
+  ai.contextEntries = null;
+  pickerPanel.value?.hide();
+}
 const canRead = computed(() => page.value || !inProject.value || project.can('ai.read'));
 /** Droit de laisser l'IA modifier ce projet (et d'y modifier quelque chose soi-même) ; la page dédiée laisse le serveur vérifier. */
 const canWrite = computed(
@@ -357,7 +392,26 @@ onBeforeUnmount(() => (resizing.value = false));
         </Popover>
 
         <div class="context">
-          <span class="chip" :title="contextLabel"><i :class="hasNote ? 'pi pi-file' : hasSpace ? 'pi pi-book' : hasTicket ? 'pi pi-ticket' : hasProject ? 'pi pi-folder' : 'pi pi-globe'"></i><span class="truncate">{{ contextLabel }}</span></span>
+          <div class="chips">
+            <span v-for="entry in contextEntries" :key="`${entry.kind}${entry.id}`" class="chip" :title="entry.detail ? `${entry.label} · ${entry.detail}` : entry.label">
+              <i :class="CONTEXT_ICONS[entry.kind]"></i><span class="truncate">{{ entry.label }}</span>
+              <button v-tooltip.bottom="$t('Retirer du contexte')" type="button" class="chip-remove" :aria-label="$t('Retirer du contexte')" @click="removeEntry(entry)"><i class="pi pi-times"></i></button>
+            </span>
+            <span v-if="!contextEntries.length" class="chip" :title="contextLabel"><i class="pi pi-globe"></i><span class="truncate">{{ $t('Tous vos projets') }}</span></span>
+            <button
+              v-tooltip.bottom="ai.contextEntries ? $t('Contexte choisi à la main') : $t('Choisir le contexte')"
+              type="button"
+              class="chip edit"
+              :class="{ manual: ai.contextEntries }"
+              aria-haspopup="dialog"
+              @click="pickerPanel?.toggle($event)"
+            >
+              <i class="pi pi-pencil"></i><span>{{ $t('Éditer') }}</span>
+            </button>
+            <Popover ref="pickerPanel" @show="contextPicker?.focus()">
+              <AiContextPicker ref="contextPicker" :entries="contextEntries" :page-entries="pageEntries" :manual="Boolean(ai.contextEntries)" @change="setContext" @reset="followPage" />
+            </Popover>
+          </div>
           <label v-if="canWrite" class="write" :class="{ on: ai.allowWrite }">
             <ToggleSwitch v-model="ai.allowWrite" :aria-label="$t('Autoriser les modifications')" />
             <span>{{ ai.writeMode === 'propose' ? $t('Autoriser les propositions') : $t('Autoriser les modifications') }}</span>
@@ -458,7 +512,7 @@ onBeforeUnmount(() => (resizing.value = false));
   position: fixed;
   /* Au-dessus de la fenêtre d'un ticket (modale PrimeVue, 1100) : l'assistant reste utilisable ticket ouvert. */
   z-index: 1150;
-  top: calc(var(--fb-header-h) + 0.5rem);
+  top: 0.5rem;
   right: 0.5rem;
   bottom: 0.5rem;
   display: flex;
@@ -588,16 +642,65 @@ onBeforeUnmount(() => (resizing.value = false));
   padding: 0 1rem 0.6rem;
   border-bottom: 1px solid var(--fb-border);
 }
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   max-width: 100%;
+  min-width: 0;
   padding: 0.15rem 0.6rem;
   border-radius: 999px;
   background: var(--fb-panel-alt);
   font-size: 0.78rem;
   font-weight: 600;
+}
+.chip-remove {
+  display: none;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-right: -0.35rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--fb-muted);
+  font-size: 0.6rem;
+  cursor: pointer;
+}
+.chip:hover .chip-remove,
+.chip-remove:focus-visible {
+  display: grid;
+}
+.chip-remove:hover {
+  background: color-mix(in srgb, var(--fb-text) 12%, transparent);
+  color: var(--fb-text);
+}
+.chip.edit {
+  border: 1px dashed var(--fb-border);
+  background: none;
+  color: var(--fb-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chip.edit:hover,
+.chip.edit:focus-visible {
+  border-color: #a95cff;
+  color: #a95cff;
+}
+.chip.edit.manual {
+  border-style: solid;
+  border-color: color-mix(in srgb, #a95cff 50%, transparent);
+  color: #a95cff;
 }
 .write {
   display: inline-flex;

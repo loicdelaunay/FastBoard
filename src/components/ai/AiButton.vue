@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { useAiStore } from '@/stores/ai';
 
-/** Bouton de l'assistant IA (cerveau, halo dégradé animé façon Gemini). */
+/** Bouton de l'assistant IA (cerveau, halo dégradé animé façon Gemini) ; `label` : avec son nom, dans la barre latérale. */
+defineProps<{ label?: string }>();
 const ai = useAiStore();
 </script>
 
@@ -9,12 +10,13 @@ const ai = useAiStore();
   <button
     type="button"
     class="ai-button"
-    :class="{ open: ai.open, busy: ai.busy }"
+    :class="{ open: ai.open, busy: ai.busy, labelled: label }"
     :aria-label="$t('Assistant IA')"
     :aria-expanded="ai.open"
-    v-tooltip.bottom="$t('Assistant IA')"
+    v-tooltip.right="label ? undefined : $t('Assistant IA')"
     @click="ai.toggle()"
   >
+    <span class="orb">
     <span class="halo" aria-hidden="true"></span>
     <span class="core">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="brain">
@@ -37,22 +39,55 @@ const ai = useAiStore();
       <i class="spark s1" aria-hidden="true"></i>
       <i class="spark s2" aria-hidden="true"></i>
     </span>
+    </span>
+    <span v-if="label" class="ai-label">{{ label }}</span>
   </button>
 </template>
 
 <style scoped>
 .ai-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fb-text);
+  font: inherit;
+  cursor: pointer;
+}
+.orb {
   position: relative;
   display: grid;
   place-items: center;
   width: 2.3rem;
   height: 2.3rem;
-  padding: 0;
-  border: 0;
+  flex: none;
   border-radius: 999px;
-  background: transparent;
-  cursor: pointer;
   isolation: isolate;
+}
+/* Dans la barre latérale : une ligne comme les autres, avec un halo plus petit. */
+.ai-button.labelled {
+  width: 100%;
+  padding: 0.2rem 0.5rem 0.2rem 0.35rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.ai-button.labelled .orb {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+.ai-button.labelled:hover,
+.ai-button.labelled:focus-visible {
+  background: var(--fb-panel-alt);
+}
+.ai-label {
+  background: linear-gradient(90deg, #4f8cff, #a95cff, #ff6fa7);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 /* Anneau dégradé qui tourne lentement, plus vif au survol, pendant une réponse ou panneau ouvert. */
 .halo {

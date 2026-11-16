@@ -1,12 +1,15 @@
 import DOMPurify from 'dompurify';
 import katex from 'katex';
 import { Marked, type TokenizerAndRendererExtension } from 'marked';
+import { plainText } from '@shared/docComments';
+import { headingKey } from '@shared/docLinks';
 import 'katex/dist/katex.min.css';
 
 /**
  * Rendu Markdown des descriptions : GitHub Flavored Markdown (tableaux, listes de tâches, barré), formules KaTeX
  * (`$…$`, `$$…$$` ou bloc ```math), diagrammes Mermaid (bloc ```mermaid, dessinés ensuite par `renderMermaid`) et
- * mentions `@[Nom](user:12)` / `@[APP-12](ticket:34)` / `@[Note](doc:56)`. Le HTML produit est toujours assaini (DOMPurify).
+ * mentions `@[Nom](user:12)` / `@[APP-12](ticket:34)` / `@[Note](doc:56)`. Avec `obsidian`, la syntaxe propre à
+ * Obsidian : callouts, `==surlignage==`, `%%commentaires%%` et `#étiquettes`. Le HTML produit est toujours assaini.
  */
 
 export interface MentionResolver {
@@ -15,7 +18,12 @@ export interface MentionResolver {
   ticketLabel: (id: number, label: string) => { key: string; title: string } | undefined;
 }
 
-function escapeHtml(text: string): string {
+export interface RenderOptions {
+  /** Syntaxe propre à Obsidian (réglage de l'espace de documentation). */
+  obsidian?: boolean;
+}
+
+export function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
@@ -31,7 +39,116 @@ export function fromBase64(value: string): string {
   return new TextDecoder().decode(Uint8Array.from(atob(value), (char) => char.charCodeAt(0)));
 }
 
-function createMarked(resolver: MentionResolver): Marked {
+/** Types de callouts d'Obsidian et leurs alias, ramenés à une famille de couleur et d'icône. */
+const CALLOUT_FAMILIES: Record<string, string> = {
+  note: 'note',
+  abstract: 'abstract',
+  summary: 'abstract',
+  tldr: 'abstract',
+  info: 'info',
+  todo: 'todo',
+  tip: 'tip',
+  hint: 'tip',
+  important: 'tip',
+  success: 'success',
+  check: 'success',
+  done: 'success',
+  question: 'question',
+  help: 'question',
+  faq: 'question',
+  warning: 'warning',
+  caution: 'warning',
+  attention: 'warning',
+  failure: 'failure',
+  fail: 'failure',
+  missing: 'failure',
+  danger: 'danger',
+  error: 'danger',
+  bug: 'bug',
+  example: 'example',
+  quote: 'quote',
+  cite: 'quote',
+};
+
+function obsidianExtensions(): TokenizerAndRendererExtension[] {
+  const highlight: TokenizerAndRendererExtension = {
+    name: 'highlight',
+    level: 'inline',
+    start: (src: string) => src.indexOf('=='),
+    tokenizer(src: string) {
+      const match = /^==(?!=)(?=\S)([\s\S]*?\S)==(?!=)/.exec(src);
+      return match ? { type: 'highlight', raw: match[0], text: match[1], tokens: this.lexer.inlineTokens(match[1]!) } : undefined;
+    },
+    renderer(token) {
+      return `<mark class="md-highlight">${this.parser.parseInline(token.tokens ?? [])}</mark>`;
+    },
+  };
+  const comment: TokenizerAndRendererExtension = {
+    name: 'obsidianComment',
+    level: 'inline',
+    start: (src: string) => src.indexOf('%%'),
+    tokenizer(src: string) {
+      const match = /^%%[\s\S]*?%%/.exec(src);
+      return match ? { type: 'obsidianComment', raw: match[0] } : undefined;
+    },
+    renderer: () => '',
+  };
+  const blockComment: TokenizerAndRendererExtension = {
+    name: 'obsidianBlockComment',
+    level: 'block',
+    start: (src: string) => src.match(/^%%/m)?.index,
+    tokenizer(src: string) {
+      const match = /^%%[\s\S]*?%%[ \t]*(?:\n|$)/.exec(src);
+      return match ? { type: 'obsidianBlockComment', raw: match[0] } : undefined;
+    },
+    renderer: () => '',
+  };
+  const tag: TokenizerAndRendererExtension = {
+    name: 'tag',
+    level: 'inline',
+    start: (src: string) => {
+      const match = /(^|[\s(])#[\p{L}\p{N}_/-]*[\p{L}_/-]/u.exec(src);
+      return match ? match.index + match[1]!.length : undefined;
+    },
+    tokenizer(src: string) {
+      const match = /^#([\p{L}\p{N}_/-]*[\p{L}_/-][\p{L}\p{N}_/-]*)/u.exec(src);
+      return match ? { type: 'tag', raw: match[0], text: match[1] } : undefined;
+    },
+    renderer: (token) => `<span class="md-tag">#${escapeHtml(token.text as string)}</span>`,
+  };
+  const callout: TokenizerAndRendererExtension = {
+    name: 'callout',
+    level: 'block',
+    start: (src: string) => src.match(/^ {0,3}>[ \t]?\[!/m)?.index,
+    tokenizer(src: string) {
+      const match = /^ {0,3}>[ \t]?\[!([\w-]+)\]([+-]?)[ \t]*([^\n]*)(?:\n|$)((?: {0,3}>[^\n]*(?:\n|$))*)/.exec(src);
+      if (!match) return undefined;
+      const token = {
+        type: 'callout',
+        raw: match[0],
+        kind: match[1]!.toLowerCase(),
+        fold: match[2],
+        title: match[3]!.trim(),
+        titleTokens: this.lexer.inlineTokens(match[3]!.trim()),
+        tokens: [],
+      };
+      this.lexer.blockTokens(match[4]!.replace(/^ {0,3}>[ \t]?/gm, ''), token.tokens);
+      return token;
+    },
+    renderer(token) {
+      const kind = token.kind as string;
+      const family = CALLOUT_FAMILIES[kind] ?? 'note';
+      const title = token.title ? this.parser.parseInline(token.titleTokens as never) : escapeHtml(kind.charAt(0).toUpperCase() + kind.slice(1));
+      const body = this.parser.parse(token.tokens ?? []);
+      const attributes = `class="md-callout" data-callout="${family}"`;
+      if (token.fold) return `<details ${attributes}${token.fold === '+' ? ' open' : ''}><summary class="md-callout-title">${title}</summary><div class="md-callout-content">${body}</div></details>`;
+      return `<div ${attributes}><div class="md-callout-title">${title}</div>${body ? `<div class="md-callout-content">${body}</div>` : ''}</div>`;
+    },
+  };
+  return [callout, blockComment, highlight, comment, tag];
+}
+
+function createMarked(resolver: MentionResolver, obsidian = false): Marked {
   const mention: TokenizerAndRendererExtension = {
     name: 'mention',
     level: 'inline',
@@ -80,7 +197,7 @@ function createMarked(resolver: MentionResolver): Marked {
 
   const marked = new Marked({ gfm: true, breaks: true });
   marked.use({
-    extensions: [mention, blockMath, inlineMath],
+    extensions: [mention, blockMath, inlineMath, ...(obsidian ? obsidianExtensions() : [])],
     renderer: {
       code({ text, lang }) {
         const language = (lang ?? '').trim().toLowerCase();
@@ -92,6 +209,10 @@ function createMarked(resolver: MentionResolver): Marked {
         }
         return `<pre class="md-code"><code${language ? ` data-lang="${escapeHtml(language)}"` : ''}>${escapeHtml(text)}</code></pre>`;
       },
+      // Repère de chaque titre, pour le sommaire et les liens [[Note#Titre]].
+      heading({ tokens, depth, text }) {
+        return `<h${depth} data-heading="${escapeHtml(headingKey(plainText(text)))}">${this.parser.parseInline(tokens)}</h${depth}>\n`;
+      },
     },
   });
   return marked;
@@ -100,15 +221,19 @@ function createMarked(resolver: MentionResolver): Marked {
 export interface MarkdownBlock {
   from: number;
   to: number;
-  /** Nature du bloc pour marked : `heading`, `paragraph`, `list`, `table`, `code`… */
+  /** Nature du bloc pour marked : `heading`, `paragraph`, `list`, `table`, `code`, `callout`… */
   type: string;
 }
 
-let lexer: Marked | null = null;
+const lexers = new Map<boolean, Marked>();
 
 /** Blocs de premier niveau d'un texte et leur position ; vide si elle ne peut pas être établie. */
-export function markdownBlocks(text: string): MarkdownBlock[] {
-  lexer ??= createMarked({ userName: () => undefined, ticketLabel: () => undefined });
+export function markdownBlocks(text: string, obsidian = false): MarkdownBlock[] {
+  let lexer = lexers.get(obsidian);
+  if (!lexer) {
+    lexer = createMarked({ userName: () => undefined, ticketLabel: () => undefined }, obsidian);
+    lexers.set(obsidian, lexer);
+  }
   const blocks: MarkdownBlock[] = [];
   let offset = 0;
   for (const token of lexer.lexer(text)) {
@@ -123,7 +248,7 @@ export function markdownBlocks(text: string): MarkdownBlock[] {
 let hooked = false;
 
 /** Markdown → HTML assaini, prêt pour `v-html`. */
-export function renderMarkdown(text: string, resolver: MentionResolver): string {
+export function renderMarkdown(text: string, resolver: MentionResolver, options: RenderOptions = {}): string {
   if (!hooked) {
     // Les liens externes s'ouvrent dans un nouvel onglet, sans accès à cette page.
     DOMPurify.addHook('afterSanitizeAttributes', (node) => {
@@ -134,7 +259,7 @@ export function renderMarkdown(text: string, resolver: MentionResolver): string 
     });
     hooked = true;
   }
-  const html = createMarked(resolver).parse(text, { async: false }) as string;
+  const html = createMarked(resolver, options.obsidian).parse(text, { async: false }) as string;
   return DOMPurify.sanitize(html, { ADD_ATTR: ['target'], FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select'] });
 }
 
@@ -143,7 +268,7 @@ let diagramCount = 0;
 
 /** Dessine les diagrammes Mermaid d'un conteneur (bibliothèque chargée à la demande, mode sécurisé). */
 export async function renderMermaid(root: HTMLElement, dark: boolean): Promise<void> {
-  const blocks = [...root.querySelectorAll<HTMLElement>('.md-mermaid[data-code]')];
+  const blocks = [...root.querySelectorAll<HTMLElement>('.md-mermaid[data-code]:not(.rendered)')];
   if (!blocks.length) return;
   mermaidPromise ??= import('mermaid').then((module) => module.default);
   const mermaid = await mermaidPromise;

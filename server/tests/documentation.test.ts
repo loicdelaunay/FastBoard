@@ -54,12 +54,12 @@ describe('chemins de la documentation', () => {
 });
 
 describe('liens entre les fichiers d’un espace', () => {
-  const node = (id: number, path: string, kind: DocNodeDTO['kind'] = 'markdown'): DocNodeDTO => ({ id, spaceId: 1, path, kind, size: 0, updatedAt: '', updatedBy: null, deletedAt: null });
+  const node = (id: number, path: string, kind: DocNodeDTO['kind'] = 'markdown'): DocNodeDTO => ({ id, spaceId: 1, path, kind, size: 0, updatedAt: '', updatedBy: null, deletedAt: null, memo: '' });
   const nodes = [node(1, 'Guides', 'folder'), node(2, 'Guides/Installation.md'), node(3, 'Guides/images/schéma 1.png', 'image'), node(4, 'Accueil.md'), node(5, 'Autre/Installation.md')];
 
   it('réécrit les liens wiki, sauf dans le code', () => {
     assert.equal(expandWikiLinks('Voir [[Installation]] et [[Guides/Accueil|le début]]'), 'Voir [Installation](Installation) et [le début](Guides/Accueil)');
-    assert.equal(expandWikiLinks('[[Note#Section]] ![[schéma 1.png]]'), '[Note](Note) ![schéma 1.png](sch%C3%A9ma%201.png)');
+    assert.equal(expandWikiLinks('[[Note#Section]] ![[schéma 1.png]]'), '[Note › Section](Note#Section) ![schéma 1.png](sch%C3%A9ma%201.png)');
     assert.equal(expandWikiLinks('`[[code]]` et\n```\n[[bloc]]\n```\n[[vrai]]'), '`[[code]]` et\n```\n[[bloc]]\n```\n[vrai](vrai)');
   });
 
@@ -588,6 +588,102 @@ describe('documentation', () => {
       const received = (await message) as Extract<ServerMessage, { t: 'docs.comments' }>;
       assert.equal(received.comments[0]!.body, 'Coucou');
       watcher.close();
+    });
+  });
+
+  describe('infos, note et favoris', () => {
+    it('donne la taille d’un dossier et les mots d’une note, et garde une note sur chacun', async () => {
+      const spaceId = await newSpace('Infos');
+      await bob.post(`/api/documentation/spaces/${spaceId}/members`, { userId: ids.vera, role: 'reader' });
+      const first = await note(bob, spaceId, 'Guides/Un', 'Deux mots');
+      await note(bob, spaceId, 'Guides/Sous/Deux', 'abc');
+      const folder = ((await bob.get(`/api/documentation/spaces/${spaceId}`)).body.nodes as DocNodeDTO[]).find((entry) => entry.path === 'Guides')!;
+
+      const info = (await vera.get(`/api/documentation/nodes/${folder.id}/info`)).body;
+      assert.deepEqual([info.files, info.folders, info.size], [2, 1, Buffer.byteLength('Deux mots') + 3]);
+      const noteInfo = (await vera.get(`/api/documentation/nodes/${first.id}/info`)).body;
+      assert.deepEqual([noteInfo.words, noteInfo.chars, noteInfo.lines, noteInfo.updatedByName], [2, 9, 1, 'bob']);
+
+      assert.equal((await vera.request('PUT', `/api/documentation/nodes/${folder.id}/memo`, { memo: 'Non' })).status, 403, 'un lecteur ne l’écrit pas');
+      const saved = (await bob.request('PUT', `/api/documentation/nodes/${folder.id}/memo`, { memo: '  Guides pour les nouveaux  ' })).body.node as DocNodeDTO;
+      assert.equal(saved.memo, 'Guides pour les nouveaux');
+      const tree = (await vera.get(`/api/documentation/spaces/${spaceId}`)).body.nodes as DocNodeDTO[];
+      assert.equal(tree.find((entry) => entry.id === folder.id)!.memo, 'Guides pour les nouveaux', 'visible de tous les membres');
+    });
+
+    it('garde les favoris de chacun, dans les espaces encore accessibles', async () => {
+      const spaceId = await newSpace('Favoris');
+      await bob.post(`/api/documentation/spaces/${spaceId}/members`, { userId: ids.vera, role: 'reader' });
+      const first = await note(bob, spaceId, 'Favori', 'x');
+      assert.equal((await eve.request('PUT', `/api/documentation/nodes/${first.id}/bookmark`)).status, 404, 'pas d’accès, pas de favori');
+      const list = (await vera.request('PUT', `/api/documentation/nodes/${first.id}/bookmark`)).body.bookmarks;
+      assert.deepEqual(list.map((entry: { path: string; spaceName: string }) => [entry.path, entry.spaceName]), [['Favori.md', 'Favoris']]);
+      assert.deepEqual((await bob.get('/api/documentation/bookmarks')).body.bookmarks, [], 'propres à chacun');
+
+      await bob.del(`/api/documentation/spaces/${spaceId}/members/${ids.vera}`);
+      assert.deepEqual((await vera.get('/api/documentation/bookmarks')).body.bookmarks, [], 'disparaît avec l’accès');
+      await bob.post(`/api/documentation/spaces/${spaceId}/members`, { userId: ids.vera, role: 'reader' });
+      assert.equal((await vera.get('/api/documentation/bookmarks')).body.bookmarks.length, 1, 'et revient avec lui');
+      await bob.del(`/api/documentation/nodes/${first.id}`);
+      assert.deepEqual((await vera.get('/api/documentation/bookmarks')).body.bookmarks, [], 'un fichier à la corbeille n’y est plus');
+    });
+
+    it('active ou non le Markdown Obsidian, activé par défaut', async () => {
+      const created = (await bob.post('/api/documentation/spaces', { name: 'Obsidian' })).body.space;
+      assert.equal(created.obsidian, true);
+      const plain = (await bob.post('/api/documentation/spaces', { name: 'Simple', obsidian: false })).body.space;
+      assert.equal(plain.obsidian, false);
+      assert.equal((await bob.patch(`/api/documentation/spaces/${created.id}`, { obsidian: false })).body.space.obsidian, false);
+    });
+  });
+
+  describe('site web d’un espace', () => {
+    const wiki = (client: TestClient | null, path: string) => (client ? client.get(`/api/wiki/${path}`) : fetch(`${app.base}/api/wiki/${path}`).then(async (response) => ({ status: response.status, body: await response.json().catch(() => null), headers: response.headers })));
+
+    it('ouvre un wiki aux membres, à des personnes choisies, ou à tous', async () => {
+      const spaceId = await newSpace('Wiki Équipe');
+      await bob.post(`/api/documentation/spaces/${spaceId}/members`, { userId: ids.vera, role: 'reader' });
+      const page = await note(bob, spaceId, 'Accueil', '# Bienvenue');
+      assert.equal((await vera.request('PUT', `/api/documentation/spaces/${spaceId}/site`, { visibility: 'public' })).status, 403, 'réservé aux propriétaires');
+
+      const site = (await bob.request('PUT', `/api/documentation/spaces/${spaceId}/site`, { visibility: 'members' })).body.site;
+      assert.match(site.slug, /^wiki-equipe-[a-f0-9]{10}$/);
+      assert.deepEqual((await bob.get(`/api/documentation/spaces/${spaceId}`)).body.space.site, { slug: site.slug, visibility: 'members' });
+
+      assert.equal((await wiki(null, site.slug)).status, 401, 'membres seulement : il faut un compte');
+      assert.equal((await wiki(eve, site.slug)).status, 403);
+      const tree = (await wiki(vera, site.slug)).body;
+      assert.equal(tree.name, 'Wiki Équipe');
+      assert.deepEqual(tree.nodes.map((node: { path: string }) => node.path), ['Accueil.md']);
+      assert.equal((await wiki(vera, `${site.slug}/pages/${page.id}`)).body.content, '# Bienvenue');
+
+      await bob.request('PUT', `/api/documentation/spaces/${spaceId}/site`, { visibility: 'people', people: [ids.eve] });
+      assert.equal((await wiki(eve, site.slug)).status, 200, 'personne choisie, même hors de l’espace');
+      assert.equal((await wiki(vera, site.slug)).status, 403, 'un membre non choisi n’y a plus accès');
+      assert.equal((await wiki(bob, site.slug)).status, 200, 'les propriétaires toujours');
+
+      await bob.request('PUT', `/api/documentation/spaces/${spaceId}/site`, { visibility: 'public' });
+      const anonymous = await wiki(null, `${site.slug}/pages/${page.id}`);
+      assert.equal(anonymous.status, 200, 'public : sans compte');
+      assert.equal((await fetch(`${app.base}/api/wiki/${site.slug}`)).headers.get('x-robots-tag'), 'noindex, nofollow');
+      assert.equal((await bob.get(`/api/documentation/spaces/${spaceId}/site`)).body.site.slug, site.slug, 'l’adresse ne change pas');
+      assert.equal((await wiki(bob, site.slug)).body.editSpaceId, spaceId, 'un éditeur peut ouvrir la page dans l’espace');
+      assert.equal((await wiki(vera, site.slug)).body.editSpaceId, null, 'pas un lecteur');
+      assert.equal((await wiki(null, site.slug)).body.editSpaceId, null, 'ni un visiteur');
+
+      const guide = await note(bob, spaceId, 'Guides/Démarrer', '# Démarrer\n\nLancer le serveur de démonstration.');
+      const found = (await wiki(null, `${site.slug}/search?q=${encodeURIComponent('demonstration')}`)).body.results;
+      assert.deepEqual(found, [{ id: guide.id, path: 'Guides/Démarrer.md', title: 'Démarrer', excerpt: 'Lancer le serveur de démonstration.' }], 'dans le texte, sans tenir compte des accents');
+      assert.deepEqual((await wiki(null, `${site.slug}/search?q=acc`)).body.results.map((hit: { title: string }) => hit.title), ['Accueil'], 'par le titre');
+
+      const other = await note(bob, await newSpace('Ailleurs'), 'Secret', 'non');
+      assert.deepEqual((await wiki(null, `${site.slug}/search?q=secret`)).body.results, [], 'jamais hors de l’espace');
+      assert.equal((await wiki(null, `${site.slug}/pages/${other.id}`)).status, 404, 'rien hors de l’espace');
+      await bob.del(`/api/documentation/nodes/${page.id}`);
+      assert.equal((await wiki(null, `${site.slug}/pages/${page.id}`)).status, 404, 'ni dans la corbeille');
+
+      await bob.del(`/api/documentation/spaces/${spaceId}/site`);
+      assert.equal((await wiki(null, site.slug)).status, 404, 'désactivé');
     });
   });
 

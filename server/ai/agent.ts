@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { AI_LIMITS, type AiChatRequest, type AiFile, type AiMessage, type AiModelDTO, type AiStreamEvent } from '../../shared/ai.ts';
 import { todayISO } from '../../shared/dates.ts';
 import type { Actor, AppContext } from '../context.ts';
-import { activeNote, docsEnabled } from '../docs/store.ts';
+import { activeNote, docRole, docsEnabled } from '../docs/store.ts';
 import type { AuthUser } from '../services/access.ts';
 import { resolveProjectAccess } from '../services/access.ts';
 import { getBranding } from '../services/appSettings.ts';
@@ -92,7 +92,7 @@ function systemPrompt(ctx: AppContext, user: AuthUser, request: AiChatRequest, a
     if (allowWrite) lines.push("Pour modifier une note, lis-la d'abord, puis préfère « edit_doc », qui ne touche qu'un passage ; « rewrite_doc » seulement pour tout réécrire, et « create_doc » pour une nouvelle note.");
   }
   const spaceId = request.context.docSpaceId ?? null;
-  if (docs && spaceId) {
+  if (docs && spaceId && docRole(ctx.db, user, spaceId)) {
     const space = ctx.db.get<{ name: string }>('SELECT name FROM doc_spaces WHERE id = ?', spaceId);
     const note = request.context.docNodeId ? activeNote(ctx.db, request.context.docNodeId) : undefined;
     if (space) lines.push(`Espace de documentation ouvert : « ${space.name} » (id ${spaceId}).`);
@@ -110,7 +110,30 @@ function systemPrompt(ctx: AppContext, user: AuthUser, request: AiChatRequest, a
       lines.push(`Ticket ouvert : ${ticketKeyOf(ctx.db, ticket)} « ${ticket.title} » (id ${ticket.id}). « ce ticket » désigne celui-ci.`);
     }
   }
+  const items = contextItems(ctx, user, request, docs);
+  if (items.length) lines.push(`Éléments ajoutés au contexte par la personne, à prendre en compte en priorité :\n${items.map((item) => `- ${item}`).join('\n')}`);
   return lines.join('\n');
+}
+
+/** Éléments choisis à la main, décrits en une ligne chacun ; ceux auxquels la personne n'a pas accès sont ignorés. */
+function contextItems(ctx: AppContext, user: AuthUser, request: AiChatRequest, docs: boolean): string[] {
+  const lines: string[] = [];
+  for (const item of request.context.items ?? []) {
+    if (item.kind === 'project') {
+      const access = resolveProjectAccess(ctx.db, user, item.id);
+      if (access) lines.push(`projet « ${access.project.name} » (id ${access.project.id}, clé ${access.project.key})`);
+    } else if (item.kind === 'ticket') {
+      const ticket = ctx.db.get<{ id: number; project_id: number; number: number; title: string }>('SELECT id, project_id, number, title FROM tickets WHERE id = ?', item.id);
+      if (ticket && resolveProjectAccess(ctx.db, user, ticket.project_id)) lines.push(`ticket ${ticketKeyOf(ctx.db, ticket)} « ${ticket.title} » (id ${ticket.id})`);
+    } else if (docs && item.kind === 'space') {
+      const space = ctx.db.get<{ id: number; name: string }>('SELECT id, name FROM doc_spaces WHERE id = ?', item.id);
+      if (space && docRole(ctx.db, user, space.id)) lines.push(`espace de documentation « ${space.name} » (id ${space.id})`);
+    } else if (docs && item.kind === 'note') {
+      const note = activeNote(ctx.db, item.id);
+      if (note && docRole(ctx.db, user, note.space_id)) lines.push(`note « ${note.path} » (id ${note.id}, espace ${note.space_id})`);
+    }
+  }
+  return lines;
 }
 
 /**

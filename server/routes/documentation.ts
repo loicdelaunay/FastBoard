@@ -2,6 +2,7 @@ import express, { type Response, type Router } from 'express';
 import { isInlineImage, sniffImageMime } from '../../shared/attachments.ts';
 import { FILE_NAME_HEADER } from '../../shared/constants.ts';
 import { docBaseName, DOC_LIMITS, docRoleAtLeast, type DocRole } from '../../shared/docs.ts';
+import { getSite, removeSite, saveSite } from '../docs/sites.ts';
 import type { AppContext } from '../context.ts';
 import { commentNode, createComment, deleteComment, listComments, resolveComment } from '../docs/comments.ts';
 import { noteLinks } from '../docs/links.ts';
@@ -16,10 +17,12 @@ import {
   getSpace,
   listMembers,
   listNodes,
+  listBookmarks,
   listSpaces,
   listTrash,
   listVersions,
   moveNode,
+  nodeInfo,
   readBytes,
   readText,
   removeMember,
@@ -29,8 +32,10 @@ import {
   requireVersion,
   restoreNode,
   searchNodes,
+  setBookmark,
   setDocsEnabled,
   setMember,
+  setMemo,
   storeImage,
   updateSpace,
   writeContent,
@@ -38,7 +43,7 @@ import {
 } from '../docs/store.ts';
 import { badRequest, conflict, notFound } from '../http/errors.ts';
 import { actorOf, csrfGuard, currentUser, requireAuth, sessionOnly } from '../http/middleware.ts';
-import { docCommentResolveSchema, docCommentSchema, docContentSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema } from '../http/schemas.ts';
+import { docCommentResolveSchema, docCommentSchema, docContentSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemoSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSiteSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal } from '../services/access.ts';
 import { appInfo } from '../services/appSettings.ts';
@@ -190,6 +195,32 @@ export function documentationRouter(ctx: AppContext): Router {
     res.json({ members: removeMember(ctx, spaceId, idParam(req.params.userId)) });
   });
 
+  router.get('/documentation/spaces/:id/site', (req, res) => {
+    const spaceId = idParam(req.params.id);
+    requireSpace(ctx, currentUser(res), spaceId, 'owner');
+    res.json({ site: getSite(ctx.db, spaceId) });
+  });
+
+  router.put('/documentation/spaces/:id/site', (req, res) => {
+    const spaceId = idParam(req.params.id);
+    const user = currentUser(res);
+    requireSpace(ctx, user, spaceId, 'owner');
+    res.json({ site: saveSite(ctx, user.id, spaceId, parse(docSiteSchema, req.body)) });
+  });
+
+  router.delete('/documentation/spaces/:id/site', (req, res) => {
+    const spaceId = idParam(req.params.id);
+    const user = currentUser(res);
+    requireSpace(ctx, user, spaceId, 'owner');
+    removeSite(ctx, user.id, spaceId);
+    res.json({ ok: true });
+  });
+
+  router.get('/documentation/bookmarks', (_req, res) => {
+    requireDocsEnabled(ctx.db);
+    res.json({ bookmarks: listBookmarks(ctx, currentUser(res)) });
+  });
+
   router.get('/documentation/spaces/:id/trash', (req, res) => {
     const spaceId = idParam(req.params.id);
     requireSpace(ctx, currentUser(res), spaceId);
@@ -226,7 +257,7 @@ export function documentationRouter(ctx: AppContext): Router {
 
   router.get('/documentation/nodes/:id', (req, res) => {
     const { node, role } = nodeAccess(res, idParam(req.params.id));
-    res.json({ node: { id: node.id, spaceId: node.space_id, path: node.path, kind: node.kind, size: node.size, updatedAt: node.updated_at, updatedBy: node.updated_by, deletedAt: node.deleted_at }, role, content: node.kind === 'markdown' && !node.deleted_at ? (ctx.docRooms.currentText(node.id) ?? readText(ctx, node)) : null });
+    res.json({ node: { id: node.id, spaceId: node.space_id, path: node.path, kind: node.kind, size: node.size, updatedAt: node.updated_at, updatedBy: node.updated_by, deletedAt: node.deleted_at, memo: node.memo }, role, content: node.kind === 'markdown' && !node.deleted_at ? (ctx.docRooms.currentText(node.id) ?? readText(ctx, node)) : null });
   });
 
   router.put('/documentation/nodes/:id/content', (req, res) => {
@@ -263,6 +294,28 @@ export function documentationRouter(ctx: AppContext): Router {
     res.setHeader('Content-Disposition', contentDisposition(docBaseName(node.path), false));
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.send(data);
+  });
+
+  router.get('/documentation/nodes/:id/info', (req, res) => {
+    const { node } = nodeAccess(res, idParam(req.params.id));
+    if (node.deleted_at) throw conflict('Ce fichier est dans la corbeille.');
+    res.json(nodeInfo(ctx, node));
+  });
+
+  router.put('/documentation/nodes/:id/memo', (req, res) => {
+    const { node } = nodeAccess(res, idParam(req.params.id), 'editor');
+    res.json({ node: setMemo(ctx, node.id, parse(docMemoSchema, req.body).memo) });
+  });
+
+  router.put('/documentation/nodes/:id/bookmark', (req, res) => {
+    const { node } = nodeAccess(res, idParam(req.params.id));
+    if (node.deleted_at) throw conflict('Ce fichier est dans la corbeille.');
+    res.json({ bookmarks: setBookmark(ctx, currentUser(res), node, true) });
+  });
+
+  router.delete('/documentation/nodes/:id/bookmark', (req, res) => {
+    const { node } = nodeAccess(res, idParam(req.params.id));
+    res.json({ bookmarks: setBookmark(ctx, currentUser(res), node, false) });
   });
 
   router.get('/documentation/nodes/:id/links', (req, res) => {

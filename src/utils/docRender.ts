@@ -1,9 +1,11 @@
 import { DOC_COMMENT_LIMITS, findQuote, type DocCommentDTO, type DocQuote } from '@shared/docComments';
-import { expandWikiLinks, resolveDocLink } from '@shared/docLinks';
-import type { DocNodeDTO } from '@shared/docs';
+import { ref } from 'vue';
+import { headingKey, resolveDocLink } from '@shared/docLinks';
+import { prepareDocText, sectionOf } from '@shared/docObsidian';
+import { docTitle, type DocNodeDTO } from '@shared/docs';
 import type { UserSummaryDTO } from '@shared/types';
 import { t } from '@/i18n';
-import { renderMarkdown, type MentionResolver } from '@/utils/markdown';
+import { escapeHtml, renderMarkdown, type MentionResolver } from '@/utils/markdown';
 
 /** Rendu d'une note, commun à la lecture et aux blocs du mode « Lecture et écriture ». */
 
@@ -11,6 +13,48 @@ export interface DocRenderContext {
   nodes: readonly DocNodeDTO[];
   notePath: string;
   users: readonly UserSummaryDTO[];
+  /** Syntaxe propre à Obsidian (réglage de l'espace). */
+  obsidian?: boolean;
+  /** Adresse d'une image de l'espace (le site web public ne passe pas par l'API de la documentation). */
+  fileUrl?: (nodeId: number) => string;
+}
+
+export { prepareDocText, sectionOf };
+
+/** Titre visé par un lien d'une autre note : la note ouverte y descend une fois rendue. */
+export const pendingAnchor = ref<{ path: string; heading: string } | null>(null);
+
+/** Amène un titre à l'écran ; vrai s'il a été trouvé. */
+export function scrollToHeading(root: ParentNode, heading: string): boolean {
+  const target = root.querySelector(`[data-heading="${CSS.escape(headingKey(heading))}"]`);
+  target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  return Boolean(target);
+}
+
+/**
+ * Remplit les notes intégrées `![[Note]]` d'un rendu, sans en intégrer d'autres à l'intérieur. `load` lit le texte
+ * d'une note ; une note introuvable reste signalée comme telle.
+ */
+export async function hydrateEmbeds(root: HTMLElement, context: DocRenderContext, load: (nodeId: number) => Promise<string>): Promise<void> {
+  for (const box of root.querySelectorAll<HTMLElement>('.md-embed[data-embed]:not([data-ready])')) {
+    box.dataset.ready = '1';
+    const [target = '', heading] = (box.dataset.embed ?? '').split('#');
+    const node = resolveDocLink(context.nodes, context.notePath, target);
+    if (!node || node.kind !== 'markdown') {
+      box.classList.add('broken');
+      box.textContent = t('Note introuvable : {name}', { name: target });
+      continue;
+    }
+    try {
+      const text = await load(node.id);
+      const part = heading ? sectionOf(text, heading) : text;
+      const html = finishDocHtml(renderMarkdown(prepareDocText(part.replace(/!\[\[[^\]\n]*\]\]/g, (embed) => embed.slice(1)), context.obsidian), docResolver(context.users), { obsidian: context.obsidian }), { ...context, notePath: node.path });
+      box.innerHTML = `<span class="md-embed-head"><a href="#" data-node="${node.id}">${escapeHtml(docTitle(node.path))}${heading ? ` › ${escapeHtml(heading)}` : ''}</a></span><span class="md-embed-body markdown">${html}</span>`;
+    } catch {
+      box.classList.add('broken');
+      box.textContent = t('Note inaccessible : {name}', { name: target });
+    }
+  }
 }
 
 export function docResolver(users: readonly UserSummaryDTO[]): MentionResolver {
@@ -59,7 +103,7 @@ export function finishDocHtml(html: string, context: DocRenderContext, comments:
     const source = image.getAttribute('src') ?? '';
     if (/^(https?:|data:)/i.test(source)) continue;
     const node = resolveDocLink(context.nodes, context.notePath, source);
-    if (node) image.src = `/api/documentation/nodes/${node.id}/raw`;
+    if (node) image.src = context.fileUrl ? context.fileUrl(node.id) : `/api/documentation/nodes/${node.id}/raw`;
     else image.alt = t('Image introuvable : {name}', { name: decodeURI(source) });
   }
   for (const link of box.querySelectorAll('a')) {
@@ -74,7 +118,7 @@ export function finishDocHtml(html: string, context: DocRenderContext, comments:
 }
 
 export function renderDocBlock(source: string, context: DocRenderContext, comments: readonly DocCommentDTO[]): string {
-  return finishDocHtml(renderMarkdown(expandWikiLinks(source), docResolver(context.users)), context, comments);
+  return finishDocHtml(renderMarkdown(prepareDocText(source, context.obsidian), docResolver(context.users), { obsidian: context.obsidian }), context, comments);
 }
 
 const squash = (text: string): string => text.replace(/\s+/g, ' ').trim();

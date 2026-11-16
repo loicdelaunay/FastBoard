@@ -12,6 +12,8 @@ export const useUiStore = defineStore('ui', () => {
   /** Non nul = la fenêtre « Nouveau ticket » est ouverte avec ces valeurs initiales. */
   const createDefaults = ref<TicketDraftDefaults | null>(null);
   const profileOpen = ref(false);
+  /** Palette de recherche générale (Ctrl + K). */
+  const searchOpen = ref(false);
   /** Demande d'ouverture du menu contextuel d'un ticket (clic droit ou bouton « ⋯ »). */
   const ticketMenu = shallowRef<{ ticketId: number; event: MouseEvent } | null>(null);
   const profileTab = ref<ProfileTab>('profile');
@@ -38,5 +40,5 @@ export const useUiStore = defineStore('ui', () => {
     profileOpen.value = true;
   }
 
-  return { createDefaults, profileOpen, profileTab, ticketMenu, hoveredTicketId, quickEdit, openCreate, closeCreate, openProfile, openTicketMenu };
+  return { createDefaults, profileOpen, searchOpen, profileTab, ticketMenu, hoveredTicketId, quickEdit, openCreate, closeCreate, openProfile, openTicketMenu };
 });

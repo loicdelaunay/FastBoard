@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import type { AiChangeDTO, AiContext, AiConversationSummaryDTO, AiFile, AiMessage, AiModelChoiceDTO, AiStreamEvent, AiWriteMode, ReasoningLevel } from '@shared/ai';
+import type { AiChangeDTO, AiContext, AiContextKind, AiConversationSummaryDTO, AiFile, AiMessage, AiModelChoiceDTO, AiStreamEvent, AiWriteMode, ReasoningLevel } from '@shared/ai';
 import { api } from '@/api';
 import { httpHeaders } from '@/api/http';
 import { translateServerMessage } from '@/i18n/server';
@@ -20,6 +20,17 @@ export interface AiStep {
 }
 
 /** Fichier joint à un message ; `dropped` : contenu non conservé (conversation enregistrée trop lourde). */
+/** Élément du contexte, tel que le panneau l'affiche. */
+export interface AiContextEntry {
+  kind: AiContextKind;
+  id: number;
+  label: string;
+  /** Projet d'un ticket, espace d'une note. */
+  parentId?: number | null;
+  /** Précision affichée sous le nom (projet, espace, lien…). */
+  detail?: string;
+}
+
 export interface AiTurnFile extends AiFile {
   dropped?: boolean;
 }
@@ -128,6 +139,8 @@ export const useAiStore = defineStore('ai', () => {
   // --- Conversation en cours et historique (50 dernières, enregistrées sur le serveur) ---
   const conversationId = ref(newConversationId());
   const conversationContext = ref<AiContext>({});
+  /** Contexte choisi à la main ; `null` : celui de la page ouverte. */
+  const contextEntries = ref<AiContextEntry[] | null>(null);
   const conversations = ref<AiConversationSummaryDTO[]>([]);
   const historyLoading = ref(false);
 
@@ -153,6 +166,7 @@ export const useAiStore = defineStore('ai', () => {
     turns.value = [];
     conversationId.value = newConversationId();
     conversationContext.value = {};
+    contextEntries.value = null;
   }
 
   function stop(): void {
@@ -223,7 +237,15 @@ export const useAiStore = defineStore('ai', () => {
     if (!content || busy.value) return;
     const attached = model.value?.vision ? images : [];
     const messages: AiMessage[] = [...history.value, { role: 'user', content, ...(attached.length ? { images: attached } : {}), ...(files.length ? { files } : {}) }];
-    if (!turns.value.length) conversationContext.value = { projectId: context.projectId ?? null, ticketId: context.ticketId ?? null, docSpaceId: context.docSpaceId ?? null, docNodeId: context.docNodeId ?? null };
+    if (!turns.value.length || contextEntries.value) {
+      conversationContext.value = {
+        projectId: context.projectId ?? null,
+        ticketId: context.ticketId ?? null,
+        docSpaceId: context.docSpaceId ?? null,
+        docNodeId: context.docNodeId ?? null,
+        ...(context.items?.length ? { items: context.items } : {}),
+      };
+    }
     turns.value.push({ id: nextId++, role: 'user', content, images: attached, ...(files.length ? { files } : {}), steps: [] });
     turns.value.push({ id: nextId++, role: 'assistant', content: '', steps: [], edits: [] });
     // L'objet réactif (et non l'objet brut) : ses modifications pendant le flux s'affichent.
@@ -351,7 +373,7 @@ export const useAiStore = defineStore('ai', () => {
   return {
     open, turns, busy, allowWrite, models, model, reasoning, writeMode, width,
     loadModels, chooseModel, chooseReasoning, chooseWriteMode, setWidth, toggle, clear, stop, send,
-    conversationId, conversationContext, conversations, historyLoading, loadConversations, openConversation, deleteConversation,
+    conversationId, conversationContext, contextEntries, conversations, historyLoading, loadConversations, openConversation, deleteConversation,
     changeBusy, applyChange, revertChange, rejectChange, applyAll, revertAll,
   };
 });

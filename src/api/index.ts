@@ -1,6 +1,6 @@
 import { FILE_NAME_HEADER, type TicketStatus } from '@shared/constants';
 import type { RoleScope, PermissionDef } from '@shared/permissions';
-import type { DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocRole, DocSearchHitDTO, DocSpaceDTO, DocVersionDTO } from '@shared/docs';
+import type { DocBookmarkDTO, DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocNodeInfoDTO, DocRole, DocSearchHitDTO, DocSiteDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, WikiDTO, WikiPageDTO, WikiSearchHitDTO } from '@shared/docs';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
 import type { LdapFields, LdapSettingsDTO, LdapTestResultDTO } from '@shared/ldap';
 import type { Locale } from '@shared/locales';
@@ -333,9 +333,9 @@ export const api = {
 
   ticket: (ticketId: number) => http<{ ticket: TicketDTO }>('GET', `/tickets/${ticketId}`),
   docSpaces: () => http<{ spaces: DocSpaceDTO[] }>('GET', '/documentation/spaces'),
-  docCreateSpace: (input: { name: string; description: string }) => http<{ space: DocSpaceDTO }>('POST', '/documentation/spaces', { body: input }),
+  docCreateSpace: (input: { name: string; description: string; obsidian?: boolean }) => http<{ space: DocSpaceDTO }>('POST', '/documentation/spaces', { body: input }),
   docSpace: (spaceId: number) => http<{ space: DocSpaceDTO; nodes: DocNodeDTO[]; members: DocMemberDTO[] }>('GET', `/documentation/spaces/${spaceId}`),
-  docUpdateSpace: (spaceId: number, input: { name?: string; description?: string }) => http<{ space: DocSpaceDTO }>('PATCH', `/documentation/spaces/${spaceId}`, { body: input }),
+  docUpdateSpace: (spaceId: number, input: { name?: string; description?: string; obsidian?: boolean }) => http<{ space: DocSpaceDTO }>('PATCH', `/documentation/spaces/${spaceId}`, { body: input }),
   docDeleteSpace: (spaceId: number) => http<{ ok: true }>('DELETE', `/documentation/spaces/${spaceId}`),
   docAddMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('POST', `/documentation/spaces/${spaceId}/members`, { body: { userId, role } }),
   docSetMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('PATCH', `/documentation/spaces/${spaceId}/members/${userId}`, { body: { role } }),
@@ -343,6 +343,16 @@ export const api = {
   docTrash: (spaceId: number) => http<{ nodes: DocNodeDTO[] }>('GET', `/documentation/spaces/${spaceId}/trash`),
   docCreateNode: (spaceId: number, path: string, kind: 'folder' | 'markdown', content?: string) => http<{ node: DocNodeDTO }>('POST', `/documentation/spaces/${spaceId}/nodes`, { body: { path, kind, ...(content === undefined ? {} : { content }) } }),
   docNode: (nodeId: number) => http<{ node: DocNodeDTO; role: DocRole; content: string | null }>('GET', `/documentation/nodes/${nodeId}`),
+  docNodeInfo: (nodeId: number) => http<DocNodeInfoDTO>('GET', `/documentation/nodes/${nodeId}/info`),
+  docSetMemo: (nodeId: number, memo: string) => http<{ node: DocNodeDTO }>('PUT', `/documentation/nodes/${nodeId}/memo`, { body: { memo } }),
+  docBookmarks: () => http<{ bookmarks: DocBookmarkDTO[] }>('GET', '/documentation/bookmarks'),
+  docSetBookmark: (nodeId: number, on: boolean) => http<{ bookmarks: DocBookmarkDTO[] }>(on ? 'PUT' : 'DELETE', `/documentation/nodes/${nodeId}/bookmark`),
+  docSite: (spaceId: number) => http<{ site: DocSiteDTO | null }>('GET', `/documentation/spaces/${spaceId}/site`),
+  docSaveSite: (spaceId: number, input: { visibility: DocSiteVisibility; people: number[] }) => http<{ site: DocSiteDTO }>('PUT', `/documentation/spaces/${spaceId}/site`, { body: input }),
+  docRemoveSite: (spaceId: number) => http<{ ok: true }>('DELETE', `/documentation/spaces/${spaceId}/site`),
+  wiki: (slug: string) => http<WikiDTO>('GET', `/wiki/${encodeURIComponent(slug)}`, { silent401: true }),
+  wikiSearch: (slug: string, q: string) => http<{ results: WikiSearchHitDTO[] }>('GET', `/wiki/${encodeURIComponent(slug)}/search?q=${encodeURIComponent(q)}`, { silent401: true }),
+  wikiPage: (slug: string, nodeId: number) => http<WikiPageDTO>('GET', `/wiki/${encodeURIComponent(slug)}/pages/${nodeId}`, { silent401: true }),
   docSetContent: (nodeId: number, content: string) => http<{ ok: true }>('PUT', `/documentation/nodes/${nodeId}/content`, { body: { content } }),
   docMoveNode: (nodeId: number, path: string) => http<{ node: DocNodeDTO }>('PATCH', `/documentation/nodes/${nodeId}`, { body: { path } }),
   docDeleteNode: (nodeId: number) => http<{ ok: true }>('DELETE', `/documentation/nodes/${nodeId}`),

@@ -29,6 +29,7 @@ import { adminRouter } from './routes/admin.ts';
 import { aiRouter } from './routes/ai.ts';
 import { attachmentsRouter, attachmentUploadRouter } from './routes/attachments.ts';
 import { accountRouter, publicAuthRouter } from './routes/auth.ts';
+import { wikiRouter } from './routes/wiki.ts';
 import { docsRouter } from './routes/docs.ts';
 import { projectsRouter } from './routes/projects.ts';
 import { ticketsRouter } from './routes/tickets.ts';
@@ -144,6 +145,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   });
   api.use(publicAuthRouter(ctx));
   api.use(docsRouter(ctx));
+  api.use(wikiRouter(ctx));
   api.use(requireAuth(ctx));
   api.use(accountRouter(ctx));
   api.use(adminRouter(ctx));

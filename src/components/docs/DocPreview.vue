@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import ContextMenu from 'primevue/contextmenu';
 import type { MenuItem } from 'primevue/menuitem';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
-import { expandWikiLinks } from '@shared/docLinks';
 import type { DocNodeDTO } from '@shared/docs';
 import type { UserSummaryDTO } from '@shared/types';
+import { api } from '@/api';
 import MarkdownView from '@/components/common/MarkdownView.vue';
 import { useDocLinks } from '@/composables/useDocLinks';
-import { copyText, docResolver, finishDocHtml, selectionQuote } from '@/utils/docRender';
+import { openLightbox, zoomImageOnClick } from '@/utils/lightbox';
+import { copyText, docResolver, finishDocHtml, hydrateEmbeds, pendingAnchor, prepareDocText, scrollToHeading, selectionQuote } from '@/utils/docRender';
 
 import { t } from '@/i18n';
-/** Rendu d'une note : Markdown, Mermaid, images de l'espace, liens entre notes, mentions et passages commentés. */
+/** Rendu d'une note : Markdown, Mermaid, images de l'espace, liens entre notes, notes intégrées, mentions et passages commentés. */
 const props = defineProps<{
   text: string;
   nodes: DocNodeDTO[];
@@ -19,6 +20,8 @@ const props = defineProps<{
   users: UserSummaryDTO[];
   /** Commentaires de la note ; sans cela, le texte ne se commente pas (ancienne version). */
   comments?: DocCommentDTO[];
+  /** Syntaxe propre à Obsidian (réglage de l'espace). */
+  obsidian?: boolean;
 }>();
 const emit = defineEmits<{ open: [node: DocNodeDTO]; comment: [quote: DocQuote]; 'focus-comment': [commentId: number] }>();
 
@@ -37,12 +40,38 @@ watch(
 );
 onBeforeUnmount(() => window.clearTimeout(timer));
 
+const context = computed(() => ({ nodes: props.nodes, notePath: props.notePath, users: props.users, obsidian: props.obsidian }));
 const resolver = computed(() => docResolver(props.users));
-const finish = (html: string): string => finishDocHtml(html, { nodes: props.nodes, notePath: props.notePath, users: props.users }, (props.comments ?? []).filter((comment) => comment.quote && !comment.resolvedAt));
+const prepare = (text: string): string => prepareDocText(text, props.obsidian);
+const finish = (html: string): string => finishDocHtml(html, context.value, (props.comments ?? []).filter((comment) => comment.quote && !comment.resolvedAt));
+
+/** Notes intégrées lues une fois par rendu de cette note. */
+const loaded = new Map<number, Promise<string>>();
+const load = (nodeId: number): Promise<string> => {
+  if (!loaded.has(nodeId)) loaded.set(nodeId, api.docNode(nodeId).then((result) => result.content ?? ''));
+  return loaded.get(nodeId)!;
+};
+
+// Après chaque rendu : notes intégrées, et titre visé par un lien venu d'une autre note.
+watch(
+  [shown, () => props.nodes, () => props.obsidian],
+  async () => {
+    await nextTick();
+    if (!root.value) return;
+    loaded.clear();
+    void hydrateEmbeds(root.value, context.value, load);
+    const anchor = pendingAnchor.value;
+    if (anchor?.path === props.notePath) {
+      pendingAnchor.value = null;
+      scrollToHeading(root.value, anchor.heading);
+    }
+  },
+  { immediate: true },
+);
 
 function onClick(event: MouseEvent): void {
   const element = event.target as HTMLElement;
-  if (follow(element, event)) return;
+  if (follow(element, event) || zoomImageOnClick(event)) return;
   const mark = element.closest<HTMLElement>('[data-comment]');
   if (mark && window.getSelection()?.isCollapsed) emit('focus-comment', Number(mark.dataset.comment));
 }
@@ -50,8 +79,19 @@ function onClick(event: MouseEvent): void {
 const menu = ref<InstanceType<typeof ContextMenu> | null>(null);
 const menuItems = ref<MenuItem[]>([]);
 
-/** Sur un texte sélectionné seulement : ailleurs, le menu du navigateur reste disponible. */
+/** Sur un texte sélectionné ou une image seulement : ailleurs, le menu du navigateur reste disponible. */
 function onContextMenu(event: MouseEvent): void {
+  const image = (event.target as HTMLElement).closest<HTMLImageElement>('img');
+  if (image?.src && !image.closest('a')) {
+    event.preventDefault();
+    const src = image.currentSrc || image.src;
+    menuItems.value = [
+      { label: t('Agrandir l’image'), icon: 'pi pi-expand', command: () => openLightbox(src, image.alt) },
+      { label: t('Ouvrir l’image dans un nouvel onglet'), icon: 'pi pi-external-link', command: () => window.open(src, '_blank', 'noopener') },
+    ];
+    menu.value?.show(event);
+    return;
+  }
   const quote = root.value && props.comments ? selectionQuote(root.value) : null;
   if (!quote) return;
   event.preventDefault();
@@ -66,7 +106,7 @@ function onContextMenu(event: MouseEvent): void {
 
 <template>
   <div ref="root" class="doc-preview" @click="onClick" @contextmenu="onContextMenu">
-    <MarkdownView :text="shown" :resolver="resolver" :prepare="expandWikiLinks" :finish="finish" :open-ticket-with="openTicket" />
+    <MarkdownView :text="shown" :resolver="resolver" :obsidian="obsidian" :prepare="prepare" :finish="finish" :open-ticket-with="openTicket" />
     <ContextMenu ref="menu" :model="menuItems" />
   </div>
 </template>
@@ -76,11 +116,15 @@ function onContextMenu(event: MouseEvent): void {
   max-width: 52rem;
   margin: 0 auto;
 }
+.doc-preview :deep(img:not(a img)) {
+  cursor: zoom-in;
+}
 </style>
 
 <style>
 .doc-preview a.broken,
-.cm-live-block a.broken {
+.cm-live-block a.broken,
+.wiki-page a.broken {
   color: var(--fb-danger);
   text-decoration: underline dotted;
   cursor: help;

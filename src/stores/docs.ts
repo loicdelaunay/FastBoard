@@ -1,9 +1,12 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { DocCommentDTO } from '@shared/docComments';
-import { docRoleAtLeast, type DocMemberDTO, type DocNodeDTO, type DocRole, type DocSpaceDTO } from '@shared/docs';
+import { docRoleAtLeast, type DocBookmarkDTO, type DocMemberDTO, type DocNodeDTO, type DocRole, type DocSpaceDTO } from '@shared/docs';
 import { api } from '@/api';
 import { realtime } from '@/realtime/socket';
+import { notifyError } from '@/utils/notify';
+
+import { t } from '@/i18n';
 
 /** Documentation : liste des espaces, et espace ouvert avec son arbre, tenu à jour en direct. */
 export const useDocsStore = defineStore('docs', () => {
@@ -19,6 +22,9 @@ export const useDocsStore = defineStore('docs', () => {
   /** Commentaires de la note ouverte. */
   const comments = ref<DocCommentDTO[]>([]);
   const commentsNode = ref<number | null>(null);
+  /** Favoris de la personne, tous espaces confondus. */
+  const bookmarks = ref<DocBookmarkDTO[]>([]);
+  const bookmarked = computed(() => new Set(bookmarks.value.map((entry) => entry.nodeId)));
 
   const canEdit = computed(() => (space.value ? docRoleAtLeast(space.value.role, 'editor') : false));
   const isOwner = computed(() => space.value?.role === 'owner');
@@ -55,6 +61,18 @@ export const useDocsStore = defineStore('docs', () => {
     if (commentsNode.value === nodeId) comments.value = result.comments;
   }
 
+  async function loadBookmarks(): Promise<void> {
+    bookmarks.value = (await api.docBookmarks()).bookmarks;
+  }
+
+  async function toggleBookmark(nodeId: number): Promise<void> {
+    try {
+      bookmarks.value = (await api.docSetBookmark(nodeId, !bookmarked.value.has(nodeId))).bookmarks;
+    } catch (error) {
+      notifyError(error, t('Favori non enregistré'));
+    }
+  }
+
   function closeSpace(): void {
     space.value = null;
     nodes.value = [];
@@ -77,5 +95,5 @@ export const useDocsStore = defineStore('docs', () => {
     void loadComments(commentsNode.value).catch(() => undefined);
   });
 
-  return { spaces, loading, loaded, space, nodes, members, revoked, comments, canEdit, isOwner, role, fetchSpaces, openSpace, closeSpace, reload, loadComments };
+  return { spaces, loading, loaded, space, nodes, members, revoked, comments, bookmarks, bookmarked, canEdit, isOwner, role, fetchSpaces, openSpace, closeSpace, reload, loadComments, loadBookmarks, toggleBookmark };
 });

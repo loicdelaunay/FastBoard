@@ -11,7 +11,8 @@ import { formatDateTime, formatRelative } from '@/utils/format';
 import { notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
-/** Cloche de l'en-tête : notifications des tickets suivis, assignations et mentions. */
+/** Cloche : notifications des tickets suivis, assignations et mentions ; `label` : avec son nom, dans la barre latérale. */
+defineProps<{ label?: string }>();
 const store = useNotificationsStore();
 const router = useRouter();
 const panel = ref<InstanceType<typeof Popover> | null>(null);
@@ -60,9 +61,9 @@ async function readAll(): Promise<void> {
 </script>
 
 <template>
-  <button type="button" class="bell" :class="{ active: store.unread > 0 }" :aria-label="$t('Notifications ({n} non lues)', { n: store.unread })" aria-haspopup="dialog" @click="panel?.toggle($event)">
-    <i class="pi pi-bell"></i>
-    <span v-if="store.unread" class="badge">{{ badge }}</span>
+  <button v-tooltip.right="label ? undefined : $t('Notifications')" type="button" class="bell" :class="{ active: store.unread > 0, labelled: label }" :aria-label="$t('Notifications ({n} non lues)', { n: store.unread })" aria-haspopup="dialog" @click="panel?.toggle($event)">
+    <span class="icon"><i class="pi pi-bell"></i><span v-if="store.unread" class="badge">{{ badge }}</span></span>
+    <span v-if="label" class="bell-label">{{ label }}</span>
   </button>
   <Popover ref="panel" class="notifications-panel">
     <div class="panel">
@@ -108,16 +109,32 @@ async function readAll(): Promise<void> {
 
 <style scoped>
 .bell {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 2.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-width: 2.3rem;
   height: 2.3rem;
   border: 0;
   border-radius: 999px;
   background: transparent;
   color: var(--fb-muted);
+  font: inherit;
   cursor: pointer;
+}
+.icon {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+}
+.bell.labelled {
+  justify-content: flex-start;
+  width: 100%;
+  padding: 0 0.5rem 0 0.35rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
 }
 .bell:hover,
 .bell:focus-visible {
@@ -129,8 +146,8 @@ async function readAll(): Promise<void> {
 }
 .badge {
   position: absolute;
-  top: 0.1rem;
-  right: 0.05rem;
+  top: -0.5rem;
+  right: -0.1rem;
   min-width: 1.05rem;
   height: 1.05rem;
   padding: 0 0.25rem;

@@ -5,11 +5,24 @@ import { docBaseName, docParent, type DocNodeDTO } from './docs.ts';
  * images `![[schema.png]]`, et liens Markdown relatifs à la note.
  */
 
-const WIKI = /(!?)\[\[([^\]|#\n]+)(?:#[^\]|\n]*)?(?:\|([^\]\n]+))?\]\]/g;
+const WIKI = /(!?)\[\[([^\]|#\n]*)(#[^\]|\n]*)?(?:\|([^\]\n]+))?\]\]/g;
 /** Blocs et portions de code, où rien ne doit être réécrit. */
 const CODE = /(```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`)/g;
 
 const encodePath = (path: string): string => path.split('/').map(encodeURIComponent).join('/');
+
+/** Applique `change` au texte hors du code (blocs et portions), où rien ne doit être réécrit. */
+export function mapOutsideCode(text: string, change: (part: string) => string): string {
+  return text
+    .split(CODE)
+    .map((part, index) => (index % 2 === 1 ? part : change(part)))
+    .join('');
+}
+
+/** Forme comparable d'un titre, pour les liens `[[Note#Titre]]`. */
+export function headingKey(text: string): string {
+  return text.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+}
 
 /** Transforme les liens wiki en liens Markdown ordinaires, en laissant le code intact. */
 export function expandWikiLinks(text: string): string {
@@ -18,9 +31,12 @@ export function expandWikiLinks(text: string): string {
     .map((part, index) =>
       index % 2 === 1
         ? part
-        : part.replace(WIKI, (_all, image: string, target: string, label: string | undefined) => {
+        : part.replace(WIKI, (all, image: string, target: string, heading: string | undefined, label: string | undefined) => {
             const name = target.trim();
-            return image ? `![${label?.trim() ?? name}](${encodePath(name)})` : `[${(label ?? name).trim()}](${encodePath(name)})`;
+            const anchor = heading && heading.length > 1 ? `#${encodeURIComponent(heading.slice(1).trim())}` : '';
+            if (!name && !anchor) return all;
+            if (image) return `![${label?.trim() ?? name}](${encodePath(name)})`;
+            return `[${(label ?? (name ? `${name}${heading ? ` › ${heading.slice(1).trim()}` : ''}` : heading!.slice(1))).trim()}](${encodePath(name)}${anchor})`;
           }),
     )
     .join('');

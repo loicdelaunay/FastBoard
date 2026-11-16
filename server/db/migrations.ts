@@ -633,6 +633,29 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
   (db) => {
     db.run('UPDATE ticket_parts SET done = 1, done_at = ? WHERE done = 0 AND progress >= 100', new Date().toISOString());
   },
+  // 21 — Documentation : note libre des fichiers et dossiers, favoris de chacun, Markdown Obsidian au choix de
+  // l'espace (activé d'office, comme avant), et site web d'un espace.
+  (db) => {
+    db.exec(`
+      ALTER TABLE doc_nodes ADD COLUMN memo TEXT NOT NULL DEFAULT '';
+      ALTER TABLE doc_spaces ADD COLUMN obsidian INTEGER NOT NULL DEFAULT 1;
+      CREATE TABLE doc_bookmarks (
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        node_id    INTEGER NOT NULL REFERENCES doc_nodes(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, node_id)
+      );
+      CREATE TABLE doc_sites (
+        space_id   INTEGER PRIMARY KEY REFERENCES doc_spaces(id) ON DELETE CASCADE,
+        slug       TEXT NOT NULL UNIQUE,
+        visibility TEXT NOT NULL,
+        people     TEXT NOT NULL DEFAULT '[]',
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { extractDocLinks } from '../../shared/docLinks.ts';
 import { docBaseName, docFileKind, docRoleAtLeast, docTitle, DOC_LIMITS, normalizeDocPath, withMarkdownExtension } from '../../shared/docs.ts';
-import type { DocMemberDTO, DocNodeDTO, DocNodeKind, DocRole, DocSearchHitDTO, DocSpaceDTO, DocVersionDTO, DocVersionOrigin } from '../../shared/docs.ts';
+import type { DocBookmarkDTO, DocMemberDTO, DocNodeDTO, DocNodeInfoDTO, DocNodeKind, DocRole, DocSearchHitDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, DocVersionOrigin } from '../../shared/docs.ts';
 import { hasPermission } from '../../shared/permissions.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { nowIso, type Db } from '../db/database.ts';
@@ -18,6 +18,7 @@ interface SpaceRow {
   id: number;
   name: string;
   description: string;
+  obsidian: number;
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +32,7 @@ export interface NodeRow {
   updated_by: number | null;
   updated_at: string;
   deleted_at: string | null;
+  memo: string;
 }
 
 interface VersionRow {
@@ -43,7 +45,7 @@ interface VersionRow {
 }
 
 /** Tout sauf le texte cherchable, qui pèse autant que la note. */
-const NODE_COLUMNS = 'id, space_id, path, kind, size, updated_by, updated_at, deleted_at';
+const NODE_COLUMNS = 'id, space_id, path, kind, size, updated_by, updated_at, deleted_at, memo';
 
 /** Dossier des fichiers mis à la corbeille (images), hors de l'arbre visible. */
 const TRASH = '.trash';
@@ -61,7 +63,11 @@ export function requireDocsEnabled(db: Db): void {
 }
 
 function toNodeDTO(row: NodeRow): DocNodeDTO {
-  return { id: row.id, spaceId: row.space_id, path: row.path, kind: row.kind, size: row.size, updatedAt: row.updated_at, updatedBy: row.updated_by, deletedAt: row.deleted_at };
+  return { id: row.id, spaceId: row.space_id, path: row.path, kind: row.kind, size: row.size, updatedAt: row.updated_at, updatedBy: row.updated_by, deletedAt: row.deleted_at, memo: row.memo };
+}
+
+export function nodeDTO(row: NodeRow): DocNodeDTO {
+  return toNodeDTO(row);
 }
 
 // --- Droits ----------------------------------------------------------------------------------------------------------
@@ -145,11 +151,11 @@ export function reindexDocs(ctx: AppContext): void {
 
 export function listSpaces(ctx: AppContext, user: AuthUser): DocSpaceDTO[] {
   const seesAll = hasPermission(user.permissions, 'docs.manage');
-  const rows = ctx.db.all<SpaceRow & { my_role: DocRole | null; files: number; members: number }>(
-    `SELECT s.*, m.role AS my_role,
+  const rows = ctx.db.all<SpaceRow & { my_role: DocRole | null; files: number; members: number; site_slug: string | null; site_visibility: DocSiteVisibility | null }>(
+    `SELECT s.*, m.role AS my_role, w.slug AS site_slug, w.visibility AS site_visibility,
             (SELECT COUNT(*) FROM doc_nodes n WHERE n.space_id = s.id AND n.deleted_at IS NULL AND n.kind = 'markdown') AS files,
             (SELECT COUNT(*) FROM doc_members x WHERE x.space_id = s.id) AS members
-       FROM doc_spaces s LEFT JOIN doc_members m ON m.space_id = s.id AND m.user_id = ?
+       FROM doc_spaces s LEFT JOIN doc_members m ON m.space_id = s.id AND m.user_id = ? LEFT JOIN doc_sites w ON w.space_id = s.id
       ${seesAll ? '' : 'WHERE m.role IS NOT NULL'}
       ORDER BY s.updated_at DESC`,
     user.id,
@@ -161,6 +167,8 @@ export function listSpaces(ctx: AppContext, user: AuthUser): DocSpaceDTO[] {
     role: seesAll ? 'owner' : row.my_role!,
     fileCount: row.files,
     memberCount: row.members,
+    obsidian: row.obsidian === 1,
+    site: row.site_slug && row.site_visibility ? { slug: row.site_slug, visibility: row.site_visibility } : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -172,11 +180,11 @@ export function getSpace(ctx: AppContext, user: AuthUser, spaceId: number): DocS
   return space;
 }
 
-export function createSpace(ctx: AppContext, user: AuthUser, input: { name: string; description: string }): DocSpaceDTO {
+export function createSpace(ctx: AppContext, user: AuthUser, input: { name: string; description: string; obsidian?: boolean }): DocSpaceDTO {
   const now = nowIso();
   let spaceId = 0;
   ctx.db.transaction(() => {
-    spaceId = ctx.db.run('INSERT INTO doc_spaces (name, description, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?)', input.name, input.description, user.id, now, now).lastInsertRowid;
+    spaceId = ctx.db.run('INSERT INTO doc_spaces (name, description, obsidian, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)', input.name, input.description, input.obsidian === false ? 0 : 1, user.id, now, now).lastInsertRowid;
     ctx.db.run("INSERT INTO doc_members (space_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)", spaceId, user.id, now);
   });
   fs.mkdirSync(spaceDir(ctx, spaceId), { recursive: true });
@@ -184,9 +192,11 @@ export function createSpace(ctx: AppContext, user: AuthUser, input: { name: stri
   return getSpace(ctx, user, spaceId);
 }
 
-export function updateSpace(ctx: AppContext, user: AuthUser, spaceId: number, patch: { name?: string; description?: string }): DocSpaceDTO {
+export function updateSpace(ctx: AppContext, user: AuthUser, spaceId: number, patch: { name?: string; description?: string; obsidian?: boolean }): DocSpaceDTO {
   const row = ctx.db.get<SpaceRow>('SELECT * FROM doc_spaces WHERE id = ?', spaceId)!;
-  ctx.db.run('UPDATE doc_spaces SET name = ?, description = ?, updated_at = ? WHERE id = ?', patch.name ?? row.name, patch.description ?? row.description, nowIso(), spaceId);
+  const obsidian = patch.obsidian === undefined ? row.obsidian : patch.obsidian ? 1 : 0;
+  ctx.db.run('UPDATE doc_spaces SET name = ?, description = ?, obsidian = ?, updated_at = ? WHERE id = ?', patch.name ?? row.name, patch.description ?? row.description, obsidian, nowIso(), spaceId);
+  if (obsidian !== row.obsidian) ctx.docRooms.refreshSpace(spaceId);
   return getSpace(ctx, user, spaceId);
 }
 
@@ -506,6 +516,57 @@ export function putImportedFolder(ctx: AppContext, actor: Actor, spaceId: number
 
 export function uniquePath(db: Db, spaceId: number, relative: string): string {
   return freePath(db, spaceId, relative);
+}
+
+// --- Note, infos et favoris -----------------------------------------------------------------------------------------
+
+/** Note libre d'un fichier ou d'un dossier : visible de tous les membres, dans l'arbre et dans « Infos ». */
+export function setMemo(ctx: AppContext, nodeId: number, memo: string): DocNodeDTO {
+  const node = requireNode(ctx.db, nodeId);
+  if (node.deleted_at) throw conflict('Cet élément est dans la corbeille.');
+  ctx.db.run('UPDATE doc_nodes SET memo = ? WHERE id = ?', memo.trim().slice(0, DOC_LIMITS.memoMax), nodeId);
+  ctx.docRooms.publishTree(node.space_id);
+  return toNodeDTO(requireNode(ctx.db, nodeId));
+}
+
+export function nodeInfo(ctx: AppContext, node: NodeRow): DocNodeInfoDTO {
+  const { db } = ctx;
+  const created = db.get<{ created_at: string }>('SELECT created_at FROM doc_nodes WHERE id = ?', node.id)!.created_at;
+  const updatedByName = node.updated_by === null ? null : (db.get<{ name: string }>('SELECT name FROM users WHERE id = ?', node.updated_by)?.name ?? null);
+  const versions = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM doc_versions WHERE node_id = ?', node.id)?.n ?? 0;
+  const base = { node: toNodeDTO(node), createdAt: created, updatedByName, versions, words: null, chars: null, lines: null };
+  if (node.kind === 'folder') {
+    const inside = db.get<{ files: number; folders: number; bytes: number | null }>(
+      `SELECT SUM(kind != 'folder') AS files, SUM(kind = 'folder') AS folders, SUM(size) AS bytes FROM doc_nodes WHERE space_id = ? AND deleted_at IS NULL AND path LIKE ? ESCAPE ?`,
+      node.space_id,
+      `${escapeLike(node.path)}/%`,
+      '\\',
+    );
+    return { ...base, size: inside?.bytes ?? 0, files: inside?.files ?? 0, folders: inside?.folders ?? 0 };
+  }
+  if (node.kind !== 'markdown') return { ...base, size: node.size, files: 0, folders: 0 };
+  const text = ctx.docRooms.currentText(node.id) ?? readText(ctx, node);
+  return { ...base, size: Buffer.byteLength(text), files: 0, folders: 0, words: text.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu)?.length ?? 0, chars: text.length, lines: text === '' ? 0 : text.split('\n').length };
+}
+
+/** Favoris de la personne, limités aux espaces qu'elle peut encore lire. */
+export function listBookmarks(ctx: AppContext, user: AuthUser): DocBookmarkDTO[] {
+  const spaces = new Map(listSpaces(ctx, user).map((space) => [space.id, space.name]));
+  return ctx.db
+    .all<{ node_id: number; space_id: number; path: string; kind: 'markdown' | 'image'; created_at: string }>(
+      `SELECT b.node_id, n.space_id, n.path, n.kind, b.created_at FROM doc_bookmarks b JOIN doc_nodes n ON n.id = b.node_id
+        WHERE b.user_id = ? AND n.deleted_at IS NULL AND n.kind != 'folder' ORDER BY b.created_at DESC`,
+      user.id,
+    )
+    .filter((row) => spaces.has(row.space_id))
+    .map((row) => ({ nodeId: row.node_id, spaceId: row.space_id, spaceName: spaces.get(row.space_id)!, path: row.path, kind: row.kind, createdAt: row.created_at }));
+}
+
+export function setBookmark(ctx: AppContext, user: AuthUser, node: NodeRow, on: boolean): DocBookmarkDTO[] {
+  if (node.kind === 'folder') throw badRequest('Seuls les fichiers se mettent en favori.');
+  if (on) ctx.db.run('INSERT INTO doc_bookmarks (user_id, node_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', user.id, node.id, nowIso());
+  else ctx.db.run('DELETE FROM doc_bookmarks WHERE user_id = ? AND node_id = ?', user.id, node.id);
+  return listBookmarks(ctx, user);
 }
 
 // --- Recherche -------------------------------------------------------------------------------------------------------

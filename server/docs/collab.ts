@@ -367,6 +367,11 @@ export class DocRooms {
     }
   }
 
+  /** Les réglages de l'espace ont changé (nom, Markdown Obsidian…) : chacun recharge l'espace. */
+  refreshSpace(spaceId: number): void {
+    for (const peer of this.#watchers.get(spaceId) ?? []) peer.send({ t: 'docs.access', spaceId });
+  }
+
   /** La fonctionnalité vient d'être désactivée : tout le monde sort. */
   closeAllSpaces(): void {
     for (const spaceId of new Set([...this.#watchers.keys(), ...[...this.#rooms.values()].map((room) => room.spaceId)])) this.closeSpace(spaceId);

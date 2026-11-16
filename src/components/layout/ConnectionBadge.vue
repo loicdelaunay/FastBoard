@@ -3,6 +3,9 @@ import { computed } from 'vue';
 import { t } from '@/i18n';
 import { realtime } from '@/realtime/socket';
 
+/** État du temps réel : rien quand tout va bien, un avertissement quand la connexion est perdue. */
+defineProps<{ compact?: boolean }>();
+
 const state = computed(() => realtime.state.value);
 const label = computed(() => {
   switch (state.value) {
@@ -19,9 +22,9 @@ const label = computed(() => {
 </script>
 
 <template>
-  <span v-tooltip.bottom="$t('Synchronisation temps réel (WebSocket)')" class="conn" :class="`conn-${state}`">
+  <span v-if="state !== 'open'" v-tooltip.right="compact ? label : $t('Synchronisation temps réel (WebSocket)')" class="conn" :class="[`conn-${state}`, { compact }]">
     <i class="dot"></i>
-    <span class="text">{{ label }}</span>
+    <span v-if="!compact" class="text">{{ label }}</span>
   </span>
 </template>
 

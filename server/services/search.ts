@@ -57,13 +57,14 @@ interface TicketSearchRow {
 }
 
 /** Première ligne d'une note où figure la recherche, sans sa syntaxe Markdown. */
-function docExcerpt(content: string, query: string): string {
+export function docExcerpt(content: string, query: string): string {
   for (const line of content.split('\n')) {
     const index = foldText(line).indexOf(query);
     if (index < 0) continue;
     const start = Math.max(0, index - 60);
     const end = index + query.length + 100;
-    const part = plainText(line.slice(start, end)).trim();
+    // Le texte tel qu'on le lit : ni la syntaxe Markdown, ni celle des liens wiki et du surlignage.
+    const part = plainText(line.slice(start, end)).replace(/==|\[\[|\]\]|%%/g, '').trim();
     return `${start > 0 ? '…' : ''}${part}${end < line.length ? '…' : ''}`;
   }
   return '';

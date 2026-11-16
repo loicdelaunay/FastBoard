@@ -89,7 +89,7 @@ export const DOC_TOOLS: ToolDefinition[] = [
       const spaceId = Number(args.spaceId);
       requireSpace(tool.ctx, tool.user, spaceId);
       const nodes = listNodes(tool.ctx.db, spaceId);
-      return { total: nodes.length, files: nodes.slice(0, FILES_LISTED).map((node) => ({ id: node.id, path: node.path, kind: node.kind, updatedAt: node.updatedAt })) };
+      return { total: nodes.length, files: nodes.slice(0, FILES_LISTED).map((node) => ({ id: node.id, path: node.path, kind: node.kind, updatedAt: node.updatedAt, note: node.memo || undefined })) };
     },
   },
   {

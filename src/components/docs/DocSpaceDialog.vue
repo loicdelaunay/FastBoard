@@ -4,31 +4,34 @@ import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Textarea from 'primevue/textarea';
+import ToggleSwitch from 'primevue/toggleswitch';
 import { DOC_LIMITS, type DocSpaceDTO } from '@shared/docs';
 import { api } from '@/api';
 import { notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
-/** Création d'un espace, ou modification de son nom et de sa description. */
+/** Création d'un espace, ou modification de son nom, de sa description et du Markdown qu'il accepte. */
 const props = defineProps<{ space?: DocSpaceDTO | null }>();
 const visible = defineModel<boolean>('visible', { required: true });
 const emit = defineEmits<{ saved: [space: DocSpaceDTO] }>();
 
 const name = ref('');
 const description = ref('');
+const obsidian = ref(true);
 const saving = ref(false);
 
 watch(visible, (open) => {
   if (!open) return;
   name.value = props.space?.name ?? '';
   description.value = props.space?.description ?? '';
+  obsidian.value = props.space?.obsidian ?? true;
 });
 
 async function submit(): Promise<void> {
   if (!name.value.trim()) return;
   saving.value = true;
   try {
-    const input = { name: name.value.trim(), description: description.value.trim() };
+    const input = { name: name.value.trim(), description: description.value.trim(), obsidian: obsidian.value };
     const { space } = props.space ? await api.docUpdateSpace(props.space.id, input) : await api.docCreateSpace(input);
     visible.value = false;
     emit('saved', space);
@@ -51,6 +54,13 @@ async function submit(): Promise<void> {
         <label for="doc-space-description">{{ $t('Description') }}</label>
         <Textarea id="doc-space-description" v-model="description" :maxlength="DOC_LIMITS.descriptionMax" rows="3" auto-resize fluid />
       </div>
+      <label class="toggle" for="doc-space-obsidian">
+        <ToggleSwitch v-model="obsidian" input-id="doc-space-obsidian" />
+        <span class="toggle-text">
+          <strong>{{ $t('Support du Markdown Obsidian') }}</strong>
+          <span class="muted small">{{ $t('Callouts, ==surlignage==, %%commentaires%%, #étiquettes, notes de bas de page, propriétés en tête de note et notes intégrées avec ![[…]].') }}</span>
+        </span>
+      </label>
       <div class="actions">
         <Button type="button" :label="$t('Annuler')" severity="secondary" text @click="visible = false" />
         <Button type="submit" :label="space ? $t('Enregistrer') : $t('Créer')" icon="pi pi-check" :disabled="!name.trim()" :loading="saving" />
@@ -64,6 +74,17 @@ async function submit(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+.toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 .actions {
   display: flex;

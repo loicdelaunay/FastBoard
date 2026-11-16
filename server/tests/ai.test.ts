@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
-import type { AiChangeDTO, AiStreamEvent } from '../../shared/ai.ts';
+import { contextOfItems, type AiChangeDTO, type AiStreamEvent } from '../../shared/ai.ts';
 import { writeSetting } from '../services/appSettings.ts';
 import { bootServer, TestClient } from './helpers.ts';
 
@@ -455,6 +455,26 @@ describe('assistant IA', () => {
 
       await chat(bob, 'outil:search_docs {"query":"serveur de test"}');
       assert.deepEqual(toolOutput().notes.map((note: { path: string }) => note.path), ['Guides/Installation.md']);
+    });
+
+    it('ajoute au contexte les éléments choisis, sauf ceux auxquels la personne n’a pas accès', async () => {
+      const secret = (await admin.post('/api/projects', { name: 'Projet secret', key: 'SEC' })).body.project.id;
+      await chat(bob, 'Bonjour', { ...contextOfItems([
+        { kind: 'note', id: noteId, parentId: spaceId },
+        { kind: 'ticket', id: ids.ticket, parentId: ids.project },
+        { kind: 'project', id: secret },
+      ]) });
+      const system = provider.requests.at(-1)!.body.messages[0]!.content as string;
+      assert.ok(system.includes('Note ouverte : « Guides/Installation.md »'));
+      assert.ok(system.includes('Ticket ouvert : BTQ-1 « Paiement par carte »'), 'le premier ticket devient « ce ticket »');
+      assert.ok(!system.includes('Projet secret'), 'un projet inaccessible est ignoré');
+
+      assert.ok(!system.includes('Éléments ajoutés au contexte'));
+
+      await chat(bob, 'Bonjour', { items: [{ kind: 'note', id: noteId }, { kind: 'project', id: ids.project }, { kind: 'note', id: noteId + 1000 }] });
+      const second = provider.requests.at(-1)!.body.messages[0]!.content as string;
+      assert.match(second, /Éléments ajoutés au contexte[^\n]*\n- note « Guides\/Installation\.md »[^\n]*\n- projet « Boutique »[^\n]*$/);
+      assert.equal((await chat(bob, 'Bonjour', { items: [{ kind: 'autre', id: 1 }] })).status, 400);
     });
 
     it('n’ouvre que les espaces de la personne', async () => {
