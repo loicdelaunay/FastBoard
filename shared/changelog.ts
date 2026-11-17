@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.4.0';
+export const APP_VERSION = '2.4.1';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,11 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.4.1',
+    date: '2026-11-17',
+    changes: [{ category: 'Amélioration', text: 'Tableaux blancs : des nœuds de carte mentale glissés près d’un autre nœud s’y rattachent, comme dans Whimsical ; le nœud qui les recevra s’éclaire et un lien en pointillés montre le rattachement.' }],
+  },
   {
     version: '2.4.0',
     date: '2026-11-17',

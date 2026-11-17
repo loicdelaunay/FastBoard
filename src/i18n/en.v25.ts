@@ -230,6 +230,9 @@ export const enV25: Record<string, string> = {
   'Ajouter un frère (Entrée)': 'Add a sibling (Enter)',
   'Ajouter un frère': 'Add a sibling',
 
+  "Tableaux blancs : des nœuds de carte mentale glissés près d’un autre nœud s’y rattachent, comme dans Whimsical ; le nœud qui les recevra s’éclaire et un lien en pointillés montre le rattachement.":
+    "Whiteboards: mind map nodes dragged near another node attach to it, as in Whimsical; the node that will receive them lights up and a dotted link previews the attachment.",
+
   // Ajout rapide, icônes, images et modèles
   "Ajout rapide": "Quick add",
   "Forme, icône, image, modèle…": "Shape, icon, image, template…",

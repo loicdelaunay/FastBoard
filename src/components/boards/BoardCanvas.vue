@@ -205,11 +205,25 @@ watch(
 
 const frames = computed(() => elements.value.filter((element) => element.type === 'frame'));
 const others = computed(() => elements.value.filter((element) => element.type !== 'frame'));
+/** Pendant le glisser de nœuds de carte mentale : le nœud qui les recevra (leurs liens actuels s'effacent). */
+const mindDrop = shallowRef<{ target: string; nodes: string[] } | null>(null);
 const mindLinks = computed(() => {
   const minds = new Map(elements.value.filter((element): element is MindElement => element.type === 'mind').map((element) => [element.id, element]));
+  const moving = mindDrop.value;
   return [...minds.values()].flatMap((node) => {
     const parent = node.parent ? minds.get(node.parent) : undefined;
+    if (moving && moving.target !== node.parent && moving.nodes.includes(node.id)) return [];
     return parent ? [{ id: node.id, color: node.color, d: mindLink(parent, node) }] : [];
+  });
+});
+/** Aperçu des nouveaux liens : du nœud qui recevra les nœuds glissés vers chacun d'eux. */
+const mindDropLinks = computed(() => {
+  const moving = mindDrop.value;
+  const target = moving ? (index.value.get(moving.target) as MindElement | undefined) : undefined;
+  if (!moving || !target) return [];
+  return moving.nodes.flatMap((id) => {
+    const node = index.value.get(id) as MindElement | undefined;
+    return node ? [{ id, d: mindLink(target, node) }] : [];
   });
 });
 const geometry = (connector: ConnectorElement) => connectorGeometry(connector, index.value);
@@ -420,6 +434,33 @@ function mindBranch(id: string): MindElement[] {
   return found;
 }
 
+/**
+ * Nœud qui recevra les nœuds de carte mentale glissés : celui sous le pointeur, sinon, à la manière de Whimsical, le
+ * plus proche du côté où il range ses enfants (à sa droite, ou à sa gauche pour une branche gauche). Aucun : ils
+ * restent à leur parent, et la hauteur où on les pose donne leur ordre.
+ */
+function mindDropTarget(current: Extract<Gesture, { kind: 'move' }>, event: PointerEvent, dx: number, dy: number): string | null {
+  const hit = elementAt(event.clientX, event.clientY, (candidate) => candidate.type === 'mind' && !current.originals.has(candidate.id));
+  if (hit) return hit.id;
+  const leadId = current.mindNodes[0];
+  const lead = leadId ? (index.value.get(leadId) as MindElement | undefined) : undefined;
+  const origin = leadId ? current.originals.get(leadId) : undefined;
+  if (!lead || !origin) return null;
+  const box = { x: origin.x + dx, y: origin.y + dy, w: lead.w, h: lead.h };
+  const middle = box.y + box.h / 2;
+  let best: { id: string; score: number } | null = null;
+  for (const candidate of elements.value) {
+    if (candidate.type !== 'mind' || current.originals.has(candidate.id)) continue;
+    // Écart entre le bord du nœud et celui des nœuds glissés, du côté de ses enfants.
+    const gap = candidate.direction === 'left' ? candidate.x - (box.x + box.w) : box.x - (candidate.x + candidate.w);
+    const vertical = Math.abs(middle - (candidate.y + candidate.h / 2));
+    if (gap < -candidate.w / 2 || gap > 280 || vertical > 160) continue;
+    const score = Math.abs(gap - 56) * 0.6 + vertical;
+    if (!best || score < best.score) best = { id: candidate.id, score };
+  }
+  return best?.id ?? null;
+}
+
 function startMove(world: Point): void {
   const originals = new Map<string, Point>();
   const free = new Map<string, { from: Point; to: Point }>();
@@ -583,7 +624,11 @@ function onPointerMove(event: PointerEvent): void {
       const dy = snap(world.y - current.start.y, free);
       if (!current.moved && Math.hypot(world.x - current.start.x, world.y - current.start.y) * view.zoom < 3) return;
       current.moved = true;
-      if (current.mindNodes.length) dropTarget.value = elementAt(event.clientX, event.clientY, (candidate) => candidate.type === 'mind' && !current.originals.has(candidate.id))?.id ?? null;
+      if (current.mindNodes.length) {
+        const target = mindDropTarget(current, event, dx, dy);
+        dropTarget.value = target;
+        mindDrop.value = target ? { target, nodes: current.mindNodes } : null;
+      }
       throttle(() => {
         const patches = new Map<string, Partial<BoardElement>>();
         for (const [id, origin] of current.originals) patches.set(id, { x: origin.x + dx, y: origin.y + dy });
@@ -699,6 +744,7 @@ function onPointerUp(event: PointerEvent): void {
       if (current.mindNodes.length) {
         const target = dropTarget.value ? (index.value.get(dropTarget.value) as MindElement | undefined) : undefined;
         dropTarget.value = null;
+        mindDrop.value = null;
         // Posés sur un nœud : ils en deviennent les enfants ; ailleurs, la place en hauteur donne l'ordre entre frères.
         const roots = new Set(current.mindNodes.map((id) => mindRoot(index.value, id)?.id).filter((id): id is string => Boolean(id)));
         if (target) {
@@ -1976,6 +2022,7 @@ defineExpose({ fit, openImport });
 
         <!-- Liens des cartes mentales -->
         <path v-for="link in mindLinks" :key="`l${link.id}`" :d="link.d" class="mind-link" :class="`c-${link.color}`" />
+        <path v-for="link in mindDropLinks" :key="`d${link.id}`" :d="link.d" class="mind-drop-link" />
 
         <template v-for="element in others" :key="element.id">
           <g v-if="element.type === 'connector'" :data-id="element.id" class="el connector" :class="[`c-${element.color}`, { selected: selection.has(element.id), dashed: element.dashed }]">
@@ -2372,6 +2419,15 @@ defineExpose({ fit, openImport });
 .mind.root .mind-text {
   font-size: 17px;
   font-weight: 700;
+}
+.mind-drop-link {
+  fill: none;
+  stroke: var(--board-select);
+  stroke-width: 2.5;
+  stroke-dasharray: 6 5;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }
 .mind-link {
   fill: none;
