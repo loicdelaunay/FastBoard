@@ -2,6 +2,7 @@ import { FILE_NAME_HEADER, type TicketStatus } from '@shared/constants';
 import type { RoleScope, PermissionDef } from '@shared/permissions';
 import type { DocBookmarkDTO, DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocNodeInfoDTO, DocRole, DocSearchHitDTO, DocSiteDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, WikiDTO, WikiPageDTO, WikiSearchHitDTO } from '@shared/docs';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
+import type { BoardAssetDTO, BoardElement, BoardIconDTO, BoardLinksDTO, BoardMemberDTO, BoardNodeDTO, BoardNodeKind, BoardRole, BoardSearchHitDTO, BoardShareAudience, BoardShareDTO, BoardShareInfoDTO, BoardShareRole, BoardSpaceDTO } from '@shared/boards';
 import type { LdapFields, LdapSettingsDTO, LdapTestResultDTO } from '@shared/ldap';
 import type { Locale } from '@shared/locales';
 import type { ProjectSettingsDTO } from '@shared/settings';
@@ -332,6 +333,43 @@ export const api = {
   adminSaveDocs: (enabled: boolean) => http<{ enabled: boolean; app: AppInfoDTO }>('PUT', '/admin/documentation', { body: { enabled } }),
 
   ticket: (ticketId: number) => http<{ ticket: TicketDTO }>('GET', `/tickets/${ticketId}`),
+  // Tableaux blancs
+  adminBoards: () => http<{ enabled: boolean; spaces: number; boards: number }>('GET', '/admin/boards'),
+  adminSetBoards: (enabled: boolean) => http<{ enabled: boolean; app: AppInfoDTO }>('PUT', '/admin/boards', { body: { enabled } }),
+  boardSpaces: () => http<{ spaces: BoardSpaceDTO[] }>('GET', '/boards/spaces'),
+  boardCreateSpace: (input: { name: string; description: string }) => http<{ space: BoardSpaceDTO }>('POST', '/boards/spaces', { body: input }),
+  boardSpace: (spaceId: number) => http<{ space: BoardSpaceDTO; role: BoardRole; nodes: BoardNodeDTO[]; members: BoardMemberDTO[] }>('GET', `/boards/spaces/${spaceId}`),
+  boardUpdateSpace: (spaceId: number, input: { name?: string; description?: string }) => http<{ space: BoardSpaceDTO }>('PATCH', `/boards/spaces/${spaceId}`, { body: input }),
+  boardDeleteSpace: (spaceId: number) => http<{ ok: true }>('DELETE', `/boards/spaces/${spaceId}`),
+  boardAddMember: (spaceId: number, userId: number, role: BoardRole) => http<{ members: BoardMemberDTO[] }>('POST', `/boards/spaces/${spaceId}/members`, { body: { userId, role } }),
+  boardSetMember: (spaceId: number, userId: number, role: BoardRole) => http<{ members: BoardMemberDTO[] }>('PUT', `/boards/spaces/${spaceId}/members/${userId}`, { body: { role } }),
+  boardRemoveMember: (spaceId: number, userId: number) => http<{ members: BoardMemberDTO[] }>('DELETE', `/boards/spaces/${spaceId}/members/${userId}`),
+  boardCreateNode: (spaceId: number, path: string, kind: BoardNodeKind, elements?: BoardElement[]) => http<{ node: BoardNodeDTO }>('POST', `/boards/spaces/${spaceId}/nodes`, { body: { path, kind, ...(elements ? { elements } : {}) } }),
+  boardTrash: (spaceId: number) => http<{ nodes: BoardNodeDTO[] }>('GET', `/boards/spaces/${spaceId}/trash`),
+  boardMoveNode: (nodeId: number, path: string) => http<{ node: BoardNodeDTO }>('PATCH', `/boards/nodes/${nodeId}`, { body: { path } }),
+  boardDeleteNode: (nodeId: number) => http<{ ok: true }>('DELETE', `/boards/nodes/${nodeId}`),
+  boardRestoreNode: (nodeId: number) => http<{ node: BoardNodeDTO }>('POST', `/boards/nodes/${nodeId}/restore`, { body: {} }),
+  boardDuplicate: (nodeId: number) => http<{ node: BoardNodeDTO }>('POST', `/boards/nodes/${nodeId}/duplicate`, { body: {} }),
+  board: (nodeId: number) => http<{ node: BoardNodeDTO; space: { id: number; name: string }; role: BoardRole; elements: BoardElement[] }>('GET', `/boards/nodes/${nodeId}`),
+  boardSearch: (q: string, limit = 10) => http<{ boards: BoardSearchHitDTO[] }>('GET', `/boards/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  boardShare: (nodeId: number) => http<{ share: BoardShareDTO | null }>('GET', `/boards/nodes/${nodeId}/share`),
+  boardSaveShare: (nodeId: number, input: { audience: BoardShareAudience; people: number[]; role: BoardShareRole; password?: string | null }) =>
+    http<{ share: BoardShareDTO }>('PUT', `/boards/nodes/${nodeId}/share`, { body: input }),
+  boardRemoveShare: (nodeId: number) => http<{ ok: true }>('DELETE', `/boards/nodes/${nodeId}/share`),
+  sharedBoard: (slug: string, token: string | null) =>
+    http<{ share: BoardShareInfoDTO }>('GET', `/board-shares/${encodeURIComponent(slug)}`, { silent401: true, headers: token ? { 'X-Board-Share': token } : {} }),
+  sharedBoardUnlock: (slug: string, password: string) => http<{ token: string }>('POST', `/board-shares/${encodeURIComponent(slug)}/unlock`, { body: { password }, silent401: true }),
+  boardPatchElements: (nodeId: number, upsert: BoardElement[], remove: string[]) => http<{ count: number }>('PATCH', `/boards/nodes/${nodeId}/elements`, { body: { upsert, remove } }),
+  boardSaveElements: (nodeId: number, elements: BoardElement[]) => http<{ count: number }>('PUT', `/boards/nodes/${nodeId}/elements`, { body: { elements } }),
+  boardAssets: (spaceId: number) => http<{ assets: BoardAssetDTO[] }>('GET', `/boards/spaces/${spaceId}/assets`),
+  boardUploadAsset: (spaceId: number, file: File) => uploadDocFile<{ asset: BoardAssetDTO }>(`/boards/spaces/${spaceId}/assets`, file),
+  boardDeleteAsset: (assetId: number) => http<{ ok: true }>('DELETE', `/boards/assets/${assetId}`),
+  boardIcons: () => http<{ icons: BoardIconDTO[] }>('GET', '/boards/icons'),
+  adminAddBoardIcon: (name: string, svg: string) => http<{ icon: BoardIconDTO }>('POST', '/admin/board-icons', { body: { name, svg } }),
+  adminDeleteBoardIcon: (iconId: number) => http<{ ok: true }>('DELETE', `/admin/board-icons/${iconId}`),
+  boardLinks: (nodeId: number) => http<BoardLinksDTO>('GET', `/boards/nodes/${nodeId}/links`),
+  boardPreviewUrl: (nodeId: number, width = 640, dark = false) => `/api/boards/nodes/${nodeId}/preview?width=${width}${dark ? '&theme=dark' : ''}`,
+
   docSpaces: () => http<{ spaces: DocSpaceDTO[] }>('GET', '/documentation/spaces'),
   docCreateSpace: (input: { name: string; description: string; obsidian?: boolean }) => http<{ space: DocSpaceDTO }>('POST', '/documentation/spaces', { body: input }),
   docSpace: (spaceId: number) => http<{ space: DocSpaceDTO; nodes: DocNodeDTO[]; members: DocMemberDTO[] }>('GET', `/documentation/spaces/${spaceId}`),
@@ -378,8 +416,8 @@ export const api = {
   adminTestLdap: (input: LdapFields & { bindPassword?: string; login: string; password: string }) => http<LdapTestResultDTO>('POST', '/admin/auth/ldap/test', { body: input }),
   adminAi: () => http<{ settings: AiSettingsDTO }>('GET', '/admin/ai'),
   adminSaveAi: (input: { enabled: boolean; providers: AiProviderInput[]; defaultModel: string; maxSteps: number; maxTurns: number }) => http<{ settings: AiSettingsDTO; app: AppInfoDTO }>('PUT', '/admin/ai', { body: input }),
-  adminTestAi: (probe: { providerId?: string; baseUrl: string; timeoutSeconds?: number; model?: string; apiKey?: string }) => http<{ ok: boolean; message: string }>('POST', '/admin/ai/test', { body: probe }),
-  adminDetectAiModels: (probe: { providerId?: string; baseUrl: string; apiKey?: string }) => http<{ models: DetectedModelDTO[] }>('POST', '/admin/ai/models', { body: probe }),
+  adminTestAi: (probe: { providerId?: string; baseUrl: string; timeoutSeconds?: number; model?: string; apiKey?: string; verifyCertificate?: boolean }) => http<{ ok: boolean; message: string }>('POST', '/admin/ai/test', { body: probe }),
+  adminDetectAiModels: (probe: { providerId?: string; baseUrl: string; apiKey?: string; verifyCertificate?: boolean }) => http<{ models: DetectedModelDTO[] }>('POST', '/admin/ai/models', { body: probe }),
   aiModels: () => http<{ models: AiModelChoiceDTO[]; defaultModel: string }>('GET', '/ai/models'),
   aiConversations: () => http<{ conversations: AiConversationSummaryDTO[] }>('GET', '/ai/conversations'),
   aiConversation: (id: string) => http<{ conversation: AiConversationDTO }>('GET', `/ai/conversations/${id}`),

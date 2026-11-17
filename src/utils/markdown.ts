@@ -22,6 +22,14 @@ export interface MentionResolver {
 export interface RenderOptions {
   /** Syntaxe propre à Obsidian (réglage de l'espace de documentation). */
   obsidian?: boolean;
+  /** Tableau blanc cité seul sur sa ligne : montré en aperçu (`false` sur le site public, qui n'y a pas accès). */
+  boardPreviews?: boolean;
+}
+
+/** Aperçu d'un tableau blanc dans le texte : son image, son nom, et un clic l'ouvre. */
+export function boardPreviewHtml(id: number, label: string): string {
+  const name = escapeHtml(label);
+  return `<a class="md-board" href="/tableaux/t/${id}" data-board="${id}"><span class="md-board-head"><i class="pi pi-objects-column"></i><span class="md-board-title">${name}</span><i class="pi pi-external-link md-board-open"></i></span><img class="md-board-preview light" src="/api/boards/nodes/${id}/preview?width=960" alt="${name}" loading="lazy"><img class="md-board-preview dark" src="/api/boards/nodes/${id}/preview?width=960&amp;theme=dark" alt="${name}" loading="lazy"></a>`;
 }
 
 export function escapeHtml(text: string): string {
@@ -150,13 +158,26 @@ function obsidianExtensions(): TokenizerAndRendererExtension[] {
   return [callout, blockComment, highlight, comment, tag];
 }
 
-function createMarked(resolver: MentionResolver, obsidian = false): Marked {
+/** Ligne faite d'une seule mention de tableau blanc. */
+const BOARD_LINE = /^@\[([^\]\n]{1,80})\]\(board:(\d+)\)[ \t]*(?:\n|$)/;
+
+function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews = true): Marked {
+  const boardPreview: TokenizerAndRendererExtension = {
+    name: 'boardPreview',
+    level: 'block',
+    start: (src: string) => /^@\[[^\]\n]{1,80}\]\(board:\d+\)[ \t]*$/m.exec(src)?.index,
+    tokenizer(src: string) {
+      const match = BOARD_LINE.exec(src);
+      return match ? { type: 'boardPreview', raw: match[0], label: match[1], id: Number(match[2]) } : undefined;
+    },
+    renderer: (token) => boardPreviewHtml(token.id as number, token.label as string),
+  };
   const mention: TokenizerAndRendererExtension = {
     name: 'mention',
     level: 'inline',
     start: (src: string) => src.indexOf('@['),
     tokenizer(src: string) {
-      const match = /^@\[([^\]\n]{1,80})\]\((user|ticket|doc):(\d+)\)/.exec(src);
+      const match = /^@\[([^\]\n]{1,80})\]\((user|ticket|doc|board):(\d+)\)/.exec(src);
       if (!match) return undefined;
       return { type: 'mention', raw: match[0], label: match[1], kind: match[2], id: Number(match[3]) };
     },
@@ -168,6 +189,9 @@ function createMarked(resolver: MentionResolver, obsidian = false): Marked {
       }
       if (token.kind === 'doc') {
         return `<a class="md-mention doc" href="/documentation/f/${id}" data-doc="${id}">${escapeHtml(token.label as string)}</a>`;
+      }
+      if (token.kind === 'board') {
+        return `<a class="md-mention board" href="/tableaux/t/${id}" data-board="${id}">${escapeHtml(token.label as string)}</a>`;
       }
       const ticket = resolver.ticketLabel(id, token.label as string);
       return ticket
@@ -199,7 +223,7 @@ function createMarked(resolver: MentionResolver, obsidian = false): Marked {
 
   const marked = new Marked({ gfm: true, breaks: true });
   marked.use({
-    extensions: [mention, blockMath, inlineMath, ...(obsidian ? obsidianExtensions() : [])],
+    extensions: [...(boardPreviews ? [boardPreview] : []), mention, blockMath, inlineMath, ...(obsidian ? obsidianExtensions() : [])],
     renderer: {
       code({ text, lang }) {
         const language = (lang ?? '').trim().toLowerCase();
@@ -261,7 +285,7 @@ export function renderMarkdown(text: string, resolver: MentionResolver, options:
     });
     hooked = true;
   }
-  const html = createMarked(resolver, options.obsidian).parse(text, { async: false }) as string;
+  const html = createMarked(resolver, options.obsidian, options.boardPreviews ?? true).parse(text, { async: false }) as string;
   return DOMPurify.sanitize(html, { ADD_ATTR: ['target'], FORBID_TAGS: ['style', 'form', 'button', 'textarea', 'select'] });
 }
 

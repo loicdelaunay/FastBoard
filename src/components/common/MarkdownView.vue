@@ -190,6 +190,54 @@ function onClick(event: MouseEvent): void {
 .markdown .md-mention.ticket {
   font-size: 0.9em;
 }
+/* Tableau blanc cité seul sur sa ligne : son aperçu. */
+.markdown .md-board {
+  display: flex;
+  flex-direction: column;
+  max-width: 100%;
+  margin: 0.6rem 0;
+  overflow: hidden;
+  border: 1px solid var(--fb-border);
+  border-radius: 10px;
+  background: var(--board-canvas);
+  color: inherit;
+  text-decoration: none;
+}
+.markdown .md-board:hover {
+  border-color: var(--fb-accent);
+}
+.markdown .md-board-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--fb-border);
+  background: var(--fb-panel);
+  font-weight: 600;
+}
+.markdown .md-board-head .pi {
+  color: #a855f7;
+}
+.markdown .md-board-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.markdown .md-board .md-board-open {
+  color: var(--fb-muted);
+  font-size: 0.8rem;
+}
+.markdown .md-board-preview {
+  display: block;
+  width: 100%;
+  max-height: 30rem;
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 0;
+  object-fit: contain;
+}
 .markdown .md-mention.gone {
   opacity: 0.6;
   text-decoration: line-through;

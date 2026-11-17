@@ -68,6 +68,8 @@ export function appInfo(db: Db): AppInfoDTO {
     ai: ai?.enabled === true,
     ldap: ldap?.enabled === true ? { loginLabel: ldap.loginLabel ?? '' } : null,
     docs: readSetting<{ enabled?: boolean }>(db, 'docs')?.enabled === true,
+    // Activés d'office : l'administrateur peut les couper.
+    boards: readSetting<{ enabled?: boolean }>(db, 'boards')?.enabled !== false,
   };
 }
 

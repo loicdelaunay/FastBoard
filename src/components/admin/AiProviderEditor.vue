@@ -49,13 +49,14 @@ const probeKey = computed(() => (props.provider.replacingKey && props.provider.a
 const selected = computed(() => props.provider.catalog.filter((model) => model.selected));
 const visible = computed(() => props.provider.catalog.filter((model) => model.selected || matchesQuery(filter.value, [model.id, model.label, model.ownedBy])));
 const hiddenCount = computed(() => props.provider.catalog.length - visible.value.length);
+const isHttps = computed(() => /^https:/i.test(props.provider.baseUrl.trim()));
 const isDefault = (id: string) => props.defaultModel?.key === props.provider.key && props.defaultModel.model === id;
 
 async function detect(): Promise<void> {
   detecting.value = true;
   result.value = null;
   try {
-    const { models } = await api.adminDetectAiModels({ providerId: props.provider.id, baseUrl: props.provider.baseUrl.trim(), apiKey: probeKey.value });
+    const { models } = await api.adminDetectAiModels({ providerId: props.provider.id, baseUrl: props.provider.baseUrl.trim(), apiKey: probeKey.value, verifyCertificate: props.provider.verifyCertificate });
     const known = new Set(props.provider.catalog.map((model) => model.id));
     for (const model of models as DetectedModelDTO[]) {
       if (!known.has(model.id)) props.provider.catalog.push({ ...model, selected: false });
@@ -86,7 +87,7 @@ async function test(): Promise<void> {
   result.value = null;
   const model = selected.value.find((entry) => isDefault(entry.id)) ?? selected.value[0];
   try {
-    const answer = await api.adminTestAi({ providerId: props.provider.id, baseUrl: props.provider.baseUrl.trim(), timeoutSeconds: props.provider.timeoutSeconds, model: model?.id, apiKey: probeKey.value });
+    const answer = await api.adminTestAi({ providerId: props.provider.id, baseUrl: props.provider.baseUrl.trim(), timeoutSeconds: props.provider.timeoutSeconds, model: model?.id, apiKey: probeKey.value, verifyCertificate: props.provider.verifyCertificate });
     result.value = { ok: answer.ok, message: translateServerMessage(answer.message) };
   } catch (error) {
     notifyError(error);
@@ -129,6 +130,14 @@ async function test(): Promise<void> {
         <label :for="`ai-url-${provider.key}`" class="label">{{ $t('URL de l’API (compatible OpenAI v1)') }}</label>
         <InputText :id="`ai-url-${provider.key}`" v-model="provider.baseUrl" maxlength="500" fluid placeholder="https://api.openai.com/v1" @keydown.enter.prevent />
         <small class="muted">{{ $t('FastBoard appelle {url}/chat/completions avec l’appel d’outils (« function calling »).', { url: provider.baseUrl.replace(/\/+$/, '') || '…' }) }}</small>
+      </div>
+      <div v-if="isHttps || !provider.verifyCertificate" class="field">
+        <div class="row certificate">
+          <ToggleSwitch v-model="provider.verifyCertificate" :input-id="`ai-cert-${provider.key}`" />
+          <label :for="`ai-cert-${provider.key}`">{{ $t('Vérifier le certificat HTTPS') }}</label>
+        </div>
+        <small v-if="provider.verifyCertificate" class="muted">{{ $t('Les autorités de confiance du système sont reconnues (celle de votre entreprise comprise). Désactivez seulement pour un serveur au certificat auto-signé.') }}</small>
+        <small v-else class="warn">{{ $t('Le certificat n’est pas vérifié : un tiers sur le réseau pourrait se faire passer pour le fournisseur et lire la clé et les questions.') }}</small>
       </div>
       <div class="field">
         <label :for="`ai-key-${provider.key}`" class="label">{{ $t('Clé d’API') }}</label>
@@ -266,6 +275,15 @@ async function test(): Promise<void> {
 }
 .key-row {
   gap: 0.4rem;
+}
+.certificate {
+  gap: 0.6rem;
+}
+.certificate label {
+  cursor: pointer;
+}
+.warn {
+  color: #d97706;
 }
 .key {
   padding: 0.4rem 0.7rem;

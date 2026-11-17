@@ -7,6 +7,7 @@ import Select from 'primevue/select';
 import SelectButton from 'primevue/selectbutton';
 import ToggleSwitch from 'primevue/toggleswitch';
 import { AI_LIMITS, contextOfItems, REASONING_LEVELS, type AiFile, type AiWriteMode, type ReasoningLevel } from '@shared/ai';
+import { boardTitle } from '@shared/boards';
 import { docTitle } from '@shared/docs';
 import { AI_FILE_ACCEPT, fileIcon, fileInfo, isImage, readForAi } from '@/utils/aiFiles';
 import { imageToDataUrl } from '@/utils/image';
@@ -18,6 +19,7 @@ import AiHistory from './AiHistory.vue';
 import AiSteps from './AiSteps.vue';
 import { useAiStore, type AiContextEntry } from '@/stores/ai';
 import { useAuthStore } from '@/stores/auth';
+import { useBoardsStore } from '@/stores/boards';
 import { useDocsStore } from '@/stores/docs';
 import { useProjectStore } from '@/stores/project';
 import { useProjectsStore } from '@/stores/projects';
@@ -35,6 +37,7 @@ const page = computed(() => props.mode === 'page');
 const ai = useAiStore();
 const auth = useAuthStore();
 const docs = useDocsStore();
+const boards = useBoardsStore();
 const project = useProjectStore();
 const projects = useProjectsStore();
 const route = useRoute();
@@ -155,11 +158,17 @@ const note = computed(() => {
   const id = queryId('file');
   return inDocs.value && id ? docs.nodes.find((node) => node.id === id && node.kind === 'markdown') : undefined;
 });
+/** Tableau blanc (ou modèle) ouvert dans un espace de tableaux. */
+const board = computed(() => {
+  const id = queryId('board');
+  if (page.value || route.name !== 'board-space' || boards.space?.id !== Number(route.params.spaceId) || !id) return undefined;
+  return boards.nodes.find((node) => node.id === id && (node.kind === 'board' || node.kind === 'template'));
+});
 const pageContext = computed(() => (ai.turns.length ? ai.conversationContext : { projectId: queryId('project'), ticketId: queryId('ticket'), docSpaceId: queryId('space'), docNodeId: queryId('note') }));
 const automaticContext = computed(() =>
   page.value
     ? pageContext.value
-    : { projectId: inProject.value ? routeProjectId.value : null, ticketId: ticket.value?.id ?? null, docSpaceId: inDocs.value ? (docs.space?.id ?? null) : null, docNodeId: note.value?.id ?? null },
+    : { projectId: inProject.value ? routeProjectId.value : null, ticketId: ticket.value?.id ?? null, docSpaceId: inDocs.value ? (docs.space?.id ?? null) : null, docNodeId: note.value?.id ?? null, boardId: board.value?.id ?? null },
 );
 /** Contexte de la page ouverte, en éléments affichables. */
 const pageEntries = computed<AiContextEntry[]>(() => {
@@ -172,6 +181,7 @@ const pageEntries = computed<AiContextEntry[]>(() => {
     else if (value.projectId) entries.push({ kind: 'project', id: value.projectId, label: projects.projects.find((entry) => entry.id === value.projectId)?.name ?? t('Projet') });
     return entries;
   }
+  if (board.value) return [{ kind: 'board', id: board.value.id, label: boardTitle(board.value.path), detail: boards.space?.name }];
   if (note.value) return [{ kind: 'note', id: note.value.id, label: docTitle(note.value.path), parentId: note.value.spaceId, detail: docs.space?.name }];
   if (inDocs.value && docs.space) return [{ kind: 'space', id: docs.space.id, label: docs.space.name }];
   if (ticket.value) return [{ kind: 'ticket', id: ticket.value.id, label: `${ticketKey(project.project, ticket.value)} — ${ticket.value.title}`, parentId: ticket.value.projectId, detail: project.project?.name }];
@@ -181,7 +191,7 @@ const pageEntries = computed<AiContextEntry[]>(() => {
 /** Ce que l'assistant connaît : le contexte choisi à la main, sinon celui de la page. */
 const contextEntries = computed(() => ai.contextEntries ?? pageEntries.value);
 const context = computed(() => (ai.contextEntries ? contextOfItems(ai.contextEntries) : automaticContext.value));
-const CONTEXT_ICONS: Record<AiContextEntry['kind'], string> = { project: 'pi pi-folder', ticket: 'pi pi-ticket', space: 'pi pi-book', note: 'pi pi-file' };
+const CONTEXT_ICONS: Record<AiContextEntry['kind'], string> = { project: 'pi pi-folder', ticket: 'pi pi-ticket', space: 'pi pi-book', note: 'pi pi-file', board: 'pi pi-objects-column' };
 
 const pickerPanel = ref<InstanceType<typeof Popover> | null>(null);
 const contextPicker = ref<InstanceType<typeof AiContextPicker> | null>(null);

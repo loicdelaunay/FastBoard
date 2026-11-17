@@ -2,9 +2,11 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ProgressBar from 'primevue/progressbar';
+import { boardTitle } from '@shared/boards';
 import { formatDateShort } from '@shared/dates';
 import type { CommentDTO, TicketPreviewDTO, UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
+import { darkMode } from '@/theme/themeManager';
 import RichText from '@/components/common/RichText.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import UserAvatarGroup from '@/components/common/UserAvatarGroup.vue';
@@ -12,15 +14,18 @@ import { useProjectStore } from '@/stores/project';
 import { formatRelative } from '@/utils/format';
 
 /**
- * Aperçus au survol, pour toute l'application : un élément porte `data-ticket` (mention d'un ticket) ou `data-comments-of`
- * (nombre de commentaires), sans avoir à connaître ce composant.
+ * Aperçus au survol, pour toute l'application : un élément porte `data-ticket` (mention d'un ticket), `data-board`
+ * (mention d'un tableau blanc) ou `data-comments-of` (nombre de commentaires), sans avoir à connaître ce composant.
  */
 const SHOW_DELAY = 250;
 const HIDE_DELAY = 200;
 const CACHE_MS = 30_000;
 const COMMENTS_SHOWN = 5;
 
-type Content = { kind: 'ticket'; preview: TicketPreviewDTO } | { kind: 'comments'; comments: CommentDTO[] };
+type Content =
+  | { kind: 'ticket'; preview: TicketPreviewDTO }
+  | { kind: 'comments'; comments: CommentDTO[] }
+  | { kind: 'board'; id: number; title: string; spaceName: string; elementCount: number };
 
 const project = useProjectStore();
 const route = useRoute();
@@ -37,12 +42,15 @@ let request = 0;
 const cache = new Map<string, { at: number; content: Content }>();
 
 async function fetchContent(element: HTMLElement): Promise<Content> {
-  const key = element.dataset.ticket ? `t${element.dataset.ticket}` : `c${element.dataset.commentsOf}`;
+  const key = element.dataset.ticket ? `t${element.dataset.ticket}` : element.dataset.board ? `b${element.dataset.board}` : `c${element.dataset.commentsOf}`;
   const known = cache.get(key);
   if (known && Date.now() - known.at < CACHE_MS) return known.content;
-  const value: Content = element.dataset.ticket
-    ? { kind: 'ticket', preview: (await api.ticketPreview(Number(element.dataset.ticket))).preview }
-    : { kind: 'comments', comments: (await api.comments(Number(element.dataset.commentsOf))).comments };
+  let value: Content;
+  if (element.dataset.ticket) value = { kind: 'ticket', preview: (await api.ticketPreview(Number(element.dataset.ticket))).preview };
+  else if (element.dataset.board) {
+    const { node, space } = await api.board(Number(element.dataset.board));
+    value = { kind: 'board', id: node.id, title: boardTitle(node.path), spaceName: space.name, elementCount: node.elementCount };
+  } else value = { kind: 'comments', comments: (await api.comments(Number(element.dataset.commentsOf))).comments };
   cache.set(key, { at: Date.now(), content: value });
   return value;
 }
@@ -90,7 +98,7 @@ function onOver(event: MouseEvent): void {
     window.clearTimeout(hideTimer);
     return;
   }
-  const element = target.closest?.<HTMLElement>('[data-ticket], [data-comments-of]');
+  const element = target.closest?.<HTMLElement>('[data-ticket], [data-board]:not(.md-board, .cm-lp-board), [data-comments-of]');
   if (!element) {
     if (anchor) {
       window.clearTimeout(showTimer);
@@ -124,6 +132,12 @@ onBeforeUnmount(() => {
 watch(() => route.fullPath, hide);
 
 const ticket = computed(() => (content.value?.kind === 'ticket' ? content.value.preview : null));
+const board = computed(() => (content.value?.kind === 'board' ? content.value : null));
+
+function openBoard(): void {
+  if (board.value) void router.push({ name: 'board-file', params: { boardId: board.value.id } });
+  hide();
+}
 const allComments = computed(() => (content.value?.kind === 'comments' ? content.value.comments.filter((comment) => !comment.deleted) : []));
 const comments = computed(() => allComments.value.slice(-COMMENTS_SHOWN));
 const hiddenCount = computed(() => allComments.value.length - comments.value.length);
@@ -159,6 +173,15 @@ function openTicket(): void {
         </div>
       </template>
 
+      <template v-else-if="board">
+        <button type="button" class="board-head" @click="openBoard">
+          <i class="pi pi-objects-column"></i>
+          <strong class="truncate">{{ board.title }}</strong>
+          <span class="muted small truncate">{{ board.spaceName }}</span>
+        </button>
+        <img class="board-preview" :src="api.boardPreviewUrl(board.id, 480, darkMode)" :alt="board.title" @load="place" />
+      </template>
+
       <template v-else>
         <h4 class="comments-title">{{ $t('{n} commentaire|{n} commentaires', { n: allComments.length }) }}</h4>
         <p v-if="hiddenCount" class="muted small more">{{ $t('{n} plus ancien non affiché|{n} plus anciens non affichés', { n: hiddenCount }) }}</p>
@@ -178,6 +201,32 @@ function openTicket(): void {
 </template>
 
 <style scoped>
+.board-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fb-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.board-head .pi {
+  color: #a855f7;
+}
+.board-head:hover strong {
+  color: var(--fb-accent);
+}
+.board-preview {
+  width: 100%;
+  max-height: 16rem;
+  border: 1px solid var(--fb-border);
+  border-radius: 8px;
+  background: var(--board-canvas);
+  object-fit: contain;
+}
 .hover-preview {
   position: fixed;
   z-index: 2000;

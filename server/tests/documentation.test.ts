@@ -75,8 +75,8 @@ describe('liens entre les fichiers d’un espace', () => {
   });
 
   it('liste ce qu’une note cite, hors du code et des images', () => {
-    const text = 'Voir [[Installation|ici]], [doc](../Accueil.md), [site](https://exemple.fr), [ancre](#titre) et ![img](a.png)\n`[[code]]`\n@[DEM-1](ticket:7) @[Note](doc:9) @[Bob](user:3) @[DEM-1](ticket:7)';
-    assert.deepEqual(extractDocLinks(text), { paths: ['Installation', '../Accueil.md'], docs: [9], tickets: [7] });
+    const text = 'Voir [[Installation|ici]], [doc](../Accueil.md), [site](https://exemple.fr), [ancre](#titre) et ![img](a.png)\n`[[code]]`\n@[DEM-1](ticket:7) @[Note](doc:9) @[Bob](user:3) @[DEM-1](ticket:7) @[Schéma](board:5)';
+    assert.deepEqual(extractDocLinks(text), { paths: ['Installation', '../Accueil.md'], docs: [9], tickets: [7], boards: [5] });
   });
 
   it('écrit le lien d’une image relatif à la note', () => {
@@ -749,7 +749,7 @@ describe('documentation', () => {
       app.running.ctx.db.run('UPDATE doc_nodes SET search_text = NULL, links = NULL WHERE id = ?', node.id);
       reindexDocs(app.running.ctx);
       assert.equal(((await bob.get('/api/search?q=retrouvable')).body as SearchResultDTO).docs.total, 1);
-      assert.equal(app.running.ctx.db.get<{ links: string }>('SELECT links FROM doc_nodes WHERE id = ?', node.id)?.links, JSON.stringify({ paths: [], docs: [123], tickets: [] }));
+      assert.equal(app.running.ctx.db.get<{ links: string }>('SELECT links FROM doc_nodes WHERE id = ?', node.id)?.links, JSON.stringify({ paths: [], docs: [123], tickets: [], boards: [] }));
     });
   });
 

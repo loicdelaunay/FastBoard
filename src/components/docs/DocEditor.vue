@@ -19,6 +19,7 @@ import { docBaseName, docParent, docTitle, type DocNodeDTO } from '@shared/docs'
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import { useDocLinks } from '@/composables/useDocLinks';
+import { useAppStore } from '@/stores/app';
 import type { DocSession } from '@/realtime/docSession';
 import { copyText, pendingAnchor, renderDocBlock, selectionQuote } from '@/utils/docRender';
 import { markdownBlocks } from '@/utils/markdown';
@@ -60,6 +61,7 @@ const editable = new Compartment();
 const editableState = (readonly: boolean) => [EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)];
 
 const router = useRouter();
+const app = useAppStore();
 const { follow, openNode, openTicket } = useDocLinks(() => props.nodes, (node) => emit('open', node));
 
 /** `@` propose les personnes, les tickets et les fichiers de documentation. */
@@ -74,9 +76,10 @@ async function mentions(context: CompletionContext): Promise<CompletionResult | 
     .slice(0, 5)
     .map((user) => option('user', user.id, user.name, user.email, 'variable'));
   if (!query) return { from: match.from + at, options: people, filter: false };
-  const [tickets, files] = await Promise.all([
+  const [tickets, files, boards] = await Promise.all([
     api.search(query, { type: ['tickets'], limit: 5 }).catch(() => null),
     api.docSearch(query).catch(() => null),
+    app.info.boards ? api.boardSearch(query, 4).catch(() => null) : Promise.resolve(null),
   ]);
   if (context.aborted) return null;
   return {
@@ -86,6 +89,7 @@ async function mentions(context: CompletionContext): Promise<CompletionResult | 
       ...people,
       ...(tickets?.tickets.items ?? []).map((ticket) => option('ticket', ticket.id, ticket.key, ticket.title, 'class')),
       ...(files?.files ?? []).slice(0, 5).map((file) => option('doc', file.id, file.title, `${file.spaceName} · ${file.path}`, 'text')),
+      ...(boards?.boards ?? []).map((board) => option('board', board.id, board.title, `${t('Tableau blanc')} · ${board.spaceName}`, 'type')),
     ],
   };
 }
@@ -254,6 +258,7 @@ function followRendered(element: HTMLElement): boolean {
   if (kind && id) {
     if (kind === 'user') void router.push({ name: 'user', params: { id } });
     else if (kind === 'ticket') void openTicket(Number(id));
+    else if (kind === 'board') void router.push({ name: 'board-file', params: { boardId: id } });
     else openNode(Number(id));
     return true;
   }
@@ -336,10 +341,11 @@ function onClick(event: MouseEvent): void {
 /** Lien écrit sous une position du source : mention, lien wiki ou lien Markdown. */
 function sourceLink(editor: EditorView, position: number): MenuTarget['link'] {
   const line = editor.state.doc.lineAt(position);
-  for (const match of line.text.matchAll(/@\[[^\]\n]*\]\((user|ticket|doc):(\d+)\)|\[\[([^\]|#\n]+)[^\]\n]*\]\]|\[[^\]\n]*\]\(([^)\s]+)[^)\n]*\)/g)) {
+  for (const match of line.text.matchAll(/@\[[^\]\n]*\]\((user|ticket|doc|board):(\d+)\)|\[\[([^\]|#\n]+)[^\]\n]*\]\]|\[[^\]\n]*\]\(([^)\s]+)[^)\n]*\)/g)) {
     if (position < line.from + match.index || position > line.from + match.index + match[0].length) continue;
     if (match[1] === 'ticket') return { address: null, open: () => void openTicket(Number(match[2])) };
     if (match[1] === 'doc') return { address: null, open: () => openNode(Number(match[2])) };
+    if (match[1] === 'board') return { address: null, open: () => void router.push({ name: 'board-file', params: { boardId: match[2]! } }) };
     if (match[1]) return null;
     const target = (match[3] ?? match[4])!;
     if (/^https?:/i.test(target)) return { address: target, open: () => window.open(target, '_blank', 'noopener') };
@@ -599,6 +605,27 @@ onMounted(() => {
                   backdropFilter: 'blur(4px)',
                 },
                 '.cm-lp-image-tools button:hover': { backgroundColor: 'rgb(15 18 24 / 0.85)' },
+                '.cm-lp-board': {
+                  display: 'flex',
+                  flexDirection: 'column',
+                  maxWidth: '100%',
+                  margin: '0.3rem 0',
+                  overflow: 'hidden',
+                  border: '1px solid var(--fb-border)',
+                  borderRadius: '10px',
+                  backgroundColor: 'var(--board-canvas)',
+                  cursor: 'pointer',
+                },
+                '.cm-lp-board:hover': { borderColor: 'var(--fb-accent)' },
+                '.cm-lp-board-head': { display: 'flex', alignItems: 'center', gap: '0.45rem', padding: '0.35rem 0.5rem 0.35rem 0.75rem', borderBottom: '1px solid var(--fb-border)', backgroundColor: 'var(--fb-panel)', fontWeight: '600' },
+                '.cm-lp-board-head .pi-objects-column': { color: '#a855f7' },
+                '.cm-lp-board-title': { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                '.cm-lp-board-open': { color: 'var(--fb-muted)', fontSize: '0.8rem', marginRight: '0.25rem' },
+                '.cm-lp-board-tools': { display: 'flex', opacity: '0', transition: 'opacity 0.15s' },
+                '.cm-lp-board:hover .cm-lp-board-tools': { opacity: '1' },
+                '.cm-lp-board-tools button': { display: 'grid', placeItems: 'center', width: '1.7rem', height: '1.7rem', padding: '0', border: '0', borderRadius: '6px', background: 'none', color: 'var(--fb-muted)', cursor: 'pointer' },
+                '.cm-lp-board-tools button:hover': { backgroundColor: 'var(--fb-panel-alt)', color: 'var(--fb-text)' },
+                '.cm-lp-board-preview': { display: 'block', width: '100%', maxHeight: '30rem', padding: '0.75rem', objectFit: 'contain', boxSizing: 'border-box' },
                 '.cm-lp-mention, .cm-lp-embed': { padding: '0.05em 0.45em', borderRadius: '999px', backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)', fontWeight: '600', cursor: 'pointer' },
                 '.cm-lp-embed::before': { content: '"\\e9c3"', marginRight: '0.3em', fontFamily: 'primeicons', fontSize: '0.8em', fontWeight: 'normal' },
                 '.cm-lp-highlight': { borderRadius: '3px', backgroundColor: 'color-mix(in srgb, #facc15 38%, transparent)' },

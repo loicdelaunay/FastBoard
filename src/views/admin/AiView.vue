@@ -108,6 +108,7 @@ async function save(): Promise<void> {
         name: provider.name.trim(),
         baseUrl: provider.baseUrl.trim(),
         timeoutSeconds: provider.timeoutSeconds,
+        verifyCertificate: provider.verifyCertificate,
         models: provider.catalog.filter((model) => model.selected).map(({ id, label, vision, contextWindow, reasoning }) => ({ id, label: label.trim(), vision, contextWindow, reasoning })),
         ...(provider.replacingKey ? { apiKey: provider.apiKey } : {}),
       })),

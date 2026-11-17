@@ -173,7 +173,7 @@ watch(
 // Hors de l'espace, une mention de personne ou de ticket n'est qu'un nom.
 const resolver: MentionResolver = { userName: () => undefined, ticketLabel: () => undefined };
 const context = computed(() => ({ nodes: nodes.value, notePath: page.value?.path ?? '', users: [], obsidian: wiki.value?.obsidian ?? false, fileUrl: (nodeId: number) => `/api/wiki/${encodeURIComponent(slug.value)}/files/${nodeId}` }));
-const html = computed(() => (page.value ? finishDocHtml(renderMarkdown(prepareDocText(page.value.content, context.value.obsidian), resolver, { obsidian: context.value.obsidian }), context.value) : ''));
+const html = computed(() => (page.value ? finishDocHtml(renderMarkdown(prepareDocText(page.value.content, context.value.obsidian), resolver, { obsidian: context.value.obsidian, boardPreviews: false }), context.value) : ''));
 const headings = computed(() => (page.value ? docOutline(page.value.content) : []));
 /** Une note qui commence par son propre titre ne le montre pas deux fois. */
 const showTitle = computed(() => {

@@ -71,6 +71,9 @@ const ID = { id: 'Identifiant numérique.' };
 const PROJECT_ID = { id: 'Identifiant du projet.' };
 const DOC_SPACE_ID = { id: 'Identifiant de l’espace.' };
 const DOC_NODE_ID = { id: 'Identifiant du fichier ou du dossier.' };
+const BOARD_SPACE_ID = { id: 'Identifiant de l’espace de tableaux.' };
+const BOARD_NODE_ID = { id: 'Identifiant du tableau ou du dossier.' };
+const BOARD_ID = { id: 'Identifiant du tableau.' };
 const TICKET_ID = { id: 'Identifiant du ticket (champ `id`, pas la clé `APP-12`).' };
 
 const OPERATIONS: Operation[] = [
@@ -628,7 +631,7 @@ const OPERATIONS: Operation[] = [
     ok: obj({ importId: str(), entries: arr({ type: 'object', description: 'path, kind, status, merged' }), ignored: arr(str()) }),
   },
   { method: 'get', path: '/documentation/nodes/{id}/export', tag: 'Espaces de documentation', summary: 'Exporter un fichier ou un dossier', description: 'Un dossier donne un ZIP aux chemins de l’espace ; une note ou une image est renvoyée telle quelle.', params: DOC_NODE_ID, okRaw: { contentType: 'application/octet-stream', description: 'Fichier, ou archive ZIP.' } },
-  { method: 'get', path: '/documentation/nodes/{id}/links', tag: 'Espaces de documentation', summary: 'Liens et rétroliens d’une note', description: 'Ce que la note cite, et les notes et tickets qui la citent, limités à ce que la personne peut voir.', params: DOC_NODE_ID, ok: ref('DocLinks') },
+  { method: 'get', path: '/documentation/nodes/{id}/links', tag: 'Espaces de documentation', summary: 'Liens et rétroliens d’une note', description: 'Ce que la note cite (notes, tickets, tableaux blancs), et les notes, tickets et tableaux qui la citent, limités à ce que la personne peut voir.', params: DOC_NODE_ID, ok: ref('DocLinks') },
   { method: 'get', path: '/documentation/nodes/{id}/comments', tag: 'Espaces de documentation', summary: 'Commentaires d’une note', params: DOC_NODE_ID, ok: obj({ comments: arr(ref('DocComment')) }) },
   { method: 'post', path: '/documentation/nodes/{id}/comments', tag: 'Espaces de documentation', summary: 'Commenter un passage', description: 'Ouvert à tous les membres, lecteurs compris. Les personnes mentionnées qui ont accès à l’espace sont prévenues.', params: DOC_NODE_ID, body: S.docCommentSchema, status: 201, ok: obj({ comment: ref('DocComment') }) },
   { method: 'patch', path: '/documentation/comments/{id}', tag: 'Espaces de documentation', summary: 'Résoudre ou rouvrir un fil', params: { id: 'Identifiant du commentaire.' }, body: S.docCommentResolveSchema, ok: obj({ comment: ref('DocComment') }) },
@@ -670,6 +673,52 @@ const OPERATIONS: Operation[] = [
   { method: 'get', path: '/wiki/{slug}/pages/{id}', tag: 'Espaces de documentation', access: 'public', summary: 'Page d’un site web', params: { slug: 'Adresse du site.', id: 'Identifiant de la note.' }, ok: obj({ id: int(), path: str(), content: str(), updatedAt: dateTime() }) },
   { method: 'get', path: '/wiki/{slug}/files/{id}', tag: 'Espaces de documentation', access: 'public', summary: 'Image d’un site web', params: { slug: 'Adresse du site.', id: 'Identifiant de l’image.' }, okRaw: { contentType: 'image/*', description: 'Image.' } },
   { method: 'get', path: '/documentation/search', tag: 'Espaces de documentation', summary: 'Chercher une note par son chemin', query: S.docSearchSchema, ok: obj({ files: arr({ type: 'object', description: 'id, spaceId, spaceName, path, title' }) }) },
+
+  // --- Tableaux blancs ------------------------------------------------------------------------------------------------
+  { method: 'get', path: '/boards/spaces', tag: 'Tableaux blancs', summary: 'Espaces de tableaux accessibles', ok: obj({ spaces: arr(ref('BoardSpace')) }) },
+  { method: 'post', path: '/boards/spaces', tag: 'Tableaux blancs', permission: 'boards.create', summary: 'Créer un espace de tableaux', body: S.boardSpaceSchema, status: 201, ok: obj({ space: ref('BoardSpace') }) },
+  { method: 'get', path: '/boards/spaces/{id}', tag: 'Tableaux blancs', summary: 'Espace et son arbre', description: 'Dossiers et tableaux de l’espace, avec le rôle de la personne.', params: BOARD_SPACE_ID, ok: obj({ space: ref('BoardSpace'), role: str(), nodes: arr(ref('BoardNode')), members: arr(ref('DocMember')) }) },
+  { method: 'patch', path: '/boards/spaces/{id}', tag: 'Tableaux blancs', permission: 'propriétaire de l’espace', summary: 'Renommer ou décrire un espace', params: BOARD_SPACE_ID, body: S.boardSpaceUpdateSchema, ok: obj({ space: ref('BoardSpace') }) },
+  { method: 'delete', path: '/boards/spaces/{id}', tag: 'Tableaux blancs', permission: 'propriétaire de l’espace', summary: 'Supprimer un espace et tous ses tableaux', params: BOARD_SPACE_ID, ok: obj({ ok: bool() }) },
+  { method: 'get', path: '/boards/spaces/{id}/members', tag: 'Tableaux blancs', summary: 'Membres d’un espace', params: BOARD_SPACE_ID, ok: obj({ members: arr(ref('DocMember')) }) },
+  { method: 'post', path: '/boards/spaces/{id}/members', tag: 'Tableaux blancs', permission: 'propriétaire de l’espace', summary: 'Ajouter un membre', params: BOARD_SPACE_ID, body: S.boardMemberSchema, ok: obj({ members: arr(ref('DocMember')) }) },
+  { method: 'put', path: '/boards/spaces/{id}/members/{userId}', tag: 'Tableaux blancs', permission: 'propriétaire de l’espace', summary: 'Changer le rôle d’un membre', params: { ...BOARD_SPACE_ID, userId: 'Identifiant de la personne.' }, body: S.boardMemberRoleSchema, ok: obj({ members: arr(ref('DocMember')) }) },
+  { method: 'delete', path: '/boards/spaces/{id}/members/{userId}', tag: 'Tableaux blancs', summary: 'Retirer un membre (ou quitter l’espace)', description: 'Retirer quelqu’un d’autre est réservé aux propriétaires.', params: { ...BOARD_SPACE_ID, userId: 'Identifiant de la personne.' }, ok: obj({ members: arr(ref('DocMember')) }) },
+  { method: 'post', path: '/boards/spaces/{id}/nodes', tag: 'Tableaux blancs', permission: 'éditeur de l’espace', summary: 'Créer un tableau ou un dossier', description: 'Les dossiers manquants du chemin sont créés. Un tableau peut partir d’éléments donnés.', params: BOARD_SPACE_ID, body: S.boardNodeSchema, status: 201, ok: obj({ node: ref('BoardNode') }) },
+  { method: 'get', path: '/boards/spaces/{id}/trash', tag: 'Tableaux blancs', summary: 'Corbeille de l’espace', description: 'Tableaux supprimés depuis moins de 15 jours.', params: BOARD_SPACE_ID, ok: obj({ nodes: arr(ref('BoardNode')) }) },
+  { method: 'patch', path: '/boards/nodes/{id}', tag: 'Tableaux blancs', permission: 'éditeur de l’espace', summary: 'Renommer ou déplacer', description: 'Un dossier emmène tout son contenu.', params: BOARD_NODE_ID, body: S.boardMoveSchema, ok: obj({ node: ref('BoardNode') }) },
+  { method: 'delete', path: '/boards/nodes/{id}', tag: 'Tableaux blancs', permission: 'éditeur de l’espace', summary: 'Mettre à la corbeille', description: 'Un dossier y part avec son contenu.', params: BOARD_NODE_ID, ok: obj({ ok: bool() }) },
+  { method: 'post', path: '/boards/nodes/{id}/restore', tag: 'Tableaux blancs', permission: 'éditeur de l’espace', summary: 'Sortir de la corbeille', params: BOARD_NODE_ID, ok: obj({ node: ref('BoardNode') }) },
+  { method: 'post', path: '/boards/nodes/{id}/duplicate', tag: 'Tableaux blancs', permission: 'éditeur de l’espace', summary: 'Dupliquer un tableau', params: BOARD_ID, status: 201, ok: obj({ node: ref('BoardNode') }) },
+  { method: 'get', path: '/boards/search', tag: 'Tableaux blancs', summary: 'Chercher un tableau', description: 'Par son nom, son chemin ou le texte de ses éléments, dans les espaces accessibles.', query: S.boardSearchSchema, ok: obj({ boards: arr(obj({ id: int(), spaceId: int(), spaceName: str(), path: str(), title: str() })) }) },
+  { method: 'get', path: '/boards/nodes/{id}', tag: 'Tableaux blancs', summary: 'Lire un tableau', description: 'Ses éléments reflètent l’édition en cours.', params: BOARD_ID, ok: obj({ node: ref('BoardNode'), space: obj({ id: int(), name: str() }), role: str(), elements: arr({ type: 'object', description: 'Élément du tableau (voir le guide de l’API).' }) }) },
+  { method: 'put', path: '/boards/nodes/{id}/elements', tag: 'Tableaux blancs', permission: 'éditeur de l’espace', summary: 'Remplacer les éléments d’un tableau', description: 'Les personnes qui ont le tableau ouvert voient le changement aussitôt.', params: BOARD_ID, body: S.boardElementsSchema, ok: obj({ count: int() }) },
+  { method: 'get', path: '/boards/nodes/{id}/share', tag: 'Tableaux blancs', permission: 'propriétaire de l’espace', summary: 'Partage d’un tableau', params: BOARD_ID, ok: obj({ share: nullable(ref('BoardShare')) }) },
+  { method: 'put', path: '/boards/nodes/{id}/share', tag: 'Tableaux blancs', permission: 'propriétaire de l’espace', summary: 'Partager un tableau', description: 'En plus des membres de l’espace : aux personnes connectées, à une liste, ou à tout le monde sans compte (`public`), en lecture ou en écriture, avec un mot de passe au choix. Le tableau s’ouvre à l’adresse `/t/{slug}`.', params: BOARD_ID, body: S.boardShareSchema, ok: obj({ share: ref('BoardShare') }) },
+  { method: 'delete', path: '/boards/nodes/{id}/share', tag: 'Tableaux blancs', permission: 'propriétaire de l’espace', summary: 'Ne plus partager un tableau', description: 'Le lien cesse de fonctionner, et ceux qui y sont entrés sortent du tableau.', params: BOARD_ID, ok: obj({ ok: bool() }) },
+  { method: 'get', path: '/board-shares/{slug}', tag: 'Tableaux blancs', access: 'public', summary: 'Ouvrir un tableau partagé', description: 'Sans compte si le partage est public. Un mot de passe s’ouvre avec `POST /board-shares/{slug}/unlock`, puis l’accès rendu passe dans l’en-tête `X-Board-Share`. Le contenu se lit ensuite en temps réel (WebSocket, `board.join` avec `share`).', params: { slug: 'Adresse du partage.' }, ok: obj({ share: ref('BoardShareInfo') }) },
+  { method: 'post', path: '/board-shares/{slug}/unlock', tag: 'Tableaux blancs', access: 'public', summary: 'Saisir le mot de passe d’un tableau partagé', description: 'Rend un accès valable quelques jours ; il cesse si le mot de passe change.', params: { slug: 'Adresse du partage.' }, body: S.boardUnlockSchema, ok: obj({ token: str('À passer dans l’en-tête `X-Board-Share`.') }) },
+  { method: 'get', path: '/board-shares/{slug}/preview', tag: 'Tableaux blancs', access: 'public', summary: 'Aperçu SVG d’un tableau partagé', params: { slug: 'Adresse du partage.' }, okRaw: { contentType: 'image/svg+xml', description: 'Image SVG du tableau.' } },
+  { method: 'patch', path: '/boards/nodes/{id}/elements', tag: 'Tableaux blancs', permission: 'éditeur de l’espace', summary: 'Ajouter, remplacer ou retirer des éléments', description: 'Sans toucher aux autres éléments : ce que d’autres dessinent en même temps est gardé. Les personnes qui ont ouvert le tableau voient le changement aussitôt.', params: BOARD_ID, body: S.boardElementsPatchSchema, ok: obj({ count: int('Nombre d’éléments du tableau après la modification.') }) },
+  { method: 'get', path: '/boards/spaces/{id}/assets', tag: 'Tableaux blancs', summary: 'Images et SVG de l’espace', description: 'Les fichiers envoyés dans l’espace, réutilisables dans tous ses tableaux (élément `image`, `asset` = clé).', params: BOARD_SPACE_ID, ok: obj({ assets: arr(ref('BoardAsset')) }) },
+  {
+    method: 'post',
+    path: '/boards/spaces/{id}/assets',
+    tag: 'Tableaux blancs',
+    permission: 'éditeur de l’espace',
+    summary: 'Envoyer une image ou un SVG dans l’espace',
+    description: "**Le corps de la requête est le fichier** (PNG, JPEG, WebP, GIF ou SVG sans script, 10 Mo maximum) ; son nom passe par l'en-tête `X-File-Name`.",
+    params: BOARD_SPACE_ID,
+    rawBody: { contentType: 'image/*', description: 'Contenu binaire du fichier.' },
+    status: 201,
+    ok: obj({ asset: ref('BoardAsset') }),
+  },
+  { method: 'delete', path: '/boards/assets/{id}', tag: 'Tableaux blancs', permission: 'éditeur de l’espace', summary: 'Retirer une image de l’espace', description: 'Les éléments qui l’affichent montrent qu’elle manque.', params: { id: 'Identifiant de l’image.' }, ok: obj({ ok: bool() }) },
+  { method: 'get', path: '/board-assets/{key}', tag: 'Tableaux blancs', access: 'public', summary: 'Lire une image d’espace', description: 'Sans compte : la clé, longue et aléatoire, donne l’accès (les visiteurs d’un tableau partagé voient ainsi ses images).', params: { key: 'Clé du fichier.' }, okRaw: { contentType: 'image/*', description: 'Le fichier.' } },
+  { method: 'get', path: '/boards/icons', tag: 'Tableaux blancs', summary: 'Icônes ajoutées par les administrateurs', description: 'En plus de la bibliothèque intégrée (`icon: "lucide:{nom}"`).', ok: obj({ icons: arr(ref('BoardIcon')) }) },
+  { method: 'get', path: '/board-icons/{id}', tag: 'Tableaux blancs', access: 'public', summary: 'Lire une icône ajoutée', params: { id: 'Identifiant de l’icône.' }, okRaw: { contentType: 'image/svg+xml', description: 'Le SVG de l’icône.' } },
+  { method: 'get', path: '/boards/nodes/{id}/links', tag: 'Tableaux blancs', summary: 'Liens et rétroliens d’un tableau', description: 'Les notes et tickets qui le mentionnent, les tableaux qui le montrent dans un Fast Element, et ce que montrent ses propres Fast Elements, limités à ce que la personne peut voir.', params: BOARD_ID, ok: ref('BoardLinks') },
+  { method: 'get', path: '/boards/nodes/{id}/preview', tag: 'Tableaux blancs', summary: 'Aperçu SVG d’un tableau', params: BOARD_ID, query: z.object({ width: z.number().int().min(120).max(1600).optional().describe('Largeur maximale en pixels (640 par défaut).'), theme: z.enum(['light', 'dark']).optional().describe('`dark` : couleurs du thème sombre.') }), okRaw: { contentType: 'image/svg+xml', description: 'Image SVG du tableau.' } },
 
   // --- Lignes d'avancement et dépendances -------------------------------------------------------------------------------
   {
@@ -884,8 +933,12 @@ const OPERATIONS: Operation[] = [
     ok: obj({ ok: bool(), step: str('Étape atteinte.', { enum: ['connection', 'bind', 'search', 'account', 'done'] }), message: str(), detail: nullable(str()), entry: nullable({ type: 'object', description: 'dn, email, name, attributes' }) }),
   },
   { method: 'get', path: '/admin/documentation', tag: 'Administration', access: 'session', permission: 'docs.manage', summary: 'État de la documentation', ok: obj({ enabled: bool(), spaces: int(), files: int(), bytes: int(), retentionDays: int() }) },
+  { method: 'post', path: '/admin/board-icons', tag: 'Administration', permission: 'boards.manage', summary: 'Ajouter une icône pour tous les tableaux', body: S.boardIconSchema, status: 201, ok: obj({ icon: ref('BoardIcon') }) },
+  { method: 'delete', path: '/admin/board-icons/{id}', tag: 'Administration', permission: 'boards.manage', summary: 'Retirer une icône ajoutée', params: { id: 'Identifiant de l’icône.' }, ok: obj({ ok: bool() }) },
+  { method: 'get', path: '/admin/boards', tag: 'Administration', access: 'session', permission: 'boards.manage', summary: 'État des tableaux blancs', ok: obj({ enabled: bool(), spaces: int(), boards: int() }) },
+  { method: 'put', path: '/admin/boards', tag: 'Administration', access: 'session', permission: 'boards.manage', summary: 'Activer ou couper les tableaux blancs', description: 'Couper ferme les salles d’édition ; les tableaux restent en base.', body: S.boardSettingsSchema, ok: obj({ enabled: bool(), app: ref('AppInfo') }) },
   { method: 'put', path: '/admin/documentation', tag: 'Administration', access: 'session', permission: 'docs.manage', summary: 'Activer ou désactiver la documentation', description: 'Désactiver ferme les salles d’édition ; les fichiers restent sur le serveur.', body: S.docSettingsSchema, ok: obj({ enabled: bool(), app: ref('AppInfo') }) },
-  { method: 'get', path: '/admin/ai', tag: 'Administration', access: 'session', permission: 'ai.manage', summary: "Réglages de l'assistant IA (les clés ne sont jamais renvoyées)", ok: obj({ settings: { type: 'object', description: 'enabled, providers (id, name, baseUrl, timeoutSeconds, models, hasKey, keyHint), defaultModel, maxSteps, maxTurns, updatedAt' } }) },
+  { method: 'get', path: '/admin/ai', tag: 'Administration', access: 'session', permission: 'ai.manage', summary: "Réglages de l'assistant IA (les clés ne sont jamais renvoyées)", ok: obj({ settings: { type: 'object', description: 'enabled, providers (id, name, baseUrl, timeoutSeconds, models, hasKey, keyHint, verifyCertificate), defaultModel, maxSteps, maxTurns, updatedAt' } }) },
   {
     method: 'put',
     path: '/admin/ai',
@@ -1105,6 +1158,7 @@ export function buildOpenApiDocument(): Schema {
       { name: 'Projets' },
       { name: 'Tickets' },
       { name: 'Espaces de documentation' },
+      { name: 'Tableaux blancs' },
       { name: 'Pièces jointes' },
       { name: 'Commentaires' },
       { name: 'Activité' },

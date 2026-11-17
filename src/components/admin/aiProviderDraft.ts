@@ -11,6 +11,7 @@ export interface ProviderDraft {
   keyHint: string | null;
   apiKey: string;
   replacingKey: boolean;
+  verifyCertificate: boolean;
   /** Modèles retenus + modèles détectés ; `selected` = mis à disposition des utilisateurs. */
   catalog: Array<AiModelDTO & { selected: boolean; ownedBy?: string | null }>;
   open: boolean;
@@ -29,6 +30,7 @@ export function draftFrom(provider: AiProviderDTO, open = false): ProviderDraft 
     keyHint: provider.keyHint,
     apiKey: '',
     replacingKey: !provider.hasKey,
+    verifyCertificate: provider.verifyCertificate,
     catalog: provider.models.map((model) => ({ ...model, selected: true })),
     open,
   };
@@ -36,7 +38,7 @@ export function draftFrom(provider: AiProviderDTO, open = false): ProviderDraft 
 
 export function newDraft(): ProviderDraft {
   counter += 1;
-  return { key: `draft-${Date.now()}-${counter}`, name: '', baseUrl: DEFAULT_AI_BASE_URL, timeoutSeconds: AI_LIMITS.timeoutSeconds, hasKey: false, keyHint: null, apiKey: '', replacingKey: true, catalog: [], open: true };
+  return { key: `draft-${Date.now()}-${counter}`, name: '', baseUrl: DEFAULT_AI_BASE_URL, timeoutSeconds: AI_LIMITS.timeoutSeconds, hasKey: false, keyHint: null, apiKey: '', replacingKey: true, verifyCertificate: true, catalog: [], open: true };
 }
 
 /** Modèle par défaut : fournisseur (clé locale) et identifiant du modèle. */

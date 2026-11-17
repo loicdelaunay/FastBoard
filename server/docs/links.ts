@@ -1,5 +1,6 @@
 import { extractDocLinks, resolveDocLink, type DocLinkTargets } from '../../shared/docLinks.ts';
 import { docTitle, type DocLinkNoteDTO, type DocLinksDTO, type DocLinkTicketDTO, type DocNodeDTO } from '../../shared/docs.ts';
+import { boardsCiting, visibleBoards } from '../boards/links.ts';
 import type { AppContext } from '../context.ts';
 import type { AuthUser } from '../services/access.ts';
 import { visibleProjects } from '../services/search.ts';
@@ -81,8 +82,13 @@ export function noteLinks(ctx: AppContext, user: AuthUser, node: NodeRow): DocLi
   );
 
   return {
-    outgoing: { notes: [...notes.values()], tickets, broken },
-    backlinks: { notes: citing.slice(0, LIST_MAX).map((row) => toNote({ id: row.id, spaceId: row.space_id, path: row.path })), tickets: citingTickets.map(toTicket) },
+    outgoing: { notes: [...notes.values()], tickets, boards: visibleBoards(ctx, user, found.boards ?? []), broken },
+    backlinks: {
+      notes: citing.slice(0, LIST_MAX).map((row) => toNote({ id: row.id, spaceId: row.space_id, path: row.path })),
+      tickets: citingTickets.map(toTicket),
+      // Les tableaux qui montrent la note dans un Fast Element.
+      boards: boardsCiting(ctx, user, 'note', node.id),
+    },
   };
 }
 

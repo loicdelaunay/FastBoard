@@ -1,5 +1,6 @@
 /** Protocole WebSocket (JSON). */
 
+import type { BoardNodeDTO } from './boards.ts';
 import type { DocNodeDTO } from './docs.ts';
 import type { DocCommentDTO } from './docComments.ts';
 import type {
@@ -87,6 +88,18 @@ export type ServerMessage =
   | { t: 'doc.saved'; nodeId: number; at: string }
   /** Fichier supprimé ou accès retiré pendant l'édition. */
   | { t: 'doc.closed'; nodeId: number; reason: 'deleted' | 'revoked' }
+  /** Arborescence d'un espace de tableaux blancs modifiée. */
+  | { t: 'boards.tree'; spaceId: number; nodes: BoardNodeDTO[] }
+  /** Rôle ou réglages changés dans un espace de tableaux : relire ses droits. */
+  | { t: 'boards.access'; spaceId: number }
+  | { t: 'boards.revoked'; spaceId: number }
+  /** Réponse à `board.join` : ce qui manque au client, et ce que le serveur connaît déjà. */
+  | { t: 'board.sync'; boardId: number; update: string; stateVector: string; canWrite: boolean; awareness: string | null }
+  | { t: 'board.update'; boardId: number; update: string }
+  | { t: 'board.awareness'; boardId: number; update: string }
+  | { t: 'board.saved'; boardId: number; at: string }
+  /** `changed` : les droits ont changé, se raccorder. */
+  | { t: 'board.closed'; boardId: number; reason: 'deleted' | 'revoked' | 'changed' }
   | { t: 'pong' }
   | { t: 'error'; message: string };
 
@@ -100,4 +113,11 @@ export type ClientMessage =
   | { t: 'doc.join'; nodeId: number; stateVector: string }
   | { t: 'doc.update'; nodeId: number; update: string }
   | { t: 'doc.awareness'; nodeId: number; update: string }
-  | { t: 'doc.leave'; nodeId: number };
+  | { t: 'doc.leave'; nodeId: number }
+  /** Suit l'arborescence d'un espace de tableaux (`null` : plus aucun). */
+  | { t: 'boards.watch'; spaceId: number | null }
+  /** `share` : accès par le lien de partage du tableau (mot de passe déjà vérifié : `token`). */
+  | { t: 'board.join'; boardId: number; stateVector: string; share?: { slug: string; token: string | null } }
+  | { t: 'board.update'; boardId: number; update: string }
+  | { t: 'board.awareness'; boardId: number; update: string }
+  | { t: 'board.leave'; boardId: number };

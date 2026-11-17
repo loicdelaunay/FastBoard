@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.3.0';
+export const APP_VERSION = '2.4.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,38 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.4.0',
+    date: '2026-11-17',
+    changes: [
+      {
+        category: 'Nouveauté',
+        text: 'Tableaux blancs : un nouvel espace de travail à la manière de Whimsical, rangé en espaces et en dossiers comme la documentation, et dessiné à plusieurs en temps réel.',
+      },
+      {
+        category: 'Nouveauté',
+        text: 'Tableaux blancs : quatre modes dans la barre latérale (diagramme, post-it avec votes, carte mentale, dessin libre), formes, liens, sections, sélection, zoom et annulation.',
+      },
+      { category: 'Nouveauté', text: 'Tableaux blancs : présence en direct, avec le curseur et le nom de chacun, ce que les autres ont sélectionné, et les éléments qui bougent pendant qu’on les déplace.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : partage par adresse en plus des membres de l’espace, à toutes les personnes connectées, à une liste de personnes ou à tout le monde sans compte, en lecture ou en modification, avec un mot de passe au choix.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : rétroliens, comme pour les notes : les notes et tickets qui mentionnent un tableau, les tableaux qui le montrent, et ce que montrent ses Fast Elements ; une note liste aussi les tableaux qui la citent.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : clic droit « Ajouter un élément… » ou touche / : un ajout rapide avec recherche pose une forme, un texte, une icône, une image ou un modèle.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : bibliothèque de plus de 2 000 icônes, couleur et épaisseur réglables, complétée par les icônes SVG ajoutées par les administrateurs.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : images et SVG envoyés dans un espace (bouton, glisser-déposer ou coller), réutilisables par tous ses membres.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : modèles façon « prefab » : une sélection devient un modèle, ses copies se posent en un clic, signalent quand le modèle change et se remettent à jour ; un modèle se modifie dans sa propre vue.' },
+      { category: 'Nouveauté', text: 'Assistant IA : il lit les tableaux blancs et, si on l’autorise, y dessine (Mermaid), pose des post-it, modifie ou retire des éléments et crée des tableaux.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : cartes mentales à la manière de Whimsical : un « + » sur le nœud choisi ajoute un enfant (ou un frère), plusieurs nœuds se déplacent d’un glisser avec leurs branches, et Alt + flèches les monte, les descend ou change leur niveau.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : un Fast Element affiche un ticket, une note, un dossier, un espace de documentation ou un autre tableau, tenu à jour.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : tableaux de données et graphiques Chart.js (barres, courbes, camembert, anneau, radar).' },
+      {
+        category: 'Nouveauté',
+        text: 'Tableaux blancs : export d’une sélection en Markdown Mermaid, et import d’un organigramme ou d’une carte mentale Mermaid, mis en page automatiquement.',
+      },
+      { category: 'Nouveauté', text: 'Documentation et tickets : @ mentionne un tableau blanc, avec son aperçu au survol ; seul sur sa ligne, il s’affiche en grand aperçu, en thème clair ou sombre.' },
+      { category: 'Correction', text: 'Assistant IA : un fournisseur en HTTPS signé par l’autorité de votre entreprise (ou derrière un proxy qui inspecte le HTTPS) est reconnu, et une connexion qui échoue en donne la cause au lieu de « fetch failed ».' },
+      { category: 'Amélioration', text: 'Assistant IA : option « Vérifier le certificat HTTPS » par fournisseur, pour un serveur au certificat auto-signé.' },
+    ],
+  },
   {
     version: '2.3.0',
     date: '2026-11-17',

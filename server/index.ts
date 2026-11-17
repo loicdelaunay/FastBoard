@@ -6,6 +6,11 @@ import { loadConfig } from './config.ts';
 import { writeSupervisorPid } from './system/service.ts';
 import { runSupervisor } from './system/supervisor.ts';
 import { readAsset, runningAsExecutable } from './runtime.ts';
+import { trustSystemCertificates } from './system/outbound.ts';
+
+// Les fournisseurs d'IA en HTTPS signés par l'autorité de l'entreprise (ou derrière un proxy qui inspecte le HTTPS)
+// sont reconnus comme dans le navigateur.
+trustSystemCertificates();
 
 if (runningAsExecutable) {
   // Dans l'exécutable il n'y a pas d'option `--no-warnings` : on masque l'avertissement « SQLite est expérimental ».

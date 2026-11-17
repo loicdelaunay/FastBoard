@@ -18,6 +18,8 @@ export interface DocPeer {
   userId: number;
   /** Jeton d'API en lecture seule : la personne ne peut qu'observer. */
   readOnly: boolean;
+  /** Visiteur sans compte (lien de partage public d'un tableau) : `userId` vaut 0. */
+  guest?: boolean;
   send: (message: ServerMessage) => void;
 }
 

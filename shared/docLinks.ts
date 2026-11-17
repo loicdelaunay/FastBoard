@@ -118,6 +118,8 @@ export interface DocLinkTargets {
   paths: string[];
   docs: number[];
   tickets: number[];
+  /** Absent des notes indexées avant la 2.4. */
+  boards?: number[];
 }
 
 /** Liens et mentions d'une note, hors du code ; les images n'en sont pas. */
@@ -131,7 +133,7 @@ export function extractDocLinks(text: string): DocLinkTargets {
     if (!/^([a-z][a-z0-9+.-]*:|#)/i.test(match[1]!)) paths.add(match[1]!);
   }
   const mentioned = (kind: string): number[] => [...new Set([...plain.matchAll(new RegExp(`@\\[[^\\]\\n]{1,80}\\]\\(${kind}:(\\d+)\\)`, 'g'))].map((match) => Number(match[1])))];
-  return { paths: [...paths], docs: mentioned('doc'), tickets: mentioned('ticket') };
+  return { paths: [...paths], docs: mentioned('doc'), tickets: mentioned('ticket'), boards: mentioned('board') };
 }
 
 /** Texte alternatif d'une image et sa taille à la manière d'Obsidian : `![[x.png|300]]`, `![Légende|300x200](x.png)`. */

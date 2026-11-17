@@ -43,6 +43,9 @@ export function useDocLinks(nodes: () => readonly DocNodeDTO[], open: (node: Doc
     } else if (link.dataset.user) {
       event.preventDefault();
       void router.push({ name: 'user', params: { id: link.dataset.user } });
+    } else if (link.dataset.board) {
+      event.preventDefault();
+      void router.push({ name: 'board-file', params: { boardId: link.dataset.board } });
     } else if (link.dataset.doc) {
       event.preventDefault();
       openNode(Number(link.dataset.doc));

@@ -308,8 +308,8 @@ const editor = ref<InstanceType<typeof DocEditor> | null>(null);
 
 const noteId = computed(() => (selected.value?.kind === 'markdown' ? selected.value.id : null));
 const openComments = computed(() => store.comments.filter((comment) => comment.parentId === null && !comment.resolvedAt).length);
-const linkCount = computed(() => (links.value ? links.value.outgoing.notes.length + links.value.outgoing.tickets.length : 0));
-const backlinkCount = computed(() => (links.value ? links.value.backlinks.notes.length + links.value.backlinks.tickets.length : 0));
+const linkCount = computed(() => (links.value ? links.value.outgoing.notes.length + links.value.outgoing.tickets.length + links.value.outgoing.boards.length : 0));
+const backlinkCount = computed(() => (links.value ? links.value.backlinks.notes.length + links.value.backlinks.tickets.length + links.value.backlinks.boards.length : 0));
 const members = computed(() => users.value.filter((user) => store.members.some((member) => member.userId === user.id)));
 const words = computed(() => content.value.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu)?.length ?? 0);
 
@@ -693,7 +693,7 @@ const recent = computed(() =>
           </div>
 
           <div class="status" role="toolbar" :aria-label="$t('Liens et commentaires')">
-            <button v-tooltip.top="$t('Notes et tickets qui citent cette note')" type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'links' }" @click="showSide('links')">
+            <button v-tooltip.top="$t('Notes, tickets et tableaux qui citent cette note')" type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'links' }" @click="showSide('links')">
               <i class="pi pi-reply"></i> {{ $t('{n} rétrolien|{n} rétroliens', { n: backlinkCount }) }}
             </button>
             <button v-tooltip.top="$t('Ce que cite cette note')" type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'links' }" @click="showSide('links')">

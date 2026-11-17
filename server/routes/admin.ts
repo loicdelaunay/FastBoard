@@ -261,7 +261,7 @@ export function adminRouter(ctx: AppContext): Router {
     const probe = parse(aiProbeSchema, req.body);
     const model = probe.model || parseModelRef(aiSettingsDTO(ctx).defaultModel)?.modelId || '';
     const timeoutMs = (probe.timeoutSeconds ?? AI_LIMITS.timeoutSeconds) * 1000;
-    res.json(await testAiConnection({ baseUrl: probe.baseUrl.replace(/\/+$/, ''), apiKey: keyForTest(ctx, probe.apiKey, probe.providerId), timeoutMs }, model));
+    res.json(await testAiConnection({ baseUrl: probe.baseUrl.replace(/\/+$/, ''), apiKey: keyForTest(ctx, probe.apiKey, probe.providerId), timeoutMs, verifyCertificate: probe.verifyCertificate }, model));
   });
 
   /** Modèles proposés par le fournisseur (`GET /models`), avec des capacités devinées. */
@@ -269,7 +269,7 @@ export function adminRouter(ctx: AppContext): Router {
     requireGlobal(currentUser(res), 'ai.manage');
     const probe = parse(aiProbeSchema, req.body);
     try {
-      res.json({ models: await detectModels(probe.baseUrl, keyForTest(ctx, probe.apiKey, probe.providerId), Math.min(60, probe.timeoutSeconds ?? 20) * 1000) });
+      res.json({ models: await detectModels(probe.baseUrl, keyForTest(ctx, probe.apiKey, probe.providerId), Math.min(60, probe.timeoutSeconds ?? 20) * 1000, probe.verifyCertificate) });
     } catch (error) {
       throw new HttpError(502, (error as Error).message, 'ai_provider');
     }

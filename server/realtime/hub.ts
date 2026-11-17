@@ -20,6 +20,8 @@ interface Client {
   alive: boolean;
   /** Le même client, vu des salles de documentation. */
   peer: DocPeer;
+  /** Visiteur sans compte : il ne peut que rejoindre un tableau partagé publiquement. */
+  guest: boolean;
 }
 
 const HEARTBEAT_MS = 30_000;
@@ -58,6 +60,11 @@ export class Hub {
         return;
       }
       const attempt = authenticate(ctx, request);
+      // Sans compte : seulement pour un tableau partagé à tous (vérifié à l'entrée dans sa salle).
+      if (attempt.kind === 'none' && url.searchParams.get('guest') === '1') {
+        this.#wss.handleUpgrade(request, socket, head, (ws) => this.#onConnection(ws, 0, null, true));
+        return;
+      }
       if (attempt.kind === 'none' || attempt.kind === 'bad_token') {
         ctx.logger.debug('realtime', `Connexion WebSocket refusée : ${attempt.kind === 'bad_token' ? "jeton d'API invalide" : 'non authentifiée'}`);
         reject('401 Unauthorized');
@@ -81,7 +88,7 @@ export class Hub {
     this.#heartbeat.unref();
   }
 
-  #onConnection(ws: WebSocket, userId: number, token: TokenInfoDTO | null): void {
+  #onConnection(ws: WebSocket, userId: number, token: TokenInfoDTO | null, guest = false): void {
     const client: Client = {
       ws,
       userId,
@@ -90,7 +97,8 @@ export class Hub {
       ticketId: null,
       view: '',
       alive: true,
-      peer: { userId, readOnly: token?.scope === 'read', send: (message) => this.#send(client, message) },
+      guest,
+      peer: { userId, readOnly: token?.scope === 'read', guest, send: (message) => this.#send(client, message) },
     };
     this.#clients.add(client);
     this.#ctx?.logger.debug('realtime', 'WebSocket connecté', { clients: this.#clients.size, via: token?.name ?? null }, userId);
@@ -103,8 +111,9 @@ export class Hub {
     ws.on('close', () => {
       this.#clients.delete(client);
       this.#ctx?.docRooms.drop(client.peer);
+      this.#ctx?.boardRooms.drop(client.peer);
       // Fin de présence en direct : c'est la dernière activité connue de la personne.
-      if (this.#ctx && !token) markSeen(this.#ctx, userId, true);
+      if (this.#ctx && !token && !guest) markSeen(this.#ctx, userId, true);
       this.#ctx?.logger.debug('realtime', 'WebSocket déconnecté', { clients: this.#clients.size }, userId);
       if (client.projectId !== null) {
         this.#broadcastPresence(client.projectId);
@@ -123,6 +132,8 @@ export class Hub {
       return;
     }
 
+    // Un visiteur sans compte n'a accès qu'aux tableaux (et seulement par un lien public).
+    if (client.guest && message.t !== 'ping' && !message.t.startsWith('board.')) return;
     switch (message.t) {
       case 'ping':
         this.#send(client, { t: 'pong' });
@@ -148,6 +159,13 @@ export class Hub {
       case 'doc.awareness':
       case 'doc.leave':
         this.#ctx?.docRooms.onMessage(client.peer, message);
+        break;
+      case 'boards.watch':
+      case 'board.join':
+      case 'board.update':
+      case 'board.awareness':
+      case 'board.leave':
+        this.#ctx?.boardRooms.onMessage(client.peer, message);
         break;
       default:
         break;

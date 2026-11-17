@@ -16,6 +16,7 @@ import {
 import type { AppContext } from '../context.ts';
 import { nowIso } from '../db/database.ts';
 import { readSetting, writeSetting } from '../services/appSettings.ts';
+import { describeNetworkError, outboundRequest, type OutboundResponse } from '../system/outbound.ts';
 
 interface StoredProvider {
   id: string;
@@ -26,6 +27,8 @@ interface StoredProvider {
   /** Clé chiffrée (SecretBox) : jamais stockée ni renvoyée en clair. */
   key: string | null;
   keyHint: string | null;
+  /** `false` : certificat HTTPS accepté même s'il n'est pas reconnu (auto-signé). */
+  verifyCertificate: boolean;
 }
 
 interface StoredAiSettings {
@@ -44,6 +47,7 @@ export interface AiEndpoint {
   baseUrl: string;
   apiKey: string | null;
   timeoutMs: number;
+  verifyCertificate: boolean;
 }
 
 export interface AiConfig {
@@ -101,13 +105,14 @@ function stored(ctx: AppContext): StoredAiSettings {
         models: normalizeModels(entry.models),
         key: typeof entry.key === 'string' ? entry.key : null,
         keyHint: typeof entry.keyHint === 'string' ? entry.keyHint : null,
+        verifyCertificate: entry.verifyCertificate !== false,
       }));
   } else {
     // Réglages des versions 1.3 : un seul fournisseur (et, en 1.3.0, un seul modèle `model`).
     const legacy = typeof value?.model === 'string' && value.model ? [{ id: value.model, ...guessCapabilities(value.model) }] : [];
     const models = normalizeModels(Array.isArray(value?.models) && value.models.length ? value.models : legacy.length ? legacy : [{ id: DEFAULT_AI_MODEL, ...guessCapabilities(DEFAULT_AI_MODEL) }]);
     const baseUrl = typeof value?.baseUrl === 'string' && value.baseUrl ? value.baseUrl : DEFAULT_AI_BASE_URL;
-    providers = [{ id: 'p1', name: providerName(baseUrl), baseUrl, timeoutSeconds: AI_LIMITS.timeoutSeconds, models, key: typeof value?.key === 'string' ? value.key : null, keyHint: typeof value?.keyHint === 'string' ? value.keyHint : null }];
+    providers = [{ id: 'p1', name: providerName(baseUrl), baseUrl, timeoutSeconds: AI_LIMITS.timeoutSeconds, models, key: typeof value?.key === 'string' ? value.key : null, keyHint: typeof value?.keyHint === 'string' ? value.keyHint : null, verifyCertificate: true }];
     if (defaultModel && !parseModelRef(defaultModel)) defaultModel = modelRef('p1', defaultModel);
   }
   const refs = providers.flatMap((provider) => provider.models.map((model) => modelRef(provider.id, model.id)));
@@ -126,7 +131,7 @@ function stored(ctx: AppContext): StoredAiSettings {
 }
 
 function providerDTO(provider: StoredProvider): AiProviderDTO {
-  return { id: provider.id, name: provider.name, baseUrl: provider.baseUrl, timeoutSeconds: provider.timeoutSeconds, models: provider.models, hasKey: provider.key !== null, keyHint: provider.keyHint };
+  return { id: provider.id, name: provider.name, baseUrl: provider.baseUrl, timeoutSeconds: provider.timeoutSeconds, models: provider.models, hasKey: provider.key !== null, keyHint: provider.keyHint, verifyCertificate: provider.verifyCertificate };
 }
 
 export function aiSettingsDTO(ctx: AppContext): AiSettingsDTO {
@@ -135,7 +140,7 @@ export function aiSettingsDTO(ctx: AppContext): AiSettingsDTO {
 }
 
 function endpointOf(ctx: AppContext, provider: StoredProvider): AiEndpoint & { models: AiModelDTO[] } {
-  return { id: provider.id, name: provider.name, baseUrl: provider.baseUrl, apiKey: provider.key ? ctx.secrets.open(provider.key) : null, timeoutMs: provider.timeoutSeconds * 1000, models: provider.models };
+  return { id: provider.id, name: provider.name, baseUrl: provider.baseUrl, apiKey: provider.key ? ctx.secrets.open(provider.key) : null, timeoutMs: provider.timeoutSeconds * 1000, verifyCertificate: provider.verifyCertificate, models: provider.models };
 }
 
 /** Configuration utilisable par l'agent (clés déchiffrées), ou `null` si l'IA est désactivée (sauf `evenDisabled`, pour la tester). */
@@ -189,6 +194,7 @@ export interface AiProviderInput {
   models: AiModelDTO[];
   /** `undefined` garde la clé actuelle, chaîne vide l'efface, sinon la remplace. */
   apiKey?: string;
+  verifyCertificate?: boolean;
 }
 
 export interface AiSettingsInput {
@@ -215,7 +221,7 @@ export function saveAiSettings(ctx: AppContext, input: AiSettingsInput): AiSetti
       keyHint = trimmed ? trimmed.slice(-4) : null;
     }
     const baseUrl = entry.baseUrl.trim().replace(/\/+$/, '');
-    return { id, name: entry.name.trim() || providerName(baseUrl), baseUrl, timeoutSeconds: entry.timeoutSeconds, models: normalizeModels(entry.models), key, keyHint };
+    return { id, name: entry.name.trim() || providerName(baseUrl), baseUrl, timeoutSeconds: entry.timeoutSeconds, models: normalizeModels(entry.models), key, keyHint, verifyCertificate: entry.verifyCertificate !== false };
   });
   // Le modèle par défaut peut viser un fournisseur nouveau (identifiant pas encore attribué) : `index:modèle` → son identifiant.
   let defaultModel = input.defaultModel;
@@ -250,15 +256,16 @@ interface ModelsResponse {
 }
 
 /** Liste les modèles du fournisseur (`GET {baseUrl}/models`), capacités devinées d'après le nom ou fournies par l'API. */
-export async function detectModels(baseUrl: string, apiKey: string | null, timeoutMs = 20_000): Promise<DetectedModelDTO[]> {
+export async function detectModels(baseUrl: string, apiKey: string | null, timeoutMs = 20_000, verifyCertificate = true): Promise<DetectedModelDTO[]> {
   const url = `${baseUrl.trim().replace(/\/+$/, '')}/models`;
-  let response: Response;
+  let response: OutboundResponse;
   try {
-    response = await fetch(url, { headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}, signal: AbortSignal.timeout(timeoutMs) });
+    response = await outboundRequest(url, { headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}, signal: AbortSignal.timeout(timeoutMs), verifyCertificate });
   } catch (error) {
-    throw new Error(`Fournisseur d'IA injoignable (${baseUrl}) : ${(error as Error).message}`);
+    if ((error as Error).name === 'TimeoutError') throw new Error(`Le fournisseur d'IA n'a pas répondu dans le délai (${Math.round(timeoutMs / 1000)} s).`);
+    throw new Error(`Fournisseur d'IA injoignable (${baseUrl}) : ${describeNetworkError(error)}`);
   }
-  const text = await response.text();
+  const text = response.text;
   let payload: ModelsResponse | null = null;
   try {
     payload = JSON.parse(text) as ModelsResponse;

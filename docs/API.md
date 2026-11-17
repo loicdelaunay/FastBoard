@@ -234,6 +234,30 @@ Chaque fichier ou dossier porte une note libre (`memo`), écrite avec `PUT /docu
 
 Rôles : `reader` lit, `editor` écrit, `owner` gère aussi les membres et l'espace. Un texte envoyé par l'API apparaît en direct chez les personnes qui éditent la note. Pour citer un fichier dans un ticket ou une note : `@[Titre](doc:5)`. Les personnes mentionnées qui ont accès à l'espace sont notifiées. L'historique et la corbeille sont gardés 15 jours. Tous les membres peuvent commenter, lecteurs compris : `quote` retrouve le passage par son texte, `before` et `after` le départagent s'il figure plusieurs fois.
 
+### Tableaux blancs
+
+Comme la documentation : des espaces (`GET /boards/spaces`, `POST /boards/spaces`) avec les mêmes rôles, qui rangent des tableaux en dossiers (`GET /boards/spaces/{id}` donne l'arbre). Un tableau se crée avec `POST /boards/spaces/{id}/nodes` (`path`, `kind: "board"` ou `"folder"`, et éventuellement ses `elements` de départ), se lit avec `GET /boards/nodes/{id}` et s'écrit en entier avec `PUT /boards/nodes/{id}/elements` : les personnes qui l'ont ouvert voient le changement aussitôt. `GET /boards/nodes/{id}/preview` en donne une image SVG (`width`, `theme=dark` pour le thème sombre), et `GET /boards/search?q=` cherche dans les noms et les textes. `GET /boards/nodes/{id}/links` donne ses rétroliens (notes et tickets qui le mentionnent, tableaux qui le montrent dans un Fast Element) et ce que montrent ses Fast Elements ; `GET /documentation/nodes/{id}/links` liste de même les tableaux (`boards`) d'une note.
+
+Un élément a un `id` (court, unique dans le tableau), un `type`, un ordre d'empilement `z` et, sauf pour un lien, une position et une taille `x`, `y`, `w`, `h` en pixels :
+
+```json
+[
+  { "id": "a", "type": "shape", "z": 1, "x": 0, "y": 0, "w": 160, "h": 80, "shape": "rounded", "text": "Client", "color": "blue", "fill": "solid", "size": "m" },
+  { "id": "b", "type": "shape", "z": 2, "x": 300, "y": 0, "w": 160, "h": 80, "shape": "cylinder", "text": "Base", "color": "default", "fill": "solid", "size": "m" },
+  { "id": "l", "type": "connector", "z": 3, "from": { "id": "a", "side": null, "x": 0, "y": 0 }, "to": { "id": "b", "side": null, "x": 0, "y": 0 }, "label": "lit", "route": "elbow", "dashed": false, "arrowStart": false, "arrowEnd": true, "color": "default" }
+]
+```
+
+Pour ajouter, remplacer ou retirer quelques éléments sans réécrire tout le tableau : `PATCH /boards/nodes/{id}/elements` avec `upsert` (éléments, remplacés s'ils ont le même `id`) et `remove` (identifiants ; les liens accrochés partent avec eux). Ce que d'autres dessinent en même temps est gardé.
+
+Les types : `shape` (formes `rect`, `rounded`, `ellipse`, `diamond`, `parallelogram`, `hexagon`, `cylinder`, `triangle`), `text`, `sticky` (post-it, avec `votes`), `frame` (section titrée), `mind` (nœud de carte mentale, `parent`), `path` (trait à main levée), `fast` (objet de FastBoard : `ref: { kind: "ticket" | "note" | "folder" | "space" | "board", id }`), `table` (`rows`, la première ligne étant l'en-tête), `chart` (`chart`: `bar`, `line`, `pie`, `doughnut`, `radar`, données dans `rows` ou dans le tableau `source`) et `connector`. Couleurs : `default`, `gray`, `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`. Un élément illisible est ignoré. Pour citer un tableau dans un ticket ou une note : `@[Titre](board:7)`.
+
+Icônes et images : un élément `icon` (`icon: "lucide:camera"` pour la bibliothèque intégrée, plus de 2 000 icônes Lucide ; `icon: "custom:12"` pour une icône ajoutée par un administrateur, voir `GET /boards/icons`), avec `color` et l'épaisseur `stroke` ; un élément `image` (`asset` : clé d'un fichier de l'espace). Les images et SVG d'un espace s'envoient avec `POST /boards/spaces/{id}/assets` (le corps est le fichier, son nom dans l'en-tête `X-File-Name`), se listent avec `GET /boards/spaces/{id}/assets` et se lisent sans compte à `/board-assets/{key}`.
+
+Modèles : un nœud `kind: "template"` (un nom sans dossier) se crée comme un tableau, avec ses `elements`, et se lit et s'écrit de même. Une copie posée sur un tableau garde sur chacun de ses éléments un lien `tpl: { id, inst, key, v }` (le modèle, la copie, l'élément d'origine, la version copiée, c'est-à-dire le `updatedAt` du modèle) : l'interface compare la copie au modèle et propose de la remettre à jour.
+
+Partager un tableau au-delà des membres de son espace (propriétaire de l'espace) : `PUT /boards/nodes/{id}/share` avec `audience` (`users` : toute personne connectée ; `people` : les personnes de `people` ; `public` : tout le monde, même sans compte), `role` (`reader` ou `editor`) et un `password` facultatif (absent : inchangé ; `null` : retiré). La réponse donne le `slug` de l'adresse `/t/{slug}` ; `GET` lit le partage et `DELETE` le retire (ceux qui sont entrés par l'adresse sortent aussitôt). Côté visiteur, `GET /board-shares/{slug}` décrit le tableau partagé ; s'il est protégé (`401`, code `board_password`), `POST /board-shares/{slug}/unlock` avec le `password` rend un jeton valable 7 jours, à renvoyer dans l'en-tête `X-Board-Share`. `GET /board-shares/{slug}/preview` en donne l'image.
+
 ### Champs personnalisés
 
 Chaque projet peut définir ses propres champs (`settings.customFields` dans `GET /projects/{id}`) : `id` (`cf_…`), `label`, `type` (`text`, `longtext`, `number`, `date`, `select`, `multiselect`, `checkbox`, `url`, `user`) et `options` pour les listes. Les valeurs sont dans `ticket.customFields`.

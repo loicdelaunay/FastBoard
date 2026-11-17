@@ -52,6 +52,8 @@ interface RequestOptions {
   contentType?: string;
   /** Ne déclenche pas le handler de session expirée (ex. formulaire de connexion). */
   silent401?: boolean;
+  /** En-têtes en plus (accès à un tableau partagé…). */
+  headers?: Record<string, string>;
 }
 
 /** En-têtes communs (onglet, compte) pour les appels qui ne passent pas par `http` (envoi de fichiers). */
@@ -64,7 +66,7 @@ export function httpHeaders(): Record<string, string> {
 }
 
 export async function http<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = { [CLIENT_ID_HEADER]: clientId };
+  const headers: Record<string, string> = { [CLIENT_ID_HEADER]: clientId, ...options.headers };
   if (currentUserId !== null) {
     headers[USER_ID_HEADER] = String(currentUserId);
   }

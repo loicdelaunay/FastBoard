@@ -535,6 +535,8 @@ export interface AppInfoDTO {
   ldap: { loginLabel: string } | null;
   /** La documentation est activée sur le site. */
   docs: boolean;
+  /** Les tableaux blancs sont activés sur le site. */
+  boards: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

@@ -96,6 +96,9 @@ const accountItems = computed<MenuItem[]>(() => [
       <router-link v-if="app.info.docs" v-tooltip.right="collapsed ? $t('Documentations') : undefined" :to="{ name: 'docs' }" class="item" active-class="active">
         <i class="pi pi-book"></i><span class="label">{{ $t('Documentations') }}</span>
       </router-link>
+      <router-link v-if="app.info.boards" v-tooltip.right="collapsed ? $t('Tableaux blancs') : undefined" :to="{ name: 'boards' }" class="item" active-class="active">
+        <i class="pi pi-objects-column"></i><span class="label">{{ $t('Tableaux blancs') }}</span>
+      </router-link>
       <router-link v-if="auth.canAdmin" v-tooltip.right="collapsed ? $t('Administration') : undefined" :to="{ name: 'admin' }" class="item" active-class="active">
         <i class="pi pi-cog"></i><span class="label">{{ $t('Administration') }}</span>
       </router-link>

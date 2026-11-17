@@ -9,7 +9,12 @@ import { startBackupScheduler } from './backup/service.ts';
 import { purgeNotifications } from './services/notifications.ts';
 import { purgeExpiredSessions } from './auth/sessions.ts';
 import { DocRooms } from './docs/collab.ts';
+import { BoardRooms } from './boards/collab.ts';
+import { purgeBoards } from './boards/store.ts';
 import { purgeDocs, reindexDocs } from './docs/store.ts';
+import { boardsRouter } from './routes/boards.ts';
+import { boardFilesRouter, boardUploadRouter } from './routes/boardFiles.ts';
+import { boardSharesRouter } from './routes/boardShares.ts';
 import { documentationRouter, documentationUploadRouter } from './routes/documentation.ts';
 import { loadConfig, type AppConfig } from './config.ts';
 import type { AppContext } from './context.ts';
@@ -113,6 +118,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   const metrics = new Metrics(db, { wsClients: () => hub.clientCount });
   const ctx = { config, db, hub, logger, metrics, uploadsDir, docsDir, secrets: new SecretBox(config.dbPath) } as AppContext;
   ctx.docRooms = new DocRooms(ctx);
+  ctx.boardRooms = new BoardRooms(ctx);
   db.onSlowQuery = (sql, ms) => logger.warn('db', `Requête SQL lente (${Math.round(ms)} ms)`, { sql: sql.replace(/\s+/g, ' ').slice(0, 300), ms: Math.round(ms) });
   logger.start();
   metrics.start();
@@ -135,10 +141,11 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   // Envoi de fichiers : corps brut, donc avant l'analyse JSON.
   api.use(attachmentUploadRouter(ctx));
   api.use(documentationUploadRouter(ctx));
+  api.use(boardUploadRouter(ctx));
   const json = express.json({ limit: '1mb' });
   const largeJson = express.json({ limit: '16mb' });
   // Assistant IA : images jointes et conversations enregistrées. Documentation : texte d'un fichier, décisions d'import.
-  api.use((req, res, next) => (req.path === '/ai/chat' || req.path.startsWith('/ai/conversations/') || req.path.startsWith('/documentation/') ? largeJson : json)(req, res, next));
+  api.use((req, res, next) => (req.path === '/ai/chat' || req.path.startsWith('/ai/conversations/') || req.path.startsWith('/documentation/') || req.path.startsWith('/boards/') ? largeJson : json)(req, res, next));
   api.use(csrfGuard(ctx));
   api.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
@@ -146,6 +153,8 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   api.use(publicAuthRouter(ctx));
   api.use(docsRouter(ctx));
   api.use(wikiRouter(ctx));
+  api.use(boardSharesRouter(ctx));
+  api.use(boardFilesRouter(ctx));
   api.use(requireAuth(ctx));
   api.use(accountRouter(ctx));
   api.use(adminRouter(ctx));
@@ -154,6 +163,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   api.use(aiRouter(ctx));
   api.use(attachmentsRouter(ctx));
   api.use(documentationRouter(ctx));
+  api.use(boardsRouter(ctx));
   api.use((_req, _res, next) => next(notFound('Route inconnue.')));
   app.use('/api', api);
 
@@ -193,11 +203,13 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
 
   purgeNotifications(db);
   purgeDocs(ctx);
+  purgeBoards(ctx);
   reindexDocs(ctx);
   const purge = setInterval(() => {
     purgeExpiredSessions(ctx);
     purgeNotifications(db);
     purgeDocs(ctx);
+    purgeBoards(ctx);
   }, 60 * 60 * 1000);
   purge.unref();
   const stopBackups = startBackupScheduler(ctx);
@@ -211,6 +223,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
       clearInterval(purge);
       stopBackups();
       ctx.docRooms.close();
+      ctx.boardRooms.close();
       hub.close();
       await httpsManager.close();
       server.closeAllConnections();

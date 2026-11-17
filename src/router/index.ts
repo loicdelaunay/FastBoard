@@ -32,11 +32,15 @@ const router = createRouter({
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { public: true } },
     // Site web d'un espace de documentation : sans la navigation, et sans compte s'il est public.
+    { path: '/t/:slug', name: 'board-share', component: () => import('@/views/boards/BoardShareView.vue'), meta: { public: true, bare: true } },
     { path: '/wiki/:slug/:nodeId(\\d+)?', name: 'wiki', component: () => import('@/views/WikiView.vue'), meta: { public: true, bare: true } },
     { path: '/', name: 'projects', component: () => import('@/views/ProjectsView.vue') },
     { path: '/documentation', name: 'docs', component: () => import('@/views/docs/DocSpacesView.vue'), meta: { docs: true } },
     { path: '/documentation/f/:nodeId(\\d+)', name: 'doc-file', component: () => import('@/views/docs/DocFileRedirect.vue'), meta: { docs: true } },
     { path: '/documentation/:spaceId(\\d+)', name: 'doc-space', component: () => import('@/views/docs/DocSpaceView.vue'), meta: { docs: true } },
+    { path: '/tableaux', name: 'boards', component: () => import('@/views/boards/BoardSpacesView.vue'), meta: { boards: true } },
+    { path: '/tableaux/t/:boardId(\\d+)', name: 'board-file', component: () => import('@/views/boards/BoardFileRedirect.vue'), meta: { boards: true } },
+    { path: '/tableaux/:spaceId(\\d+)', name: 'board-space', component: () => import('@/views/boards/BoardSpaceView.vue'), meta: { boards: true } },
     { path: '/search', name: 'search', component: () => import('@/views/SearchView.vue') },
     { path: '/users/:id(\\d+)', name: 'user', component: () => import('@/views/UserView.vue') },
     { path: '/assistant', name: 'assistant', component: () => import('@/views/AssistantView.vue'), meta: { permission: 'ai.use' } },
@@ -74,6 +78,7 @@ const router = createRouter({
             if (auth.can('ai.manage')) return { name: 'admin-ai' };
             if (auth.can('auth.manage')) return { name: 'admin-auth' };
             if (auth.can('docs.manage')) return { name: 'admin-docs' };
+            if (auth.can('boards.manage')) return { name: 'admin-boards' };
             if (auth.can('system.manage')) return { name: 'admin-https' };
             return { name: 'admin-service' };
           },
@@ -87,6 +92,7 @@ const router = createRouter({
         { path: 'branding', name: 'admin-branding', component: () => import('@/views/admin/BrandingView.vue'), meta: { permission: 'settings.manage' } },
         { path: 'maintenance', name: 'admin-maintenance', component: () => import('@/views/admin/MaintenanceView.vue'), meta: { permission: 'settings.manage' } },
         { path: 'documentation', name: 'admin-docs', component: () => import('@/views/admin/DocumentationView.vue'), meta: { permission: 'docs.manage' } },
+        { path: 'tableaux', name: 'admin-boards', component: () => import('@/views/admin/BoardsView.vue'), meta: { permission: 'boards.manage' } },
         { path: 'auth', name: 'admin-auth', component: () => import('@/views/admin/AuthView.vue'), meta: { permission: 'auth.manage' } },
         { path: 'ai', name: 'admin-ai', component: () => import('@/views/admin/AiView.vue'), meta: { permission: 'ai.manage' } },
         { path: 'https', name: 'admin-https', component: () => import('@/views/admin/HttpsView.vue'), meta: { permission: 'system.manage' } },
@@ -113,6 +119,9 @@ router.beforeEach((to) => {
     return { name: 'projects' };
   }
   if (to.meta.docs && !useAppStore().info.docs) {
+    return { name: 'projects' };
+  }
+  if (to.meta.boards && !useAppStore().info.boards) {
     return { name: 'projects' };
   }
   return true;

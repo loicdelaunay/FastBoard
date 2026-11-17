@@ -307,3 +307,96 @@ button {
     opacity: 0;
   }
 }
+
+/* Tableaux blancs : teintes des éléments, en thème clair puis sombre. */
+:root {
+  --board-canvas: #f8fafc;
+  --board-dot: #cbd5e1;
+  --board-select: #3b82f6;
+  --board-default-fill: #ffffff;
+  --board-default-stroke: #334155;
+  --board-default-text: #0f172a;
+  --board-default-sticky: #fef08a;
+  --board-gray-fill: #f1f5f9;
+  --board-gray-stroke: #64748b;
+  --board-gray-text: #1e293b;
+  --board-gray-sticky: #e2e8f0;
+  --board-red-fill: #fee2e2;
+  --board-red-stroke: #ef4444;
+  --board-red-text: #7f1d1d;
+  --board-red-sticky: #fecaca;
+  --board-orange-fill: #ffedd5;
+  --board-orange-stroke: #f97316;
+  --board-orange-text: #7c2d12;
+  --board-orange-sticky: #fed7aa;
+  --board-yellow-fill: #fef9c3;
+  --board-yellow-stroke: #eab308;
+  --board-yellow-text: #713f12;
+  --board-yellow-sticky: #fef08a;
+  --board-green-fill: #dcfce7;
+  --board-green-stroke: #22c55e;
+  --board-green-text: #14532d;
+  --board-green-sticky: #bbf7d0;
+  --board-blue-fill: #dbeafe;
+  --board-blue-stroke: #3b82f6;
+  --board-blue-text: #1e3a8a;
+  --board-blue-sticky: #bfdbfe;
+  --board-purple-fill: #f3e8ff;
+  --board-purple-stroke: #a855f7;
+  --board-purple-text: #581c87;
+  --board-purple-sticky: #e9d5ff;
+  --board-pink-fill: #fce7f3;
+  --board-pink-stroke: #ec4899;
+  --board-pink-text: #831843;
+  --board-pink-sticky: #fbcfe8;
+}
+:root.app-dark {
+  --board-canvas: #111827;
+  --board-dot: #334155;
+  --board-select: #60a5fa;
+  --board-default-fill: #273444;
+  --board-default-stroke: #64748b;
+  --board-default-text: #e2e8f0;
+  --board-gray-fill: #2a3240;
+  --board-gray-stroke: #94a3b8;
+  --board-gray-text: #e2e8f0;
+  --board-red-fill: #3f1d24;
+  --board-red-stroke: #f87171;
+  --board-red-text: #fecaca;
+  --board-orange-fill: #3f2a1b;
+  --board-orange-stroke: #fb923c;
+  --board-orange-text: #fed7aa;
+  --board-yellow-fill: #3b3415;
+  --board-yellow-stroke: #facc15;
+  --board-yellow-text: #fef08a;
+  --board-green-fill: #173826;
+  --board-green-stroke: #4ade80;
+  --board-green-text: #bbf7d0;
+  --board-blue-fill: #1b2f4f;
+  --board-blue-stroke: #60a5fa;
+  --board-blue-text: #bfdbfe;
+  --board-purple-fill: #312047;
+  --board-purple-stroke: #c084fc;
+  --board-purple-text: #e9d5ff;
+  --board-pink-fill: #3d1a31;
+  --board-pink-stroke: #f472b6;
+  --board-pink-text: #fbcfe8;
+}
+/* Aperçu d'un tableau blanc dans le texte : l'image du thème en cours. */
+:root:not(.app-dark) .md-board-preview.dark,
+:root:not(.app-dark) .cm-lp-board-preview.dark,
+:root.app-dark .md-board-preview.light,
+:root.app-dark .cm-lp-board-preview.light {
+  display: none !important;
+}
+/* Mesure du texte des éléments (hors de l'écran). */
+.board-measure {
+  position: absolute;
+  top: -10000px;
+  left: -10000px;
+  visibility: hidden;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}

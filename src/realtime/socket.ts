@@ -4,6 +4,8 @@ import type { AppInfoDTO, NotificationDTO } from '@shared/types';
 
 /** Messages de la documentation, traités par les écrans qui les attendent. */
 export type DocServerMessage = Extract<ServerMessage, { t: `doc${string}` }>;
+/** Messages des tableaux blancs. */
+export type BoardServerMessage = Extract<ServerMessage, { t: `board${string}` }>;
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting';
 
@@ -28,6 +30,7 @@ interface Handlers {
   notification: Array<(notification: NotificationDTO, unread: number) => void>;
   notificationsRead: Array<(unread: number) => void>;
   doc: Array<(message: DocServerMessage) => void>;
+  board: Array<(message: BoardServerMessage) => void>;
 }
 
 const BACKOFF = [500, 1000, 2000, 4000, 8000, 15000];
@@ -44,7 +47,9 @@ class RealtimeClient {
   #projectId: number | null = null;
   #presence: { ticketId: number | null; view: string } = { ticketId: null, view: '' };
   #hasConnectedOnce = false;
-  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], doc: [] };
+  /** Visiteur sans compte d'un tableau partagé : connexion limitée aux tableaux. */
+  #guest = false;
+  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], doc: [], board: [] };
 
   on<K extends keyof Handlers>(type: K, handler: Handlers[K][number]): () => void {
     (this.#handlers[type] as Array<typeof handler>).push(handler);
@@ -57,7 +62,12 @@ class RealtimeClient {
     };
   }
 
-  connect(): void {
+  connect(options: { guest?: boolean } = {}): void {
+    if (options.guest !== undefined && options.guest !== this.#guest && this.#socket) {
+      // On passe de visiteur à compte (ou l'inverse) : nouvelle connexion.
+      this.disconnect();
+    }
+    this.#guest = options.guest ?? false;
     this.#wanted = true;
     if (this.#socket && this.#socket.readyState <= WebSocket.OPEN) {
       return;
@@ -98,10 +108,15 @@ class RealtimeClient {
     this.#send(message);
   }
 
+  /** Envoie un message de tableau blanc (même règle que `sendDoc`). */
+  sendBoard(message: Extract<ClientMessage, { t: `board${string}` }>): void {
+    this.#send(message);
+  }
+
   #open(): void {
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
     this.state.value = this.#hasConnectedOnce ? 'reconnecting' : 'connecting';
-    const socket = new WebSocket(`${protocol}://${location.host}/ws`);
+    const socket = new WebSocket(`${protocol}://${location.host}/ws${this.#guest ? '?guest=1' : ''}`);
     this.#socket = socket;
 
     socket.onopen = () => {
@@ -179,6 +194,16 @@ class RealtimeClient {
       case 'doc.saved':
       case 'doc.closed':
         this.#handlers.doc.forEach((handler) => handler(message));
+        break;
+      case 'boards.tree':
+      case 'boards.access':
+      case 'boards.revoked':
+      case 'board.sync':
+      case 'board.update':
+      case 'board.awareness':
+      case 'board.saved':
+      case 'board.closed':
+        this.#handlers.board.forEach((handler) => handler(message));
         break;
       default:
         break;

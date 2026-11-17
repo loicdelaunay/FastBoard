@@ -100,7 +100,8 @@ function markComments(root: HTMLElement, comments: readonly DocCommentDTO[]): vo
 export function finishDocHtml(html: string, context: DocRenderContext, comments: readonly DocCommentDTO[] = []): string {
   const box = document.createElement('div');
   box.innerHTML = html;
-  for (const image of box.querySelectorAll('img')) {
+  // L'aperçu d'un tableau blanc n'est pas un fichier de l'espace.
+  for (const image of box.querySelectorAll<HTMLImageElement>('img:not(.md-board-preview)')) {
     const source = image.getAttribute('src') ?? '';
     const size = imageSize(image.getAttribute('alt') ?? '');
     if (size.width) {
@@ -115,7 +116,7 @@ export function finishDocHtml(html: string, context: DocRenderContext, comments:
   }
   for (const link of box.querySelectorAll('a')) {
     const target = link.getAttribute('href') ?? '';
-    if (link.classList.contains('md-mention') || /^(https?:|mailto:|#)/i.test(target)) continue;
+    if (link.classList.contains('md-mention') || link.classList.contains('md-board') || /^(https?:|mailto:|#)/i.test(target)) continue;
     const node = resolveDocLink(context.nodes, context.notePath, target);
     if (node) link.dataset.node = String(node.id);
     else link.classList.add('broken');

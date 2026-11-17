@@ -37,7 +37,7 @@ onMounted(() => {
   if (!projects.loaded) void projects.fetch().catch(() => undefined);
 });
 
-const ICONS: Record<AiContextEntry['kind'], string> = { project: 'pi pi-folder', ticket: 'pi pi-ticket', space: 'pi pi-book', note: 'pi pi-file' };
+const ICONS: Record<AiContextEntry['kind'], string> = { project: 'pi pi-folder', ticket: 'pi pi-ticket', space: 'pi pi-book', note: 'pi pi-file', board: 'pi pi-objects-column' };
 const keyOf = (entry: Pick<AiContextEntry, 'kind' | 'id'>): string => `${entry.kind}:${entry.id}`;
 const present = computed(() => new Set(props.entries.map(keyOf)));
 const full = computed(() => props.entries.length >= AI_LIMITS.contextItems);

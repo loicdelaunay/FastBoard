@@ -5,7 +5,9 @@ import type { DocSearchHitDTO } from '@shared/docs';
 import type { SearchTicketHit, UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import { t } from '@/i18n';
 import { useAppStore } from '@/stores/app';
+import type { BoardSearchHitDTO } from '@shared/boards';
 import { useProjectStore } from '@/stores/project';
 import { activeMentionQuery, mentionToken, type MentionKind } from '@/utils/mentions';
 import { matchesQuery } from '@/utils/search';
@@ -25,6 +27,7 @@ const project = useProjectStore();
 const app = useAppStore();
 const docFiles = ref<DocSearchHitDTO[]>([]);
 const foundTickets = ref<SearchTicketHit[]>([]);
+const foundBoards = ref<BoardSearchHitDTO[]>([]);
 const peopleList = computed(() => props.people ?? project.users);
 const textarea = ref<{ $el: HTMLTextAreaElement } | null>(null);
 const mention = ref<{ start: number; query: string } | null>(null);
@@ -52,7 +55,8 @@ const suggestions = computed<Suggestion[]>(() => {
         .slice(0, 5)
         .map((ticket): Suggestion => ({ kind: 'ticket', id: ticket.id, label: ticketKey(project.project, ticket), hint: ticket.title }));
   const docs = docFiles.value.slice(0, 4).map((file): Suggestion => ({ kind: 'doc', id: file.id, label: file.title, hint: `${file.spaceName} · ${file.path}` }));
-  return [...users, ...tickets, ...docs];
+  const boards = foundBoards.value.map((board): Suggestion => ({ kind: 'board', id: board.id, label: board.title, hint: `${t('Tableau blanc')} · ${board.spaceName}` }));
+  return [...users, ...tickets, ...docs, ...boards];
 });
 
 // Les fichiers de documentation viennent du serveur, après une courte pause dans la frappe.
@@ -64,12 +68,18 @@ watch(
     if (!query) {
       docFiles.value = [];
       foundTickets.value = [];
+      foundBoards.value = [];
       return;
     }
     searchTimer = window.setTimeout(() => {
       if (props.people) {
         api.search(query, { type: ['tickets'], limit: 5 }).then((result) => {
           if (mention.value?.query === query) foundTickets.value = result.tickets.items;
+        }, () => undefined);
+      }
+      if (app.info.boards) {
+        api.boardSearch(query, 3).then((result) => {
+          if (mention.value?.query === query) foundBoards.value = result.boards;
         }, () => undefined);
       }
       if (!app.info.docs) return;
@@ -163,7 +173,7 @@ defineExpose({ focus: () => element()?.focus(), element });
         @mouseenter="highlighted = index"
       >
         <UserAvatar v-if="suggestion.kind === 'user'" :user="peopleList.find((user) => user.id === suggestion.id)" size="small" />
-        <i v-else :class="suggestion.kind === 'doc' ? 'pi pi-file' : 'pi pi-ticket'" class="ticket-icon"></i>
+        <i v-else :class="suggestion.kind === 'doc' ? 'pi pi-file' : suggestion.kind === 'board' ? 'pi pi-objects-column' : 'pi pi-ticket'" class="ticket-icon"></i>
         <strong class="truncate">{{ suggestion.label }}</strong>
         <span class="muted small truncate">{{ suggestion.hint }}</span>
       </li>

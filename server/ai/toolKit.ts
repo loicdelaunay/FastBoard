@@ -25,6 +25,8 @@ export interface ToolDefinition {
   write: boolean;
   /** Outil de la documentation : proposé seulement si elle est activée. */
   docs?: boolean;
+  /** Outil des tableaux blancs : proposé seulement s'ils sont activés. */
+  boards?: boolean;
   /** Libellé court affiché dans le panneau pendant l'exécution. */
   label: (args: Record<string, unknown>) => string;
   run: (tool: ToolContext, args: Record<string, unknown>) => unknown;

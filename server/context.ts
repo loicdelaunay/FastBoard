@@ -1,4 +1,5 @@
 import type { AppConfig } from './config.ts';
+import type { BoardRooms } from './boards/collab.ts';
 import type { DocRooms } from './docs/collab.ts';
 import type { Db } from './db/database.ts';
 import type { Logger } from './monitoring/logger.ts';
@@ -19,6 +20,8 @@ export interface AppContext {
   docsDir: string;
   /** Salles d'édition collaborative de la documentation. */
   docRooms: DocRooms;
+  /** Salles d'édition collaborative des tableaux blancs. */
+  boardRooms: BoardRooms;
   /** Chiffre les secrets réaffichables (jetons d'API). */
   secrets: SecretBox;
   /** Serveur HTTPS optionnel (réglages d'administration « HTTP / HTTPS ») ; absent avant le démarrage du serveur. */

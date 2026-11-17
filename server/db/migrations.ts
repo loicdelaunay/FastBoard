@@ -656,6 +656,89 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       );
     `);
   },
+  // 22 — Tableaux blancs : des espaces avec membres et rôles, comme la documentation, qui rangent des tableaux en
+  // dossiers. Un tableau garde son état Yjs (édition à plusieurs) et une copie lisible de ses éléments.
+  (db) => {
+    db.exec(`
+      CREATE TABLE board_spaces (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      );
+      CREATE TABLE board_members (
+        space_id   INTEGER NOT NULL REFERENCES board_spaces(id) ON DELETE CASCADE,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role       TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (space_id, user_id)
+      );
+      CREATE INDEX idx_board_members_user ON board_members (user_id);
+      CREATE TABLE board_nodes (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        space_id      INTEGER NOT NULL REFERENCES board_spaces(id) ON DELETE CASCADE,
+        path          TEXT NOT NULL,
+        kind          TEXT NOT NULL,
+        state         BLOB,
+        elements      TEXT NOT NULL DEFAULT '[]',
+        element_count INTEGER NOT NULL DEFAULT 0,
+        search_text   TEXT NOT NULL DEFAULT '',
+        created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        updated_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL,
+        deleted_at    TEXT
+      );
+      CREATE UNIQUE INDEX idx_board_nodes_path ON board_nodes (space_id, path COLLATE NOCASE) WHERE deleted_at IS NULL;
+    `);
+    grantSystemRoles(db, 'global', { admin: ['boards.create', 'boards.manage'], member: ['boards.create'] });
+  },
+  // 23 — Partage d'un tableau en plus des membres de son espace : aux personnes connectées, à une liste, ou à tout le
+  // monde sans compte, en lecture ou en écriture, avec un mot de passe au choix.
+  (db) => {
+    db.exec(`
+      CREATE TABLE board_shares (
+        board_id      INTEGER PRIMARY KEY REFERENCES board_nodes(id) ON DELETE CASCADE,
+        slug          TEXT NOT NULL UNIQUE,
+        audience      TEXT NOT NULL,
+        people        TEXT NOT NULL DEFAULT '[]',
+        role          TEXT NOT NULL,
+        password_hash TEXT,
+        secret        TEXT NOT NULL,
+        created_by    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL
+      );
+    `);
+  },
+  // 24 — Tableaux blancs : modèles d'un espace (leurs noms ne gênent pas ceux des tableaux), images et SVG envoyés dans
+  // un espace pour tous ses tableaux, icônes ajoutées par les administrateurs pour tout le monde.
+  (db) => {
+    db.exec(`
+      DROP INDEX idx_board_nodes_path;
+      CREATE UNIQUE INDEX idx_board_nodes_path ON board_nodes (space_id, kind = 'template', path COLLATE NOCASE) WHERE deleted_at IS NULL;
+      CREATE TABLE board_assets (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        space_id   INTEGER NOT NULL REFERENCES board_spaces(id) ON DELETE CASCADE,
+        key        TEXT NOT NULL UNIQUE,
+        name       TEXT NOT NULL,
+        mime       TEXT NOT NULL,
+        size       INTEGER NOT NULL,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_board_assets_space ON board_assets (space_id);
+      CREATE TABLE board_icons (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL,
+        svg        TEXT NOT NULL,
+        created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

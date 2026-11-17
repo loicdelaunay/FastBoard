@@ -1,6 +1,7 @@
 /** Assistant IA : réglages (fournisseurs compatibles OpenAI v1) et protocole du panneau de discussion. */
 
 import type { TicketStatus } from './constants.ts';
+import type { BoardElement } from './boards.ts';
 
 export const DEFAULT_AI_BASE_URL = 'https://api.openai.com/v1';
 export const DEFAULT_AI_MODEL = 'gpt-4o-mini';
@@ -36,6 +37,8 @@ export interface AiProviderDTO {
   hasKey: boolean;
   /** Quatre derniers caractères de la clé, pour la reconnaître. */
   keyHint: string | null;
+  /** `false` : certificat HTTPS accepté même s'il n'est pas reconnu (auto-signé). */
+  verifyCertificate: boolean;
 }
 
 export interface AiSettingsDTO {
@@ -93,7 +96,7 @@ export interface AiMessage {
   files?: AiFile[];
 }
 
-export const AI_CONTEXT_KINDS = ['project', 'ticket', 'space', 'note'] as const;
+export const AI_CONTEXT_KINDS = ['project', 'ticket', 'space', 'note', 'board'] as const;
 export type AiContextKind = (typeof AI_CONTEXT_KINDS)[number];
 
 /** Élément ajouté à la main au contexte de l'assistant. */
@@ -111,6 +114,8 @@ export interface AiContext {
   ticketId?: number | null;
   docSpaceId?: number | null;
   docNodeId?: number | null;
+  /** Tableau blanc ouvert. */
+  boardId?: number | null;
   items?: AiContextItem[];
 }
 
@@ -121,12 +126,13 @@ export interface AiContext {
 export function contextOfItems(entries: ReadonlyArray<AiContextItem & { parentId?: number | null }>): AiContext {
   const ticket = entries.find((entry) => entry.kind === 'ticket');
   const note = entries.find((entry) => entry.kind === 'note');
+  const board = entries.find((entry) => entry.kind === 'board');
   const projectId = ticket?.parentId ?? entries.find((entry) => entry.kind === 'project')?.id ?? null;
   const spaceId = note?.parentId ?? entries.find((entry) => entry.kind === 'space')?.id ?? null;
   const primary = (entry: AiContextItem): boolean =>
-    entry === ticket || entry === note || (entry.kind === 'project' && entry.id === projectId) || (entry.kind === 'space' && entry.id === spaceId);
+    entry === ticket || entry === note || entry === board || (entry.kind === 'project' && entry.id === projectId) || (entry.kind === 'space' && entry.id === spaceId);
   const items = entries.filter((entry) => !primary(entry)).map(({ kind, id }) => ({ kind, id }));
-  return { projectId, ticketId: ticket?.id ?? null, docSpaceId: spaceId, docNodeId: note?.id ?? null, ...(items.length ? { items } : {}) };
+  return { projectId, ticketId: ticket?.id ?? null, docSpaceId: spaceId, docNodeId: note?.id ?? null, boardId: board?.id ?? null, ...(items.length ? { items } : {}) };
 }
 
 /** `apply` : l'assistant modifie directement ; `propose` : il propose des modifications que la personne valide. */
@@ -170,7 +176,10 @@ export type AiChangeAction =
   | { kind: 'link.create'; ticketId: number; targetId: number; reason: string; linkId: number | null }
   | { kind: 'doc.create'; spaceId: number; path: string; content: string; nodeId: number | null }
   /** Passage remplacé, avec son contexte : le rejouer respecte ce qui a été écrit ailleurs dans la note entre-temps. */
-  | { kind: 'doc.edit'; nodeId: number; before: string; after: string };
+  | { kind: 'doc.edit'; nodeId: number; before: string; after: string }
+  /** Éléments d'un tableau blanc : `before` (absents s'ils sont ajoutés) devient `after` (absents s'ils sont retirés). */
+  | { kind: 'board.elements'; boardId: number; before: BoardElement[]; after: BoardElement[] }
+  | { kind: 'board.create'; spaceId: number; path: string; elements: BoardElement[]; nodeId: number | null };
 
 /** Une modification faite (ou proposée) par l'assistant, telle qu'affichée dans le panneau. */
 export interface AiChangeDTO {

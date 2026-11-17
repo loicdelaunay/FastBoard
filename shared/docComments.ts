@@ -28,7 +28,7 @@ export const DOC_COMMENT_LIMITS = { body: 5_000, quote: 500, context: 80 };
 /** Retire la syntaxe Markdown d'un texte : ce qui reste est ce que la lecture affiche. */
 export function plainText(markdown: string): string {
   return markdown
-    .replace(/@\[([^\]\n]*)\]\((?:user|ticket|doc):\d+\)/g, '$1')
+    .replace(/@\[([^\]\n]*)\]\((?:user|ticket|doc|board):\d+\)/g, '$1')
     .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, '$1')
     .replace(/^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)/gm, '')
     .replace(/[*`~]+/g, '')

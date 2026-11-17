@@ -4,6 +4,7 @@
  */
 import { AI_CONTEXT_KINDS, AI_LIMITS, REASONING_LEVELS } from '../../shared/ai.ts';
 import { parseRetentionRules } from '../../shared/backup.ts';
+import { BOARD_ICON_LIMITS, BOARD_LIMITS, BOARD_SHARE_AUDIENCES, BOARD_SHARE_LIMITS, BOARD_SHARE_ROLES } from '../../shared/boards.ts';
 import { LIMITS, TICKET_STATUSES } from '../../shared/constants.ts';
 import { isISODate } from '../../shared/dates.ts';
 import { DOC_COMMENT_LIMITS } from '../../shared/docComments.ts';
@@ -367,6 +368,7 @@ const aiContextSchema = z
     ticketId: id.nullable().optional(),
     docSpaceId: id.nullable().optional().describe('Espace de documentation ouvert.'),
     docNodeId: id.nullable().optional().describe('Note ouverte.'),
+    boardId: id.nullable().optional().describe('Tableau blanc ouvert.'),
     items: z
       .array(z.object({ kind: z.enum(AI_CONTEXT_KINDS), id }))
       .max(AI_LIMITS.contextItems)
@@ -433,6 +435,7 @@ export const aiSettingsSchema = z.object({
         timeoutSeconds: z.number().int().min(5).max(AI_LIMITS.timeoutMax).default(AI_LIMITS.timeoutSeconds).describe('Délai maximal d’une réponse, en secondes.'),
         models: aiModelsSchema,
         apiKey: z.string().max(500).optional().describe('Absent : garder la clé actuelle ; chaîne vide : l’effacer.'),
+        verifyCertificate: z.boolean().default(true).describe('`false` : accepter un certificat HTTPS non reconnu (auto-signé).'),
       }),
     )
     .min(1, 'Ajoutez au moins un fournisseur.')
@@ -450,6 +453,7 @@ export const aiProbeSchema = z.object({
   timeoutSeconds: z.number().int().min(5).max(AI_LIMITS.timeoutMax).optional(),
   model: z.string().trim().max(200).optional(),
   apiKey: z.string().max(500).optional().describe('Absent ou vide : clé enregistrée.'),
+  verifyCertificate: z.boolean().default(true).describe('`false` : accepter un certificat HTTPS non reconnu (auto-signé).'),
 });
 
 export const aiConversationSchema = z.object({
@@ -532,6 +536,44 @@ export const docCommentSchema = z.object({
 });
 export const docCommentResolveSchema = z.object({ resolved: z.boolean() });
 export const docSearchSchema = z.object({ q: z.string().trim().max(100).default('') });
+
+// --- Tableaux blancs ---------------------------------------------------------------------------------------------------
+
+export const boardSettingsSchema = z.object({ enabled: z.boolean() });
+export const boardSpaceSchema = z.object({
+  name: z.string().trim().min(1, 'Donnez un nom à l’espace.').max(BOARD_LIMITS.nameMax),
+  description: z.string().trim().max(BOARD_LIMITS.descriptionMax).default(''),
+});
+export const boardSpaceUpdateSchema = boardSpaceSchema.partial();
+export const boardMemberRoleSchema = docMemberRoleSchema;
+export const boardMemberSchema = docMemberSchema;
+const boardElements = z
+  .array(z.record(z.string(), z.unknown()))
+  .max(BOARD_LIMITS.elements)
+  .describe('Éléments du tableau (voir le guide de l’API) ; un élément illisible est ignoré.');
+export const boardNodeSchema = z.object({
+  path: z.string().min(1).max(BOARD_LIMITS.pathMax).describe('Chemin dans l’espace, ex. `Ateliers/Rétro de mars` ; les dossiers manquants sont créés.'),
+  kind: z.enum(['folder', 'board', 'template']).default('board').describe('`template` : modèle de l’espace (un nom sans dossier), inséré dans les tableaux.'),
+  elements: boardElements.optional().describe('Éléments de départ d’un tableau ou d’un modèle.'),
+});
+export const boardIconSchema = z.object({
+  name: z.string().trim().min(1).max(BOARD_ICON_LIMITS.nameMax),
+  svg: z.string().min(1).max(BOARD_ICON_LIMITS.svgBytes).describe('Texte du SVG (sans script ni contenu externe).'),
+});
+export const boardMoveSchema = z.object({ path: z.string().min(1).max(BOARD_LIMITS.pathMax).describe('Nouveau chemin (renommage ou déplacement).') });
+export const boardElementsSchema = z.object({ elements: boardElements });
+export const boardElementsPatchSchema = z.object({
+  upsert: boardElements.default([]).describe('Éléments ajoutés, ou remplacés s’ils ont le même `id`.'),
+  remove: z.array(z.string().min(1).max(40)).max(BOARD_LIMITS.elements).default([]).describe('Identifiants des éléments à retirer (les liens accrochés partent avec eux).'),
+});
+export const boardShareSchema = z.object({
+  audience: z.enum(BOARD_SHARE_AUDIENCES).describe('`users` : toute personne connectée ; `people` : les personnes de `people` ; `public` : tout le monde, même sans compte.'),
+  people: z.array(id).max(BOARD_SHARE_LIMITS.people).default([]),
+  role: z.enum(BOARD_SHARE_ROLES).default('reader').describe('`reader` : voir en direct ; `editor` : modifier.'),
+  password: z.string().max(BOARD_SHARE_LIMITS.passwordMax).nullable().optional().describe('Absent : inchangé ; `null` ou vide : retiré.'),
+});
+export const boardUnlockSchema = z.object({ password: z.string().min(1).max(BOARD_SHARE_LIMITS.passwordMax) });
+export const boardSearchSchema = z.object({ q: z.string().trim().max(100).default(''), limit: z.coerce.number().int().min(1).max(50).default(10) });
 export const docImportApplySchema = z.object({
   decisions: z
     .array(

@@ -421,6 +421,51 @@ describe('assistant IA', () => {
     assert.equal((await bob.get('/api/ai/conversations/conv-0050')).status, 404);
   });
 
+  it('lit et dessine sur les tableaux blancs, dans les droits de la personne', async () => {
+    const spaceId = (await bob.post('/api/boards/spaces', { name: 'Ateliers IA' })).body.space.id as number;
+    await bob.post(`/api/boards/spaces/${spaceId}/members`, { userId: ids.vera, role: 'reader' });
+    const boardId = (await bob.post(`/api/boards/spaces/${spaceId}/nodes`, { path: 'Rétro' })).body.node.id as number;
+    const elementsOf = async () => (await bob.get(`/api/boards/nodes/${boardId}`)).body.elements as Array<{ id: string; type: string; text?: string }>;
+    const toolOutput = () => JSON.parse(provider.requests.at(-1)!.body.messages.at(-1)!.content as string) as Record<string, any>;
+
+    // Le tableau ouvert est connu, et l'écriture n'est proposée qu'avec l'autorisation.
+    await chat(bob, 'Bonjour', { boardId });
+    const system = provider.requests.at(-1)!.body.messages[0]!.content as string;
+    assert.ok(system.includes('« Rétro » (id ') && system.includes('ce tableau'));
+    const names = provider.requests.at(-1)!.body.tools!.map((tool) => tool.function.name);
+    assert.ok(names.includes('read_board') && !names.includes('draw_on_board'));
+
+    // Dessin en Mermaid, appliqué en direct puis lisible.
+    const drawn = events((await chat(bob, `outil:draw_on_board {"board":${boardId},"mermaid":"flowchart LR\\nA[Idée] --> B[Projet]"}`, { boardId }, true)).body);
+    const [change] = changesOf(drawn);
+    assert.equal(change!.state, 'applied');
+    assert.equal(change!.action.kind, 'board.elements');
+    assert.deepEqual((await elementsOf()).map((element) => element.type).sort(), ['connector', 'shape', 'shape']);
+    await chat(bob, `outil:read_board {"board":${boardId}}`, { boardId });
+    assert.match(toolOutput().mermaid, /Idée/);
+
+    // Post-it, modification puis suppression d'un élément.
+    events((await chat(bob, `outil:add_sticky_notes {"board":${boardId},"notes":["Bien","À revoir"],"color":"green"}`, { boardId }, true)).body);
+    const sticky = (await elementsOf()).find((element) => element.text === 'Bien')!;
+    events((await chat(bob, `outil:edit_board_element {"board":${boardId},"element":"${sticky.id}","text":"Très bien"}`, { boardId }, true)).body);
+    assert.ok((await elementsOf()).some((element) => element.text === 'Très bien'));
+    events((await chat(bob, `outil:delete_board_elements {"board":${boardId},"elements":["${sticky.id}"]}`, { boardId }, true)).body);
+    assert.equal((await elementsOf()).length, 4);
+
+    // Proposer ne change rien ; un lecteur ne peut pas écrire.
+    const proposed = changesOf(events((await chat(bob, `outil:add_sticky_notes {"board":${boardId},"notes":["Plus tard"]}`, { boardId }, true, { writeMode: 'propose' })).body));
+    assert.equal(proposed[0]!.state, 'pending');
+    assert.equal((await elementsOf()).length, 4);
+    const denied = changesOf(events((await chat(vera, `outil:add_sticky_notes {"board":${boardId},"notes":["Non"]}`, { boardId }, true)).body));
+    assert.equal(denied.length, 0);
+    assert.equal((await elementsOf()).length, 4);
+
+    // La route de fusion, utilisée pour rejouer ou annuler un changement depuis le panneau.
+    const shapeId = (await elementsOf()).find((element) => element.type === 'shape')!.id;
+    const merged = await bob.request('PATCH', `/api/boards/nodes/${boardId}/elements`, { upsert: [], remove: [shapeId] });
+    assert.equal(merged.body.count, 2, 'la forme part avec son lien');
+  });
+
   describe('documentation', () => {
     let spaceId = 0;
     let noteId = 0;

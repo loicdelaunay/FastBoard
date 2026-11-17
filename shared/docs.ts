@@ -1,5 +1,7 @@
 /** Documentation : espaces collaboratifs de fichiers Markdown, rangés en dossiers sur le serveur (façon coffre Obsidian). */
 
+import type { BoardSearchHitDTO } from './boards.ts';
+
 export const DOC_ROLES = ['reader', 'editor', 'owner'] as const;
 export type DocRole = (typeof DOC_ROLES)[number];
 
@@ -156,8 +158,10 @@ export interface DocLinkTicketDTO {
 
 /** Ce qu'une note cite, et ce qui la cite. */
 export interface DocLinksDTO {
-  outgoing: { notes: DocLinkNoteDTO[]; tickets: DocLinkTicketDTO[]; broken: string[] };
-  backlinks: { notes: DocLinkNoteDTO[]; tickets: DocLinkTicketDTO[] };
+  /** `boards` : tableaux blancs mentionnés. */
+  outgoing: { notes: DocLinkNoteDTO[]; tickets: DocLinkTicketDTO[]; boards: BoardSearchHitDTO[]; broken: string[] };
+  /** `boards` : tableaux blancs qui montrent la note dans un Fast Element. */
+  backlinks: { notes: DocLinkNoteDTO[]; tickets: DocLinkTicketDTO[]; boards: BoardSearchHitDTO[] };
 }
 
 /**

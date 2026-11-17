@@ -1,4 +1,5 @@
 import type { AiChangeAction } from '@shared/ai';
+import type { BoardElement } from '@shared/boards';
 import { replacePassage } from '@shared/docDiff';
 import { api } from '@/api';
 import { t } from '@/i18n';
@@ -51,9 +52,22 @@ export async function performChange(action: AiChangeAction): Promise<AiChangeAct
     case 'doc.edit':
       await rewriteNote(action.nodeId, action.before, action.after);
       return action;
+    case 'board.elements':
+      await patchBoard(action.boardId, action.before, action.after);
+      return action;
+    case 'board.create': {
+      const { node } = await api.boardCreateNode(action.spaceId, action.path, 'board', action.elements);
+      return { ...action, nodeId: node.id };
+    }
     default:
       throw new Error(OUTDATED());
   }
+}
+
+/** Passe un tableau de `from` à `to` sans toucher à ses autres éléments. */
+async function patchBoard(boardId: number, from: BoardElement[], to: BoardElement[]): Promise<void> {
+  const kept = new Set(to.map((element) => element.id));
+  await api.boardPatchElements(boardId, to, from.filter((element) => !kept.has(element.id)).map((element) => element.id));
 }
 
 export async function undoChange(action: AiChangeAction): Promise<AiChangeAction> {
@@ -82,6 +96,12 @@ export async function undoChange(action: AiChangeAction): Promise<AiChangeAction
     case 'doc.edit':
       await rewriteNote(action.nodeId, action.after, action.before);
       return action;
+    case 'board.elements':
+      await patchBoard(action.boardId, action.after, action.before);
+      return action;
+    case 'board.create':
+      if (action.nodeId) await api.boardDeleteNode(action.nodeId);
+      return { ...action, nodeId: null };
     default:
       throw new Error(OUTDATED());
   }

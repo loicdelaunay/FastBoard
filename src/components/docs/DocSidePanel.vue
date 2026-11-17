@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useConfirm } from 'primevue/useconfirm';
 import Button from 'primevue/button';
 import { findQuote, type DocCommentDTO, type DocQuote } from '@shared/docComments';
@@ -36,6 +37,7 @@ const emit = defineEmits<{ close: []; open: [node: DocNodeDTO]; reveal: [comment
 
 const auth = useAuthStore();
 const confirm = useConfirm();
+const router = useRouter();
 const { openNode, openTicket } = useDocLinks(() => props.nodes, (node) => emit('open', node));
 const resolver = computed(() => docResolver(props.users));
 const userOf = (id: number | null) => props.users.find((user) => user.id === id);
@@ -44,10 +46,14 @@ const userOf = (id: number | null) => props.users.find((user) => user.id === id)
 const groups = computed(() => {
   const links = props.links;
   return [
-    { key: 'back', label: t('Rétroliens'), notes: links?.backlinks.notes ?? [], tickets: links?.backlinks.tickets ?? [], broken: [], empty: t('Rien ne cite cette note.') },
-    { key: 'out', label: t('Liens de la note'), notes: links?.outgoing.notes ?? [], tickets: links?.outgoing.tickets ?? [], broken: links?.outgoing.broken ?? [], empty: t('Cette note ne cite rien.') },
+    { key: 'back', label: t('Rétroliens'), notes: links?.backlinks.notes ?? [], tickets: links?.backlinks.tickets ?? [], boards: links?.backlinks.boards ?? [], broken: [], empty: t('Rien ne cite cette note.') },
+    { key: 'out', label: t('Liens de la note'), notes: links?.outgoing.notes ?? [], tickets: links?.outgoing.tickets ?? [], boards: links?.outgoing.boards ?? [], broken: links?.outgoing.broken ?? [], empty: t('Cette note ne cite rien.') },
   ];
 });
+
+function openBoard(id: number): void {
+  void router.push({ name: 'board-file', params: { boardId: id } });
+}
 
 function openTicketLink(ticket: DocLinkTicketDTO): void {
   void openTicket(ticket.id);
@@ -180,8 +186,8 @@ function choose(thread: Thread): void {
 
     <div v-if="tab === 'links'" class="content">
       <section v-for="group in groups" :key="group.key" class="group">
-        <h4>{{ group.label }} <span class="muted">{{ group.notes.length + group.tickets.length }}</span></h4>
-        <p v-if="!group.notes.length && !group.tickets.length && !group.broken.length" class="muted small">{{ group.empty }}</p>
+        <h4>{{ group.label }} <span class="muted">{{ group.notes.length + group.tickets.length + group.boards.length }}</span></h4>
+        <p v-if="!group.notes.length && !group.tickets.length && !group.boards.length && !group.broken.length" class="muted small">{{ group.empty }}</p>
         <button v-for="note in group.notes" :key="`n${note.id}`" type="button" class="entry" :title="note.path" @click="openNode(note.id)">
           <i class="pi pi-file"></i>
           <span class="names"><strong class="truncate">{{ note.title }}</strong><small class="muted truncate">{{ noteHint(note) }}</small></span>
@@ -189,6 +195,10 @@ function choose(thread: Thread): void {
         <button v-for="ticket in group.tickets" :key="`t${ticket.id}`" type="button" class="entry" :data-ticket="ticket.id" @click="openTicketLink(ticket)">
           <i class="pi pi-ticket"></i>
           <span class="names"><strong class="truncate">{{ ticket.key }}</strong><small class="muted truncate">{{ ticket.title }}</small></span>
+        </button>
+        <button v-for="board in group.boards" :key="`b${board.id}`" type="button" class="entry" :data-board="board.id" @click="openBoard(board.id)">
+          <i class="pi pi-objects-column board-icon"></i>
+          <span class="names"><strong class="truncate">{{ board.title }}</strong><small class="muted truncate">{{ board.spaceName }} · {{ board.path }}</small></span>
         </button>
         <p v-for="target in group.broken" :key="target" class="entry broken" :title="$t('Fichier introuvable')"><i class="pi pi-exclamation-triangle"></i><span class="truncate">{{ target }}</span></p>
       </section>
@@ -312,6 +322,9 @@ button.entry:hover {
 .entry > .pi {
   color: var(--fb-muted);
   font-size: 0.8rem;
+}
+.entry > .board-icon {
+  color: #a855f7;
 }
 .entry.broken {
   color: var(--fb-danger);

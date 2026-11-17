@@ -18,6 +18,8 @@ const STORAGE_FONTS = 'fb.fonts';
 export const currentThemeId = ref<string>(DEFAULT_THEME_ID);
 /** Thèmes personnalisés du compte connecté. */
 export const customThemes = ref<CustomThemeDef[]>([]);
+/** Le thème affiché est sombre (aperçus des tableaux blancs dessinés en sombre). */
+export const darkMode = ref(false);
 
 /** Preset PrimeVue actuellement chargé (le preset initial est Aura, cf. main.ts). */
 let loadedPreset: ThemePresetName = 'aura';
@@ -77,6 +79,7 @@ function resolve(id: string | null | undefined): ResolvedTheme {
 export function paintTheme(theme: Pick<ResolvedTheme, 'mode' | 'preset' | 'primary' | 'surface'>): void {
   document.documentElement.classList.toggle('app-dark', theme.mode === 'dark');
   document.documentElement.style.colorScheme = theme.mode;
+  darkMode.value = theme.mode === 'dark';
   if (loadedPreset !== theme.preset) {
     usePreset(PRESETS[theme.preset]);
     loadedPreset = theme.preset;

@@ -30,6 +30,9 @@ function ticketOf(id: number) {
       <RouterLink v-else-if="segment.kind === 'doc'" :to="{ name: 'doc-file', params: { nodeId: segment.id } }" class="mention ticket" @click.stop>
         <i class="pi pi-file"></i>{{ segment.label }}
       </RouterLink>
+      <RouterLink v-else-if="segment.kind === 'board'" :to="{ name: 'board-file', params: { boardId: segment.id } }" class="mention ticket" :data-board="segment.id" @click.stop>
+        <i class="pi pi-objects-column"></i>{{ segment.label }}
+      </RouterLink>
       <button
         v-else-if="ticketOf(segment.id)"
         type="button"
