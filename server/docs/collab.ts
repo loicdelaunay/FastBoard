@@ -5,7 +5,7 @@ import type { DocCommentDTO } from '../../shared/docComments.ts';
 import type { ClientMessage, ServerMessage } from '../../shared/realtime.ts';
 import type { AppContext } from '../context.ts';
 import { getAuthUser, type AuthUser } from '../services/access.ts';
-import { addVersion, docRole, docsEnabled, listNodes, readText, storeText, type NodeRow } from './store.ts';
+import { addVersion, docRole, docsEnabled, listNodes, listTemplates, readText, storeText, type NodeRow } from './store.ts';
 
 /**
  * Édition à plusieurs : chaque fichier ouvert a une salle, avec un document Yjs en mémoire. Les modifications arrivent
@@ -130,7 +130,7 @@ export class DocRooms {
   publishTree(spaceId: number): void {
     const peers = this.#watchers.get(spaceId);
     if (!peers?.size) return;
-    const message: ServerMessage = { t: 'docs.tree', spaceId, nodes: listNodes(this.#ctx.db, spaceId) };
+    const message: ServerMessage = { t: 'docs.tree', spaceId, nodes: listNodes(this.#ctx.db, spaceId), templates: listTemplates(this.#ctx.db, spaceId) };
     for (const peer of peers) peer.send(message);
   }
 
@@ -142,7 +142,7 @@ export class DocRooms {
   // --- Salles --------------------------------------------------------------------------------------------------------
 
   #node(nodeId: number): NodeRow | undefined {
-    return this.#ctx.db.get<NodeRow>("SELECT * FROM doc_nodes WHERE id = ? AND kind = 'markdown' AND deleted_at IS NULL", nodeId);
+    return this.#ctx.db.get<NodeRow>("SELECT * FROM doc_nodes WHERE id = ? AND kind IN ('markdown', 'template') AND deleted_at IS NULL", nodeId);
   }
 
   #open(node: NodeRow): Room {

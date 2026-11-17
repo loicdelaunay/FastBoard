@@ -214,7 +214,7 @@ export const componentSchemas: Record<string, Schema> = {
     id: int('Identifiant stable : il survit aux renommages et déplacements.'),
     spaceId: int(),
     path: str('Chemin relatif à l’espace, avec des `/`.'),
-    kind: str('', { enum: ['folder', 'markdown', 'image'] }),
+    kind: str('`template` : modèle de note, rangé à part de l’arbre.', { enum: ['folder', 'markdown', 'image', 'template'] }),
     size: int('Taille en octets.'),
     updatedAt: dateTime(),
     updatedBy: nullable(int()),

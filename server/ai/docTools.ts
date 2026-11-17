@@ -1,8 +1,9 @@
 import { changedPassage } from '../../shared/docDiff.ts';
 import { docTitle, DOC_LIMITS, normalizeDocPath, withMarkdownExtension, type DocRole } from '../../shared/docs.ts';
 import { docOutline } from '../../shared/docOutline.ts';
+import { applyDocTemplate } from '../../shared/docTemplates.ts';
 import { listComments } from '../docs/comments.ts';
-import { createNode, findNodeByPath, listNodes, listSpaces, readText, requireNode, requireSpace, writeContent, type NodeRow } from '../docs/store.ts';
+import { authorNames, createNode, findNodeByPath, isTextNode, listNodes, listSpaces, listTemplates, readText, requireNode, requireSpace, writeContent, type NodeRow } from '../docs/store.ts';
 import { badRequest, conflict, forbidden, notFound } from '../http/errors.ts';
 import { globalSearch } from '../services/search.ts';
 import { clip, PROPOSED, record, type ToolContext, type ToolDefinition } from './toolKit.ts';
@@ -16,7 +17,7 @@ const CHANGE_CHARS = 300_000;
 const FILES_LISTED = 500;
 
 const NOTE_PROPERTIES = {
-  note: { oneOf: [{ type: 'integer' }, { type: 'string' }], description: 'Identifiant de la note, ou son chemin dans l’espace (avec spaceId).' },
+  note: { oneOf: [{ type: 'integer' }, { type: 'string' }], description: 'Identifiant de la note (ou d’un modèle), ou son chemin dans l’espace (avec spaceId).' },
   spaceId: { type: 'integer', description: 'Espace de la note, si elle est donnée par son chemin.' },
 };
 
@@ -35,7 +36,7 @@ function findNote(tool: ToolContext, args: Record<string, unknown>, minimum: Doc
   }
   if (!node) throw notFound('Note introuvable.');
   requireSpace(tool.ctx, tool.user, node.space_id, minimum);
-  if (node.deleted_at || node.kind !== 'markdown') throw notFound('Note introuvable.');
+  if (node.deleted_at || !isTextNode(node)) throw notFound('Note introuvable.');
   return node;
 }
 
@@ -80,7 +81,7 @@ export const DOC_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'list_doc_files',
-    description: 'Arbre d’un espace de documentation : dossiers, notes et images, avec leur chemin et leur identifiant.',
+    description: 'Arbre d’un espace de documentation : dossiers, notes et images, avec leur chemin et leur identifiant, et ses modèles de notes (templates).',
     parameters: { type: 'object', properties: { spaceId: { type: 'integer' } }, required: ['spaceId'] },
     write: false,
     docs: true,
@@ -89,7 +90,8 @@ export const DOC_TOOLS: ToolDefinition[] = [
       const spaceId = Number(args.spaceId);
       requireSpace(tool.ctx, tool.user, spaceId);
       const nodes = listNodes(tool.ctx.db, spaceId);
-      return { total: nodes.length, files: nodes.slice(0, FILES_LISTED).map((node) => ({ id: node.id, path: node.path, kind: node.kind, updatedAt: node.updatedAt, note: node.memo || undefined })) };
+      const templates = listTemplates(tool.ctx.db, spaceId).map((node) => ({ id: node.id, name: docTitle(node.path), note: node.memo || undefined }));
+      return { total: nodes.length, files: nodes.slice(0, FILES_LISTED).map((node) => ({ id: node.id, path: node.path, kind: node.kind, updatedAt: node.updatedAt, note: node.memo || undefined })), templates };
     },
   },
   {
@@ -139,8 +141,17 @@ export const DOC_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'create_doc',
-    description: 'Crée une note Markdown dans un espace, avec son texte. Les dossiers du chemin sont créés au besoin.',
-    parameters: { type: 'object', properties: { spaceId: { type: 'integer' }, path: { type: 'string', description: 'Chemin dans l’espace, ex. « Guides/Installation ».' }, content: { type: 'string', description: 'Texte en Markdown.' } }, required: ['spaceId', 'path', 'content'] },
+    description: 'Crée une note Markdown dans un espace, avec son texte, ou d’après un modèle de l’espace (voir list_doc_files). Les dossiers du chemin sont créés au besoin.',
+    parameters: {
+      type: 'object',
+      properties: {
+        spaceId: { type: 'integer' },
+        path: { type: 'string', description: 'Chemin dans l’espace, ex. « Guides/Installation ».' },
+        content: { type: 'string', description: 'Texte en Markdown (avec template : ajouté après le texte du modèle).' },
+        template: { type: 'integer', description: 'Modèle de l’espace dont partir : son texte, variables remplies.' },
+      },
+      required: ['spaceId', 'path'],
+    },
     write: true,
     docs: true,
     label: (args) => `Création de « ${clip(String(args.path ?? ''), 40)} »`,
@@ -151,7 +162,15 @@ export const DOC_TOOLS: ToolDefinition[] = [
       const path = normalizeDocPath(withMarkdownExtension(String(args.path ?? '').trim()));
       if (!path) throw badRequest('Nom invalide : évitez les caractères spéciaux et les noms commençant par un point.');
       if (findNodeByPath(tool.ctx.db, spaceId, path)) throw conflict('Un élément porte déjà ce nom.');
-      const content = String(args.content ?? '');
+      let content = String(args.content ?? '');
+      if (args.template !== undefined && args.template !== null) {
+        const template = requireNode(tool.ctx.db, Number(args.template));
+        if (template.space_id !== spaceId || template.kind !== 'template' || template.deleted_at) throw notFound('Modèle introuvable.');
+        const base = applyDocTemplate(noteText(tool, template), { title: docTitle(path), author: authorNames(tool.ctx, tool.actor.userId)[0] ?? '' });
+        content = content ? `${base.replace(/s*$/, '')}
+
+${content}` : base;
+      }
       if (content.length > CHANGE_CHARS) throw badRequest('Texte trop long pour être créé d’un coup.');
       const change = { label: `Création de ${docTitle(path)}`, projectId: null, ticketKey: null, diff: [{ field: 'docPath', from: null, to: path }] };
       if (tool.propose) {

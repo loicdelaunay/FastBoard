@@ -72,7 +72,7 @@ export type ServerMessage =
   /** Notifications lues (depuis un autre onglet). */
   | { t: 'notifications.read'; unread: number }
   /** Arborescence d'un espace de documentation modifiée. */
-  | { t: 'docs.tree'; spaceId: number; nodes: DocNodeDTO[] }
+  | { t: 'docs.tree'; spaceId: number; nodes: DocNodeDTO[]; templates: DocNodeDTO[] }
   /** Rôle changé dans un espace : relire ses droits. */
   | { t: 'docs.access'; spaceId: number }
   /** Accès à un espace retiré (ou espace supprimé). */

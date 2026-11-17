@@ -12,7 +12,8 @@ export function docRoleAtLeast(role: DocRole, minimum: DocRole): boolean {
   return DOC_ROLES.indexOf(role) >= DOC_ROLES.indexOf(minimum);
 }
 
-export type DocNodeKind = 'folder' | 'markdown' | 'image';
+/** `template` : modèle de note de l'espace, rangé à part (ses noms ne gênent pas ceux des notes). */
+export type DocNodeKind = 'folder' | 'markdown' | 'image' | 'template';
 
 export interface DocSpaceDTO {
   id: number;

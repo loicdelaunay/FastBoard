@@ -218,6 +218,55 @@ describe('documentation', () => {
     assert.equal((await bob.patch(`/api/documentation/nodes/${child.id}`, { path: 'Z/B/renommée' })).body.node.path, 'Z/B/renommée.md');
   });
 
+  it('garde des modèles de notes à part, et crée des notes d’après eux', async () => {
+    const spaceId = await newSpace('Modèles');
+    const create = (body: Record<string, unknown>) => bob.post(`/api/documentation/spaces/${spaceId}/nodes`, body);
+    const created = await create({ path: 'Réunion', kind: 'template', content: '# {{title}}\n\nLe {{date:DD/MM/YYYY}} à {{ heure }}, par {{auteur}}. {{inconnue}}\n' });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const template = created.body.node as DocNodeDTO;
+    assert.equal(template.kind, 'template');
+    assert.equal(template.path, 'Réunion.md');
+    assert.ok(fs.existsSync(disk(spaceId, '.templates', 'Réunion.md')), 'rangé à part sur le disque');
+
+    assert.equal((await create({ path: 'Réunion', kind: 'template' })).status, 409, 'un nom par modèle');
+    assert.equal((await create({ path: 'Dossier/Réunion', kind: 'template' })).status, 400, 'un modèle se nomme sans dossier');
+    const sameName = await note(bob, spaceId, 'Réunion', 'une note');
+    assert.equal(sameName.kind, 'markdown', 'les noms des modèles ne gênent pas ceux des notes');
+
+    const space = (await bob.get(`/api/documentation/spaces/${spaceId}`)).body as { nodes: DocNodeDTO[]; templates: DocNodeDTO[] };
+    assert.deepEqual(space.templates.map((entry) => entry.id), [template.id]);
+    assert.ok(!space.nodes.some((entry) => entry.kind === 'template'), 'hors de l’arbre');
+
+    const before = new Date();
+    const fromTemplate = await create({ path: 'Comptes rendus/Point du lundi', fromId: template.id });
+    assert.equal(fromTemplate.status, 201, JSON.stringify(fromTemplate.body));
+    const text = await contentOf(bob, fromTemplate.body.node.id);
+    const day = `${String(before.getDate()).padStart(2, '0')}/${String(before.getMonth() + 1).padStart(2, '0')}/${before.getFullYear()}`;
+    assert.match(text, new RegExp(`^# Point du lundi\\n\\nLe ${day} à \\d\\d:\\d\\d, par bob\\. \\{\\{inconnue\\}\\}\\n$`), text);
+
+    const copy = await create({ path: 'Copie', kind: 'template', fromId: sameName.id });
+    assert.equal(copy.status, 201);
+    assert.equal(await contentOf(bob, copy.body.node.id), 'une note', 'un modèle d’après une note en reprend le texte');
+    assert.equal((await create({ path: 'Les deux', fromId: template.id, content: 'x' })).status, 400);
+    const elsewhere = await newSpace('Ailleurs');
+    assert.equal((await bob.post(`/api/documentation/spaces/${elsewhere}/nodes`, { path: 'Volée', fromId: template.id })).status, 404, 'seulement les modèles de l’espace');
+    assert.equal((await eve.post(`/api/documentation/spaces/${spaceId}/nodes`, { path: 'Intrus', kind: 'template' })).status, 404);
+
+    assert.equal((await bob.request('PUT', `/api/documentation/nodes/${template.id}/content`, { content: '# {{title}} v2' })).status, 200);
+    assert.equal((await bob.patch(`/api/documentation/nodes/${template.id}`, { path: 'Réunion hebdo' })).body.node.path, 'Réunion hebdo.md');
+    assert.equal(fs.readFileSync(disk(spaceId, '.templates', 'Réunion hebdo.md'), 'utf8'), '# {{title}} v2');
+    assert.equal((await bob.request('PUT', `/api/documentation/nodes/${template.id}/bookmark`)).status, 400);
+
+    const zip = unzipSync(new Uint8Array((await bob.raw('GET', `/api/documentation/spaces/${spaceId}/export`)).bytes));
+    assert.ok(!Object.keys(zip).some((name) => name.includes('templates') || name === 'Copie.md'), 'pas dans l’export de l’espace');
+
+    assert.equal((await bob.request('DELETE', `/api/documentation/nodes/${template.id}`)).status, 200);
+    assert.equal(fs.existsSync(disk(spaceId, '.templates', 'Réunion hebdo.md')), false);
+    assert.ok(((await bob.get(`/api/documentation/spaces/${spaceId}/trash`)).body.nodes as DocNodeDTO[]).some((entry) => entry.id === template.id), 'dans la corbeille');
+    assert.equal((await bob.post(`/api/documentation/nodes/${template.id}/restore`, {})).body.node.kind, 'template');
+    assert.equal(await contentOf(bob, template.id), '# {{title}} v2');
+  });
+
   it('applique les rôles de l’espace', async () => {
     const spaceId = await newSpace('Droits');
     const node = await note(bob, spaceId, 'note', 'secret');

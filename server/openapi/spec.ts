@@ -600,7 +600,7 @@ const OPERATIONS: Operation[] = [
   // --- Documentation des équipes -----------------------------------------------------------------------------------------
   { method: 'get', path: '/documentation/spaces', tag: 'Espaces de documentation', summary: 'Espaces de documentation accessibles', ok: obj({ spaces: arr(ref('DocSpace')) }) },
   { method: 'post', path: '/documentation/spaces', tag: 'Espaces de documentation', permission: 'docs.create', summary: 'Créer un espace', body: S.docSpaceSchema, status: 201, ok: obj({ space: ref('DocSpace') }) },
-  { method: 'get', path: '/documentation/spaces/{id}', tag: 'Espaces de documentation', summary: 'Espace, arbre et membres', params: DOC_SPACE_ID, ok: obj({ space: ref('DocSpace'), nodes: arr(ref('DocNode')), members: arr(ref('DocMember')) }) },
+  { method: 'get', path: '/documentation/spaces/{id}', tag: 'Espaces de documentation', summary: 'Espace, arbre, modèles et membres', description: '`templates` : modèles de notes de l’espace, à part de l’arbre `nodes`.', params: DOC_SPACE_ID, ok: obj({ space: ref('DocSpace'), nodes: arr(ref('DocNode')), templates: arr(ref('DocNode')), members: arr(ref('DocMember')) }) },
   { method: 'patch', path: '/documentation/spaces/{id}', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Renommer un espace', params: DOC_SPACE_ID, body: S.docSpaceUpdateSchema, ok: obj({ space: ref('DocSpace') }) },
   { method: 'delete', path: '/documentation/spaces/{id}', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Supprimer un espace et ses fichiers', params: DOC_SPACE_ID, ok: obj({ ok: bool() }) },
   { method: 'post', path: '/documentation/spaces/{id}/members', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Ajouter un membre', params: DOC_SPACE_ID, body: S.docMemberSchema, status: 201, ok: obj({ members: arr(ref('DocMember')) }) },
@@ -650,7 +650,7 @@ const OPERATIONS: Operation[] = [
     status: 201,
     ok: obj({ node: ref('DocNode') }),
   },
-  { method: 'post', path: '/documentation/spaces/{id}/nodes', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Créer une note ou un dossier', params: DOC_SPACE_ID, body: S.docNodeSchema, status: 201, ok: obj({ node: ref('DocNode') }) },
+  { method: 'post', path: '/documentation/spaces/{id}/nodes', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Créer une note, un dossier ou un modèle', description: 'Avec `fromId`, une note part d’un modèle de l’espace (variables remplies) et un modèle part d’une note.', params: DOC_SPACE_ID, body: S.docNodeSchema, status: 201, ok: obj({ node: ref('DocNode') }) },
   { method: 'get', path: '/documentation/nodes/{id}', tag: 'Espaces de documentation', summary: 'Lire un fichier', description: 'Le texte d’une note reflète l’édition en cours.', params: DOC_NODE_ID, ok: obj({ node: ref('DocNode'), role: str(), content: nullable(str()) }) },
   { method: 'patch', path: '/documentation/nodes/{id}', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Renommer ou déplacer', params: DOC_NODE_ID, body: S.docMoveSchema, ok: obj({ node: ref('DocNode') }) },
   { method: 'delete', path: '/documentation/nodes/{id}', tag: 'Espaces de documentation', permission: 'éditeur de l’espace', summary: 'Mettre à la corbeille', description: 'Un dossier y part avec son contenu. La corbeille est vidée après 15 jours.', params: DOC_NODE_ID, ok: obj({ ok: bool() }) },

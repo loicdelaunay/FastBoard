@@ -474,7 +474,24 @@ function takePendingAnchor(): void {
   if (scrollToAnchor(anchor.heading)) pendingAnchor.value = null;
 }
 
-defineExpose({ reveal, scrollToLine });
+/**
+ * Insère des blocs (un modèle) au curseur, à la place de la sélection : ils commencent et finissent sur leurs propres
+ * lignes s'il y a du texte autour. Faux sans éditeur.
+ */
+function insertBlock(text: string): boolean {
+  if (!view) return false;
+  const { state } = view;
+  const { from, to } = state.selection.main;
+  const body = text.replace(/\n+$/, '');
+  const before = state.sliceDoc(state.doc.lineAt(from).from, from).trim() ? '\n\n' : '';
+  const after = state.sliceDoc(to, state.doc.lineAt(to).to).trim() ? '\n\n' : '';
+  const insert = `${before}${body}${after}`;
+  view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + before.length + body.length }, scrollIntoView: true });
+  view.focus();
+  return true;
+}
+
+defineExpose({ reveal, scrollToLine, insertBlock });
 
 // Pour le sommaire : la ligne lue, signalée une fois par image.
 let scrollFrame = 0;

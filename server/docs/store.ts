@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { extractDocLinks } from '../../shared/docLinks.ts';
 import { docBaseName, docFileKind, docRoleAtLeast, docTitle, DOC_LIMITS, normalizeDocPath, withMarkdownExtension } from '../../shared/docs.ts';
+import { applyDocTemplate } from '../../shared/docTemplates.ts';
 import type { DocBookmarkDTO, DocMemberDTO, DocNodeDTO, DocNodeInfoDTO, DocNodeKind, DocRole, DocSearchHitDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, DocVersionOrigin } from '../../shared/docs.ts';
 import { hasPermission } from '../../shared/permissions.ts';
 import type { Actor, AppContext } from '../context.ts';
@@ -49,6 +50,8 @@ const NODE_COLUMNS = 'id, space_id, path, kind, size, updated_by, updated_at, de
 
 /** Dossier des fichiers mis à la corbeille (images), hors de l'arbre visible. */
 const TRASH = '.trash';
+/** Dossier des modèles de notes : un nom d'espace ne peut pas commencer par un point, il n'y entre donc rien d'autre. */
+const TEMPLATES = '.templates';
 
 export function docsEnabled(db: Db): boolean {
   return readSetting<{ enabled?: boolean }>(db, 'docs')?.enabled === true;
@@ -116,25 +119,37 @@ function writeFile(file: string, data: string | Uint8Array): void {
   fs.renameSync(temporary, file);
 }
 
-export function readText(ctx: AppContext, node: Pick<NodeRow, 'space_id' | 'path'>): string {
+type FileRef = Pick<NodeRow, 'space_id' | 'path'> & { kind?: DocNodeKind };
+
+/** Fichier d'un nœud sur le disque : les modèles sont rangés à part. */
+function fileOf(ctx: AppContext, node: FileRef): string {
+  return diskPath(ctx, node.space_id, node.kind === 'template' ? `${TEMPLATES}/${node.path}` : node.path);
+}
+
+export function readText(ctx: AppContext, node: FileRef): string {
   try {
-    return fs.readFileSync(diskPath(ctx, node.space_id, node.path), 'utf8');
+    return fs.readFileSync(fileOf(ctx, node), 'utf8');
   } catch {
     return '';
   }
 }
 
-export function readBytes(ctx: AppContext, node: Pick<NodeRow, 'space_id' | 'path'>): Buffer | null {
+export function readBytes(ctx: AppContext, node: FileRef): Buffer | null {
   try {
-    return fs.readFileSync(diskPath(ctx, node.space_id, node.path));
+    return fs.readFileSync(fileOf(ctx, node));
   } catch {
     return null;
   }
 }
 
+/** Note ou modèle : un texte Markdown qui s'écrit à plusieurs. */
+export function isTextNode(node: Pick<NodeRow, 'kind'>): boolean {
+  return node.kind === 'markdown' || node.kind === 'template';
+}
+
 /** Écrit le texte d'un fichier et met à jour sa ligne (appelé directement ou par une salle de collaboration). */
 export function storeText(ctx: AppContext, node: NodeRow, content: string, userId: number | null): void {
-  writeFile(diskPath(ctx, node.space_id, node.path), content);
+  writeFile(fileOf(ctx, node), content);
   ctx.db.run('UPDATE doc_nodes SET size = ?, updated_by = ?, updated_at = ?, search_text = ?, links = ? WHERE id = ?', Buffer.byteLength(content), userId, nowIso(), foldText(content), JSON.stringify(extractDocLinks(content)), node.id);
   ctx.db.run('UPDATE doc_spaces SET updated_at = ? WHERE id = ?', nowIso(), node.space_id);
 }
@@ -243,16 +258,23 @@ export function removeMember(ctx: AppContext, spaceId: number, userId: number): 
 
 // --- Arbre -----------------------------------------------------------------------------------------------------------
 
+/** Arbre de l'espace : dossiers, notes et images (les modèles sont à part, voir `listTemplates`). */
 export function listNodes(db: Db, spaceId: number): DocNodeDTO[] {
-  return db.all<NodeRow>(`SELECT ${NODE_COLUMNS} FROM doc_nodes WHERE space_id = ? AND deleted_at IS NULL ORDER BY path COLLATE NOCASE`, spaceId).map(toNodeDTO);
+  return db.all<NodeRow>(`SELECT ${NODE_COLUMNS} FROM doc_nodes WHERE space_id = ? AND deleted_at IS NULL AND kind != 'template' ORDER BY path COLLATE NOCASE`, spaceId).map(toNodeDTO);
+}
+
+/** Modèles de notes de l'espace. */
+export function listTemplates(db: Db, spaceId: number): DocNodeDTO[] {
+  return db.all<NodeRow>(`SELECT ${NODE_COLUMNS} FROM doc_nodes WHERE space_id = ? AND deleted_at IS NULL AND kind = 'template' ORDER BY path COLLATE NOCASE`, spaceId).map(toNodeDTO);
 }
 
 export function listTrash(db: Db, spaceId: number): DocNodeDTO[] {
   return db.all<NodeRow>(`SELECT ${NODE_COLUMNS} FROM doc_nodes WHERE space_id = ? AND deleted_at IS NOT NULL AND kind != 'folder' ORDER BY deleted_at DESC`, spaceId).map(toNodeDTO);
 }
 
-function activeNode(db: Db, spaceId: number, relative: string): NodeRow | undefined {
-  return db.get<NodeRow>(`SELECT ${NODE_COLUMNS} FROM doc_nodes WHERE space_id = ? AND path = ? COLLATE NOCASE AND deleted_at IS NULL`, spaceId, relative);
+/** Élément actif à ce chemin, parmi les notes et dossiers ou parmi les modèles. */
+function activeNode(db: Db, spaceId: number, relative: string, template = false): NodeRow | undefined {
+  return db.get<NodeRow>(`SELECT ${NODE_COLUMNS} FROM doc_nodes WHERE space_id = ? AND path = ? COLLATE NOCASE AND deleted_at IS NULL AND (kind = 'template') = ?`, spaceId, relative, template ? 1 : 0);
 }
 
 export function findNodeByPath(db: Db, spaceId: number, relative: string): NodeRow | undefined {
@@ -282,30 +304,47 @@ function ensureFolders(ctx: AppContext, spaceId: number, relative: string, userI
 
 /** Chemin validé pour un nouvel élément : les notes reçoivent leur extension. */
 function cleanPath(raw: string, kind: DocNodeKind): string {
-  const relative = normalizeDocPath(kind === 'markdown' ? withMarkdownExtension(raw.trim()) : raw);
+  const relative = normalizeDocPath(kind === 'markdown' || kind === 'template' ? withMarkdownExtension(raw.trim()) : raw);
   if (!relative) throw badRequest('Nom invalide : évitez les caractères spéciaux et les noms commençant par un point.');
+  if (kind === 'template' && relative.includes('/')) throw badRequest('Un modèle se nomme sans dossier.');
   return relative;
 }
 
 /** Variante libre d'un chemin occupé : `note (2).md`. */
-function freePath(db: Db, spaceId: number, relative: string): string {
+function freePath(db: Db, spaceId: number, relative: string, template = false): string {
   const dot = docBaseName(relative).lastIndexOf('.');
   const stem = dot > 0 ? relative.slice(0, relative.length - docBaseName(relative).length + dot) : relative;
   const extension = dot > 0 ? relative.slice(stem.length) : '';
   let candidate = relative;
-  for (let index = 2; activeNode(db, spaceId, candidate); index += 1) candidate = `${stem} (${index})${extension}`;
+  for (let index = 2; activeNode(db, spaceId, candidate, template); index += 1) candidate = `${stem} (${index})${extension}`;
   return candidate;
 }
 
-export function createNode(ctx: AppContext, actor: Actor, spaceId: number, input: { path: string; kind: 'folder' | 'markdown'; content?: string }): DocNodeDTO {
+/** Texte de départ d'un élément créé d'après un autre : un modèle donne une note aux variables remplies, sinon une copie. */
+function textFrom(ctx: AppContext, actor: Actor, spaceId: number, sourceId: number, kind: DocNodeKind, relative: string): string {
+  const source = requireNode(ctx.db, sourceId);
+  if (source.space_id !== spaceId || source.deleted_at || !isTextNode(source)) throw notFound('Modèle introuvable.');
+  const text = ctx.docRooms.currentText(source.id) ?? readText(ctx, source);
+  if (source.kind !== 'template' || kind !== 'markdown') return text;
+  return applyDocTemplate(text, { title: docTitle(relative), author: authorNames(ctx, actor.userId)[0] ?? '' });
+}
+
+/**
+ * Crée un dossier, une note ou un modèle. `fromId` : note ou modèle de l'espace dont partir (une note créée d'après un
+ * modèle reçoit son texte, variables remplies ; un modèle créé d'après une note en copie le texte).
+ */
+export function createNode(ctx: AppContext, actor: Actor, spaceId: number, input: { path: string; kind: 'folder' | 'markdown' | 'template'; content?: string; fromId?: number }): DocNodeDTO {
   const { db } = ctx;
+  const template = input.kind === 'template';
   const relative = cleanPath(input.path, input.kind);
-  if (activeNode(db, spaceId, relative)) throw conflict('Un élément porte déjà ce nom.');
+  if (activeNode(db, spaceId, relative, template)) throw conflict(template ? 'Un modèle porte déjà ce nom.' : 'Un élément porte déjà ce nom.');
+  if (input.fromId !== undefined && (input.kind === 'folder' || input.content !== undefined)) throw badRequest('Donnez le texte ou le modèle de départ, pas les deux.');
   assertRoom(db, spaceId);
-  const content = input.content ?? '';
+  const content = input.fromId === undefined ? (input.content ?? '') : textFrom(ctx, actor, spaceId, input.fromId, input.kind, relative);
+  if (content.length > DOC_LIMITS.fileChars) throw badRequest(`Un fichier ne peut pas dépasser ${DOC_LIMITS.fileChars} caractères.`);
   let nodeId = 0;
   db.transaction(() => {
-    ensureFolders(ctx, spaceId, relative, actor.userId);
+    if (!template) ensureFolders(ctx, spaceId, relative, actor.userId);
     nodeId = insertNode(db, spaceId, relative, input.kind, Buffer.byteLength(content), actor.userId);
   });
   const node = requireNode(db, nodeId);
@@ -324,14 +363,15 @@ export function moveNode(ctx: AppContext, actor: Actor, nodeId: number, nextRaw:
   const node = requireNode(db, nodeId);
   if (node.deleted_at) throw conflict('Cet élément est dans la corbeille.');
   const next = cleanPath(nextRaw, node.kind);
+  const template = node.kind === 'template';
   if (node.kind === 'image' && docFileKind(next) !== 'image') throw badRequest('Une image garde son extension.');
   if (next === node.path) return toNodeDTO(node);
   if (node.kind === 'folder' && next.toLowerCase().startsWith(`${node.path.toLowerCase()}/`)) throw badRequest('Un dossier ne peut pas être déplacé dans lui-même.');
-  const taken = activeNode(db, node.space_id, next);
-  if (taken && taken.id !== node.id) throw conflict('Un élément porte déjà ce nom.');
+  const taken = activeNode(db, node.space_id, next, template);
+  if (taken && taken.id !== node.id) throw conflict(template ? 'Un modèle porte déjà ce nom.' : 'Un élément porte déjà ce nom.');
   ctx.docRooms.flushSpace(node.space_id);
   db.transaction(() => {
-    ensureFolders(ctx, node.space_id, next, actor.userId);
+    if (!template) ensureFolders(ctx, node.space_id, next, actor.userId);
     const now = nowIso();
     db.run('UPDATE doc_nodes SET path = ?, updated_at = ? WHERE id = ?', next, now, nodeId);
     if (node.kind === 'folder') {
@@ -339,9 +379,9 @@ export function moveNode(ctx: AppContext, actor: Actor, nodeId: number, nextRaw:
       for (const child of inside) db.run('UPDATE doc_nodes SET path = ? WHERE id = ?', next + child.path.slice(node.path.length), child.id);
     }
   });
-  const target = diskPath(ctx, node.space_id, next);
+  const target = fileOf(ctx, { ...node, path: next });
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  const source = diskPath(ctx, node.space_id, node.path);
+  const source = fileOf(ctx, node);
   if (fs.existsSync(source)) fs.renameSync(source, target);
   ctx.docRooms.publishTree(node.space_id);
   return toNodeDTO(requireNode(db, nodeId));
@@ -362,10 +402,10 @@ export function deleteNode(ctx: AppContext, actor: Actor, nodeId: number): void 
   const now = nowIso();
   for (const target of targets) {
     ctx.docRooms.closeNode(target.id, 'deleted');
-    if (target.kind === 'markdown') {
+    if (isTextNode(target)) {
       const content = readText(ctx, target);
       addVersion(ctx, actor, target, content, 'delete', authorNames(ctx, actor.userId), content);
-      fs.rmSync(diskPath(ctx, target.space_id, target.path), { force: true });
+      fs.rmSync(fileOf(ctx, target), { force: true });
     } else if (target.kind === 'image') {
       const kept = path.join(spaceDir(ctx, target.space_id), TRASH, String(target.id));
       fs.mkdirSync(path.dirname(kept), { recursive: true });
@@ -383,14 +423,15 @@ export function restoreNode(ctx: AppContext, actor: Actor, nodeId: number): DocN
   const { db } = ctx;
   const node = requireNode(db, nodeId);
   if (!node.deleted_at) return toNodeDTO(node);
-  const relative = freePath(db, node.space_id, node.path);
+  const template = node.kind === 'template';
+  const relative = freePath(db, node.space_id, node.path, template);
   assertRoom(db, node.space_id);
   db.transaction(() => {
-    ensureFolders(ctx, node.space_id, relative, actor.userId);
+    if (!template) ensureFolders(ctx, node.space_id, relative, actor.userId);
     db.run('UPDATE doc_nodes SET path = ?, deleted_at = NULL, updated_by = ?, updated_at = ? WHERE id = ?', relative, actor.userId, nowIso(), nodeId);
   });
   const restored = requireNode(db, nodeId);
-  if (node.kind === 'markdown') {
+  if (isTextNode(node)) {
     const last = db.get<{ content: string }>('SELECT content FROM doc_versions WHERE node_id = ? ORDER BY id DESC LIMIT 1', nodeId);
     storeText(ctx, restored, last?.content ?? '', actor.userId);
   } else if (node.kind === 'image') {
@@ -418,7 +459,8 @@ export function addVersion(ctx: AppContext, actor: Actor, node: NodeRow, content
   const last = ctx.db.get<{ content: string }>('SELECT content FROM doc_versions WHERE node_id = ? ORDER BY id DESC LIMIT 1', node.id);
   if (last?.content === content && origin !== 'delete') return;
   ctx.db.run('INSERT INTO doc_versions (node_id, content, authors, origin, created_at) VALUES (?, ?, ?, ?, ?)', node.id, content, JSON.stringify(authors), origin, nowIso());
-  if (origin === 'delete' || origin === 'restore') return;
+  // Une mention dans un modèle ne prévient personne : elle le fera dans les notes qui en naîtront.
+  if (origin === 'delete' || origin === 'restore' || node.kind === 'template') return;
   const known = mentionedUserIds(last?.content ?? previous);
   for (const userId of mentionedUserIds(content)) {
     if (known.has(userId) || userId === actor.userId) continue;
@@ -544,7 +586,7 @@ export function nodeInfo(ctx: AppContext, node: NodeRow): DocNodeInfoDTO {
     );
     return { ...base, size: inside?.bytes ?? 0, files: inside?.files ?? 0, folders: inside?.folders ?? 0 };
   }
-  if (node.kind !== 'markdown') return { ...base, size: node.size, files: 0, folders: 0 };
+  if (!isTextNode(node)) return { ...base, size: node.size, files: 0, folders: 0 };
   const text = ctx.docRooms.currentText(node.id) ?? readText(ctx, node);
   return { ...base, size: Buffer.byteLength(text), files: 0, folders: 0, words: text.match(/[\p{L}\p{N}][\p{L}\p{N}'’_-]*/gu)?.length ?? 0, chars: text.length, lines: text === '' ? 0 : text.split('\n').length };
 }
@@ -555,7 +597,7 @@ export function listBookmarks(ctx: AppContext, user: AuthUser): DocBookmarkDTO[]
   return ctx.db
     .all<{ node_id: number; space_id: number; path: string; kind: 'markdown' | 'image'; created_at: string }>(
       `SELECT b.node_id, n.space_id, n.path, n.kind, b.created_at FROM doc_bookmarks b JOIN doc_nodes n ON n.id = b.node_id
-        WHERE b.user_id = ? AND n.deleted_at IS NULL AND n.kind != 'folder' ORDER BY b.created_at DESC`,
+        WHERE b.user_id = ? AND n.deleted_at IS NULL AND n.kind IN ('markdown', 'image') ORDER BY b.created_at DESC`,
       user.id,
     )
     .filter((row) => spaces.has(row.space_id))
@@ -564,6 +606,7 @@ export function listBookmarks(ctx: AppContext, user: AuthUser): DocBookmarkDTO[]
 
 export function setBookmark(ctx: AppContext, user: AuthUser, node: NodeRow, on: boolean): DocBookmarkDTO[] {
   if (node.kind === 'folder') throw badRequest('Seuls les fichiers se mettent en favori.');
+  if (node.kind === 'template' && on) throw badRequest('Un modèle ne se met pas en favori.');
   if (on) ctx.db.run('INSERT INTO doc_bookmarks (user_id, node_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', user.id, node.id, nowIso());
   else ctx.db.run('DELETE FROM doc_bookmarks WHERE user_id = ? AND node_id = ?', user.id, node.id);
   return listBookmarks(ctx, user);

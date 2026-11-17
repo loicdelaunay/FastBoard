@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue';
 import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
-import { DOC_LIMITS, type DocNodeDTO } from '@shared/docs';
+import { docTitle, DOC_LIMITS, type DocNodeDTO } from '@shared/docs';
 import { api } from '@/api';
 import { useDocsStore } from '@/stores/docs';
 import { formatRelative } from '@/utils/format';
@@ -45,9 +45,9 @@ async function restore(node: DocNodeDTO): Promise<void> {
     <p class="muted small hint">{{ $t('Les fichiers supprimés restent ici {n} jours.', { n: DOC_LIMITS.retentionDays }) }}</p>
     <ul v-if="nodes.length" class="list">
       <li v-for="node in nodes" :key="node.id" class="row">
-        <i :class="node.kind === 'image' ? 'pi pi-image' : 'pi pi-file'" class="muted"></i>
+        <i :class="node.kind === 'image' ? 'pi pi-image' : node.kind === 'template' ? 'pi pi-clone' : 'pi pi-file'" class="muted"></i>
         <span class="grow">
-          <span class="truncate path">{{ node.path }}</span>
+          <span class="truncate path">{{ node.kind === 'template' ? $t('Modèle : {name}', { name: docTitle(node.path) }) : node.path }}</span>
           <span class="muted small">{{ $t('supprimé {when}', { when: formatRelative(node.deletedAt!) }) }}</span>
         </span>
         <Button v-if="store.canEdit" :label="$t('Restaurer')" icon="pi pi-replay" size="small" severity="secondary" outlined @click="restore(node)" />

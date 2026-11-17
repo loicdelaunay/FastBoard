@@ -18,8 +18,8 @@ const info = ref<DocNodeInfoDTO | null>(null);
 const memo = ref('');
 const saving = ref(false);
 
-const name = computed(() => (props.node ? (props.node.kind === 'markdown' ? docTitle(props.node.path) : docBaseName(props.node.path)) : ''));
-const kindLabel = computed(() => (props.node?.kind === 'folder' ? t('Dossier') : props.node?.kind === 'image' ? t('Image') : t('Note Markdown')));
+const name = computed(() => (props.node ? (props.node.kind === 'markdown' || props.node.kind === 'template' ? docTitle(props.node.path) : docBaseName(props.node.path)) : ''));
+const kindLabel = computed(() => (props.node?.kind === 'folder' ? t('Dossier') : props.node?.kind === 'image' ? t('Image') : props.node?.kind === 'template' ? t('Modèle de note') : t('Note Markdown')));
 
 watch(visible, async (open) => {
   if (!open || !props.node) return;

@@ -739,6 +739,13 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       );
     `);
   },
+  // 25 — Documentation : modèles de notes d'un espace, dont les noms ne gênent pas ceux des notes.
+  (db) => {
+    db.exec(`
+      DROP INDEX idx_doc_nodes_path;
+      CREATE UNIQUE INDEX idx_doc_nodes_path ON doc_nodes (space_id, kind = 'template', path COLLATE NOCASE) WHERE deleted_at IS NULL;
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

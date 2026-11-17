@@ -515,8 +515,9 @@ export const docMemberSchema = docMemberRoleSchema.extend({ userId: id });
 
 export const docNodeSchema = z.object({
   path: z.string().min(1).max(1000).describe('Chemin relatif à l’espace, ex. `Guides/Installation` ; l’extension `.md` est ajoutée aux notes et les dossiers manquants sont créés.'),
-  kind: z.enum(['folder', 'markdown']).default('markdown'),
+  kind: z.enum(['folder', 'markdown', 'template']).default('markdown').describe('`template` : modèle de note de l’espace (un nom sans dossier, à part des notes).'),
   content: z.string().max(DOC_LIMITS.fileChars).optional().describe('Texte initial d’une note.'),
+  fromId: id.optional().describe('Note ou modèle de l’espace dont partir, à la place de `content` : une note créée d’après un modèle reçoit son texte, `{{title}}`, `{{date}}`, `{{time}}` et `{{author}}` remplis ; sinon le texte est copié tel quel.'),
 });
 export const docMoveSchema = z.object({ path: z.string().min(1).max(1000).describe('Nouveau chemin (renommage ou déplacement).') });
 export const docContentSchema = z.object({ content: z.string().max(DOC_LIMITS.fileChars) });

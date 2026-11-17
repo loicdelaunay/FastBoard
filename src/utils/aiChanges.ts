@@ -46,7 +46,7 @@ export async function performChange(action: AiChangeAction): Promise<AiChangeAct
       return { ...action, linkId: created };
     }
     case 'doc.create': {
-      const { node } = await api.docCreateNode(action.spaceId, action.path, 'markdown', action.content);
+      const { node } = await api.docCreateNode(action.spaceId, action.path, 'markdown', { content: action.content });
       return { ...action, nodeId: node.id };
     }
     case 'doc.edit':

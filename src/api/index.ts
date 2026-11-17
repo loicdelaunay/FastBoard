@@ -372,14 +372,16 @@ export const api = {
 
   docSpaces: () => http<{ spaces: DocSpaceDTO[] }>('GET', '/documentation/spaces'),
   docCreateSpace: (input: { name: string; description: string; obsidian?: boolean }) => http<{ space: DocSpaceDTO }>('POST', '/documentation/spaces', { body: input }),
-  docSpace: (spaceId: number) => http<{ space: DocSpaceDTO; nodes: DocNodeDTO[]; members: DocMemberDTO[] }>('GET', `/documentation/spaces/${spaceId}`),
+  docSpace: (spaceId: number) => http<{ space: DocSpaceDTO; nodes: DocNodeDTO[]; templates: DocNodeDTO[]; members: DocMemberDTO[] }>('GET', `/documentation/spaces/${spaceId}`),
   docUpdateSpace: (spaceId: number, input: { name?: string; description?: string; obsidian?: boolean }) => http<{ space: DocSpaceDTO }>('PATCH', `/documentation/spaces/${spaceId}`, { body: input }),
   docDeleteSpace: (spaceId: number) => http<{ ok: true }>('DELETE', `/documentation/spaces/${spaceId}`),
   docAddMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('POST', `/documentation/spaces/${spaceId}/members`, { body: { userId, role } }),
   docSetMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('PATCH', `/documentation/spaces/${spaceId}/members/${userId}`, { body: { role } }),
   docRemoveMember: (spaceId: number, userId: number) => http<{ members: DocMemberDTO[] }>('DELETE', `/documentation/spaces/${spaceId}/members/${userId}`),
   docTrash: (spaceId: number) => http<{ nodes: DocNodeDTO[] }>('GET', `/documentation/spaces/${spaceId}/trash`),
-  docCreateNode: (spaceId: number, path: string, kind: 'folder' | 'markdown', content?: string) => http<{ node: DocNodeDTO }>('POST', `/documentation/spaces/${spaceId}/nodes`, { body: { path, kind, ...(content === undefined ? {} : { content }) } }),
+  /** `fromId` : note ou modèle dont partir (une note créée d'après un modèle reçoit son texte, variables remplies). */
+  docCreateNode: (spaceId: number, path: string, kind: 'folder' | 'markdown' | 'template', from: { content?: string; fromId?: number } = {}) =>
+    http<{ node: DocNodeDTO }>('POST', `/documentation/spaces/${spaceId}/nodes`, { body: { path, kind, ...(from.content === undefined ? {} : { content: from.content }), ...(from.fromId === undefined ? {} : { fromId: from.fromId }) } }),
   docNode: (nodeId: number) => http<{ node: DocNodeDTO; role: DocRole; content: string | null }>('GET', `/documentation/nodes/${nodeId}`),
   docNodeInfo: (nodeId: number) => http<DocNodeInfoDTO>('GET', `/documentation/nodes/${nodeId}/info`),
   docSetMemo: (nodeId: number, memo: string) => http<{ node: DocNodeDTO }>('PUT', `/documentation/nodes/${nodeId}/memo`, { body: { memo } }),

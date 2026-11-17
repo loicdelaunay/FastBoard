@@ -16,6 +16,8 @@ export const useDocsStore = defineStore('docs', () => {
 
   const space = ref<DocSpaceDTO | null>(null);
   const nodes = ref<DocNodeDTO[]>([]);
+  /** Modèles de notes de l'espace ouvert, à part de l'arbre. */
+  const templates = ref<DocNodeDTO[]>([]);
   const members = ref<DocMemberDTO[]>([]);
   /** L'accès à l'espace ouvert vient d'être retiré. */
   const revoked = ref(false);
@@ -44,6 +46,7 @@ export const useDocsStore = defineStore('docs', () => {
     const result = await api.docSpace(spaceId);
     space.value = result.space;
     nodes.value = result.nodes;
+    templates.value = result.templates;
     members.value = result.members;
   }
 
@@ -76,13 +79,17 @@ export const useDocsStore = defineStore('docs', () => {
   function closeSpace(): void {
     space.value = null;
     nodes.value = [];
+    templates.value = [];
     members.value = [];
     realtime.sendDoc({ t: 'docs.watch', spaceId: null });
   }
 
   realtime.on('doc', (message) => {
     if (!('spaceId' in message) || message.spaceId !== space.value?.id) return;
-    if (message.t === 'docs.tree') nodes.value = message.nodes;
+    if (message.t === 'docs.tree') {
+      nodes.value = message.nodes;
+      templates.value = message.templates;
+    }
     else if (message.t === 'docs.access') void reload(message.spaceId).catch(() => undefined);
     else if (message.t === 'docs.revoked') revoked.value = true;
     else if (message.t === 'docs.comments' && message.nodeId === commentsNode.value) comments.value = message.comments;
@@ -95,5 +102,5 @@ export const useDocsStore = defineStore('docs', () => {
     void loadComments(commentsNode.value).catch(() => undefined);
   });
 
-  return { spaces, loading, loaded, space, nodes, members, revoked, comments, bookmarks, bookmarked, canEdit, isOwner, role, fetchSpaces, openSpace, closeSpace, reload, loadComments, loadBookmarks, toggleBookmark };
+  return { spaces, loading, loaded, space, nodes, templates, members, revoked, comments, bookmarks, bookmarked, canEdit, isOwner, role, fetchSpaces, openSpace, closeSpace, reload, loadComments, loadBookmarks, toggleBookmark };
 });

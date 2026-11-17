@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.4.2';
+export const APP_VERSION = '2.5.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,15 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.5.0',
+    date: '2026-11-17',
+    changes: [
+      { category: 'Nouveauté', text: 'Documentation : chaque espace a ses modèles de notes, en bas de l’arbre. Une nouvelle note peut partir d’un modèle : son titre, la date, l’heure et son auteur remplacent les variables.' },
+      { category: 'Nouveauté', text: 'Documentation : « Enregistrer comme modèle » sur une note, et « Insérer un modèle » au curseur pendant l’écriture.' },
+      { category: 'Amélioration', text: 'Assistant IA : il voit les modèles d’un espace de documentation et peut créer une note d’après l’un d’eux.' },
+    ],
+  },
   {
     version: '2.4.2',
     date: '2026-11-17',

@@ -14,11 +14,16 @@ import { t } from '@/i18n';
 /**
  * Arbre d'un espace : dossiers, notes et images. Un clic sélectionne un dossier (la flèche le déplie) ou ouvre un
  * fichier, Ctrl + clic ou le clic du milieu l'ouvre dans un nouvel onglet. Clic droit pour agir, glisser pour déplacer.
+ * En bas, les modèles de notes de l'espace.
  */
-const props = defineProps<{ nodes: DocNodeDTO[]; selectedId: number | null; editable: boolean; spaceId: number }>();
+const props = defineProps<{ nodes: DocNodeDTO[]; templates: DocNodeDTO[]; selectedId: number | null; editable: boolean; spaceId: number }>();
 const emit = defineEmits<{
   open: [node: DocNodeDTO, newTab: boolean];
-  create: [kind: 'folder' | 'markdown', folder: string];
+  create: [kind: 'folder' | 'markdown' | 'template', folder: string];
+  /** Nouvelle note d'après ce modèle. */
+  useTemplate: [template: DocNodeDTO, folder: string];
+  /** Nouveau modèle d'après cette note. */
+  saveAsTemplate: [node: DocNodeDTO];
   rename: [node: DocNodeDTO];
   remove: [node: DocNodeDTO];
   move: [node: DocNodeDTO, folder: string];
@@ -124,7 +129,26 @@ const rows = computed<Row[]>(() => {
   return list;
 });
 
-const ICONS: Record<DocNodeDTO['kind'], string> = { folder: 'pi pi-folder', markdown: 'pi pi-file', image: 'pi pi-image' };
+const ICONS: Record<DocNodeDTO['kind'], string> = { folder: 'pi pi-folder', markdown: 'pi pi-file', image: 'pi pi-image', template: 'pi pi-clone' };
+
+// --- Modèles ---
+const TEMPLATES_KEY = 'fb.docs.templatesClosed';
+function storedTemplatesOpen(): boolean {
+  try {
+    return localStorage.getItem(TEMPLATES_KEY) !== '1';
+  } catch {
+    return true;
+  }
+}
+const templatesOpen = ref(storedTemplatesOpen());
+watch(templatesOpen, (open) => {
+  try {
+    localStorage.setItem(TEMPLATES_KEY, open ? '0' : '1');
+  } catch {
+    // Stockage indisponible : le choix vaut pour cette page seulement.
+  }
+});
+const shownTemplates = computed(() => props.templates.filter((node) => !search.value.trim() || matchesQuery(search.value.trim(), [node.path])));
 
 /** Où créer une note : le dossier choisi, sinon celui du fichier ouvert. */
 const currentFolder = computed(() => {
@@ -153,8 +177,9 @@ const menu = ref<InstanceType<typeof ContextMenu> | null>(null);
 const target = ref<DocNodeDTO | null>(null);
 const menuItems = computed<MenuItem[]>(() => {
   const node = target.value;
+  if (node?.kind === 'template') return templateMenu(node);
   const folder = node ? (node.kind === 'folder' ? node.path : docParent(node.path)) : '';
-  const transfer: Record<'space' | DocNodeDTO['kind'], { out: string; in: string }> = {
+  const transfer: Record<'space' | Exclude<DocNodeDTO['kind'], 'template'>, { out: string; in: string }> = {
     space: { out: t('Exporter l’espace en ZIP'), in: t('Importer un .md ou un ZIP') },
     folder: { out: t('Exporter le dossier en ZIP'), in: t('Importer un .md ou un ZIP ici') },
     markdown: { out: t('Exporter en .md'), in: t('Importer un .md') },
@@ -177,6 +202,7 @@ const menuItems = computed<MenuItem[]>(() => {
         { label: t('Nouvelle note'), icon: 'pi pi-file-plus', command: () => emit('create', 'markdown', folder) },
         { label: t('Nouveau dossier'), icon: 'pi pi-folder-plus', command: () => emit('create', 'folder', folder) },
         ...(node ? [{ label: t('Renommer'), icon: 'pi pi-pencil', command: () => emit('rename', node) }] : []),
+        ...(node?.kind === 'markdown' ? [{ label: t('Enregistrer comme modèle'), icon: 'pi pi-clone', command: () => emit('saveAsTemplate', node) }] : []),
         { separator: true },
       ]
     : [];
@@ -196,6 +222,23 @@ const menuItems = computed<MenuItem[]>(() => {
     ...(props.editable && node ? [{ separator: true }, { label: t('Supprimer'), icon: 'pi pi-trash', command: () => emit('remove', node) }] : []),
   ];
 });
+
+function templateMenu(node: DocNodeDTO): MenuItem[] {
+  return [
+    { label: t('Modifier le modèle'), icon: 'pi pi-pencil', command: () => emit('open', node, false) },
+    ...(props.editable
+      ? [
+          { label: t('Nouvelle note depuis ce modèle'), icon: 'pi pi-file-plus', command: () => emit('useTemplate', node, currentFolder.value) },
+          { label: t('Renommer'), icon: 'pi pi-tag', command: () => emit('rename', node) },
+        ]
+      : []),
+    { separator: true },
+    { label: t('Infos'), icon: 'pi pi-info-circle', command: () => emit('info', node) },
+    ...(props.editable ? [{ label: node.memo ? t('Modifier la note') : t('Ajouter une note'), icon: 'pi pi-comment', command: () => emit('memo', node) }] : []),
+    { label: t('Exporter en .md'), icon: 'pi pi-download', command: () => emit('export', node) },
+    ...(props.editable ? [{ separator: true }, { label: t('Supprimer'), icon: 'pi pi-trash', command: () => emit('remove', node) }] : []),
+  ];
+}
 
 function openMenu(event: MouseEvent, node: DocNodeDTO | null): void {
   event.preventDefault();
@@ -281,6 +324,38 @@ function dropOn(folder: string): void {
       </li>
     </ul>
     <p v-if="!rows.length" class="muted small empty">{{ search ? $t('Aucun fichier ne correspond.') : editable ? $t('Espace vide : créez une première note.') : $t('Espace vide.') }}</p>
+
+    <section v-if="templates.length || editable" class="templates" :aria-label="$t('Modèles')" @contextmenu.stop.prevent>
+      <header class="templates-head">
+        <button type="button" class="templates-toggle" :aria-expanded="templatesOpen" @click="templatesOpen = !templatesOpen">
+          <i :class="templatesOpen ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"></i>
+          <span>{{ $t('Modèles') }}</span>
+          <span class="count muted">{{ templates.length }}</span>
+        </button>
+        <Button v-if="editable" v-tooltip.bottom="$t('Nouveau modèle')" icon="pi pi-plus" text rounded size="small" severity="secondary" :aria-label="$t('Nouveau modèle')" @click="emit('create', 'template', '')" />
+      </header>
+      <ul v-if="templatesOpen" class="list template-rows" role="list">
+        <li
+          v-for="node in shownTemplates"
+          :key="node.id"
+          class="row"
+          :class="{ selected: node.id === selectedId }"
+          :title="node.memo ? `${docTitle(node.path)}\n${node.memo}` : $t('Modifier le modèle')"
+          tabindex="0"
+          @click="emit('open', node, $event.ctrlKey || $event.metaKey)"
+          @auxclick.prevent="$event.button === 1 && emit('open', node, true)"
+          @keydown.enter="emit('open', node, false)"
+          @contextmenu.prevent.stop="openMenu($event, node)"
+        >
+          <span class="chevron-gap"></span>
+          <i class="pi pi-clone kind template"></i>
+          <span class="name truncate">{{ docTitle(node.path) }}</span>
+          <i v-if="node.memo" class="pi pi-comment mark" aria-hidden="true"></i>
+          <button v-if="editable" v-tooltip.top="$t('Nouvelle note depuis ce modèle')" type="button" class="use" :aria-label="$t('Nouvelle note depuis ce modèle')" @click.stop="emit('useTemplate', node, currentFolder)"><i class="pi pi-file-plus"></i></button>
+        </li>
+      </ul>
+      <p v-if="templatesOpen && !templates.length" class="muted small empty">{{ $t('Clic droit sur une note, « Enregistrer comme modèle », ou « + » pour en écrire un.') }}</p>
+    </section>
     <ContextMenu ref="menu" :model="menuItems" />
   </div>
 </template>
@@ -390,5 +465,64 @@ function dropOn(folder: string): void {
 }
 .empty {
   padding: 0 0.5rem;
+}
+.templates {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  max-height: 40%;
+  min-height: 0;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--fb-border);
+}
+.templates-head {
+  display: flex;
+  align-items: center;
+}
+.templates-toggle {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.4rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.templates-toggle .pi {
+  color: var(--fb-muted);
+  font-size: 0.6rem;
+}
+.template-rows {
+  flex: 1;
+}
+.kind.template {
+  color: #a855f7;
+}
+.use {
+  display: none;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--fb-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.row:hover .use,
+.row:focus-within .use {
+  display: grid;
+}
+.use:hover {
+  background: color-mix(in srgb, var(--fb-text) 10%, transparent);
+  color: var(--fb-accent);
 }
 </style>

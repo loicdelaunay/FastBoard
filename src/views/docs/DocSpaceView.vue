@@ -7,10 +7,12 @@ import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Menu from 'primevue/menu';
+import Select from 'primevue/select';
 import type { MenuItem } from 'primevue/menuitem';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
 import { docBaseName, docParent, docTitle, type DocLinksDTO, type DocNodeDTO } from '@shared/docs';
 import { docOutline } from '@shared/docOutline';
+import { applyDocTemplate, DOC_TEMPLATE_VARIABLES } from '@shared/docTemplates';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
@@ -34,7 +36,7 @@ import { downloadFrom } from '@/utils/files';
 import { formatDateTime, formatRelative } from '@/utils/format';
 import { notify, notifyError } from '@/utils/notify';
 
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
 /**
  * Espace de documentation, façon Obsidian : arbre à gauche avec l'espace en bas, onglets au-dessus de la note, et les
  * liens, rétroliens, commentaires et le compte des mots en bas à droite, dans un panneau flottant.
@@ -53,7 +55,12 @@ const failed = ref(false);
 const tabsState = useDocTabs(spaceId);
 const { tabs, active } = tabsState;
 const fileId = computed(() => active.value.nodeId);
-const selected = computed(() => store.nodes.find((node) => node.id === fileId.value) ?? null);
+/** Notes, images et modèles : tout ce qu'un onglet peut montrer. */
+const allNodes = computed(() => [...store.nodes, ...store.templates]);
+const selected = computed(() => allNodes.value.find((node) => node.id === fileId.value) ?? null);
+/** Note ou modèle : un texte qui s'écrit. */
+const isText = (node: DocNodeDTO | null | undefined): boolean => node?.kind === 'markdown' || node?.kind === 'template';
+const isTemplate = computed(() => selected.value?.kind === 'template');
 /** Prêt quand l'arbre est chargé : avant, un fichier de l'adresse ne peut pas être vérifié. */
 const ready = ref(false);
 
@@ -74,9 +81,9 @@ watch(
     ready.value = false;
     try {
       await store.openSpace(id);
-      tabsState.prune(new Set(store.nodes.map((node) => node.id)));
+      tabsState.prune(new Set(allNodes.value.map((node) => node.id)));
       const wanted = queryFile();
-      if (wanted !== null && store.nodes.some((node) => node.id === wanted)) tabsState.show(wanted);
+      if (wanted !== null && allNodes.value.some((node) => node.id === wanted)) tabsState.show(wanted);
       ready.value = true;
       // L'adresse reprend l'onglet retrouvé, sans ajouter d'étape à l'historique du navigateur.
       if (queryFile() !== fileId.value) void router.replace({ query: fileId.value ? { file: String(fileId.value) } : {} });
@@ -98,15 +105,12 @@ watch(
     if (!ready.value) return;
     const wanted = queryFile();
     if (wanted === fileId.value) return;
-    if (wanted === null || store.nodes.some((node) => node.id === wanted)) tabsState.show(wanted);
+    if (wanted === null || allNodes.value.some((node) => node.id === wanted)) tabsState.show(wanted);
   },
 );
 
 // Fichiers supprimés ou déplacés hors de l'espace : leurs onglets se ferment.
-watch(
-  () => store.nodes,
-  (nodes) => ready.value && tabsState.prune(new Set(nodes.map((node) => node.id))),
-);
+watch(allNodes, (nodes) => ready.value && tabsState.prune(new Set(nodes.map((node) => node.id))));
 
 function openNode(node: DocNodeDTO, newTab = false): void {
   if (newTab) tabsState.openInNewTab(node.id);
@@ -114,14 +118,14 @@ function openNode(node: DocNodeDTO, newTab = false): void {
 }
 
 function tabTitle(nodeId: number | null): string {
-  const node = store.nodes.find((entry) => entry.id === nodeId);
+  const node = allNodes.value.find((entry) => entry.id === nodeId);
   if (!node) return t('Nouvel onglet');
-  return node.kind === 'markdown' ? docTitle(node.path) : docBaseName(node.path);
+  return isText(node) ? docTitle(node.path) : docBaseName(node.path);
 }
 
 function tabIcon(nodeId: number | null): string {
-  const node = store.nodes.find((entry) => entry.id === nodeId);
-  return !node ? 'pi pi-plus-circle' : node.kind === 'image' ? 'pi pi-image' : 'pi pi-file';
+  const node = allNodes.value.find((entry) => entry.id === nodeId);
+  return !node ? 'pi pi-plus-circle' : node.kind === 'image' ? 'pi pi-image' : node.kind === 'template' ? 'pi pi-clone template-tab' : 'pi pi-file';
 }
 
 const tabMenu = ref<InstanceType<typeof ContextMenu> | null>(null);
@@ -282,7 +286,7 @@ function openSession(nodeId: number): void {
 }
 
 watch(
-  () => (selected.value?.kind === 'markdown' ? selected.value.id : null),
+  () => (isText(selected.value) ? selected.value!.id : null),
   (nodeId) => (nodeId === null ? closeSession() : openSession(nodeId)),
   { immediate: true },
 );
@@ -306,7 +310,7 @@ const draft = ref<DocQuote | null>(null);
 const focusedComment = ref<number | null>(null);
 const editor = ref<InstanceType<typeof DocEditor> | null>(null);
 
-const noteId = computed(() => (selected.value?.kind === 'markdown' ? selected.value.id : null));
+const noteId = computed(() => (isText(selected.value) ? selected.value!.id : null));
 const openComments = computed(() => store.comments.filter((comment) => comment.parentId === null && !comment.resolvedAt).length);
 const linkCount = computed(() => (links.value ? links.value.outgoing.notes.length + links.value.outgoing.tickets.length + links.value.outgoing.boards.length : 0));
 const backlinkCount = computed(() => (links.value ? links.value.backlinks.notes.length + links.value.backlinks.tickets.length + links.value.backlinks.boards.length : 0));
@@ -334,7 +338,8 @@ watch(
     draft.value = null;
     focusedComment.value = null;
     void store.loadComments(nodeId).catch(() => undefined);
-    if (nodeId !== null) void loadLinks(nodeId);
+    // Un modèle n'est la cible d'aucun lien : ses compteurs ne veulent rien dire.
+    if (nodeId !== null && !isTemplate.value) void loadLinks(nodeId);
   },
   { immediate: true },
 );
@@ -344,7 +349,7 @@ let linksTimer: number | undefined;
 watch(content, () => {
   window.clearTimeout(linksTimer);
   linksTimer = window.setTimeout(() => {
-    if (noteId.value !== null) void loadLinks(noteId.value);
+    if (noteId.value !== null && !isTemplate.value) void loadLinks(noteId.value);
   }, 2000);
 });
 
@@ -370,7 +375,7 @@ function revealComment(comment: DocCommentDTO): void {
 }
 
 watch(closed, (reason) => {
-  if (reason === 'deleted') tabsState.prune(new Set(store.nodes.filter((node) => node.id !== session.value?.nodeId).map((node) => node.id)));
+  if (reason === 'deleted') tabsState.prune(new Set(allNodes.value.filter((node) => node.id !== session.value?.nodeId).map((node) => node.id)));
   else if (reason === 'revoked' && !store.revoked) void store.reload(spaceId.value).catch(() => undefined);
 });
 
@@ -383,19 +388,31 @@ onBeforeUnmount(() => {
 });
 
 // --- Arbre : créer, renommer, déplacer, supprimer ---
-const nameDialog = ref<{ kind: 'create-note' | 'create-folder' | 'rename'; folder: string; node: DocNodeDTO | null } | null>(null);
+/** `sourceId` : note dont un nouveau modèle reprend le texte. */
+const nameDialog = ref<{ kind: 'create-note' | 'create-folder' | 'create-template' | 'rename'; folder: string; node: DocNodeDTO | null; sourceId?: number } | null>(null);
 const nameValue = ref('');
+/** Modèle dont part la nouvelle note (0 : note vide ; PrimeVue prend `null` pour « rien de choisi »). */
+const nameTemplate = ref(0);
 const nameBusy = ref(false);
-const nameTitle = computed(() => (nameDialog.value?.kind === 'rename' ? t('Renommer') : nameDialog.value?.kind === 'create-folder' ? t('Nouveau dossier') : t('Nouvelle note')));
+const NAME_TITLES = { rename: 'Renommer', 'create-folder': 'Nouveau dossier', 'create-template': 'Nouveau modèle', 'create-note': 'Nouvelle note' } as const;
+const nameTitle = computed(() => t(NAME_TITLES[nameDialog.value?.kind ?? 'create-note']));
+const templateOptions = computed(() => [{ label: t('Note vide'), value: 0 }, ...store.templates.map((node) => ({ label: docTitle(node.path), value: node.id }))]);
 
-function askCreate(kind: 'folder' | 'markdown', folder: string): void {
-  nameDialog.value = { kind: kind === 'folder' ? 'create-folder' : 'create-note', folder, node: null };
+function askCreate(kind: 'folder' | 'markdown' | 'template', folder: string, templateId: number | null = null): void {
+  nameDialog.value = { kind: kind === 'folder' ? 'create-folder' : kind === 'template' ? 'create-template' : 'create-note', folder: kind === 'template' ? '' : folder, node: null };
   nameValue.value = '';
+  nameTemplate.value = templateId ?? 0;
+}
+
+/** Nouveau modèle d'après une note : il en reprend le texte. */
+function askSaveAsTemplate(node: DocNodeDTO): void {
+  nameDialog.value = { kind: 'create-template', folder: '', node: null, sourceId: node.id };
+  nameValue.value = docTitle(node.path);
 }
 
 function askRename(node: DocNodeDTO): void {
   nameDialog.value = { kind: 'rename', folder: docParent(node.path), node };
-  nameValue.value = node.kind === 'markdown' ? docTitle(node.path) : docBaseName(node.path);
+  nameValue.value = isText(node) ? docTitle(node.path) : docBaseName(node.path);
 }
 
 const inFolder = (folder: string, name: string) => [folder, name].filter(Boolean).join('/');
@@ -408,8 +425,19 @@ async function submitName(): Promise<void> {
   try {
     if (dialog.node) {
       await api.docMoveNode(dialog.node.id, inFolder(dialog.folder, name));
+    } else if (dialog.kind === 'create-template') {
+      const { node } = await api.docCreateNode(spaceId.value, name, 'template', dialog.sourceId ? { fromId: dialog.sourceId } : {});
+      store.templates = [...store.templates.filter((entry) => entry.id !== node.id), node];
+      // Depuis une note, on y reste ; un modèle vide s'ouvre pour être écrit.
+      if (dialog.sourceId) notify('success', t('Modèle créé'), t('« {name} » est dans les modèles de l’espace.', { name: docTitle(node.path) }));
+      else {
+        if (mode.value === 'read') chooseMode('live');
+        openNode(node);
+      }
     } else {
-      const { node } = await api.docCreateNode(spaceId.value, inFolder(dialog.folder, name), dialog.kind === 'create-folder' ? 'folder' : 'markdown');
+      const kind = dialog.kind === 'create-folder' ? 'folder' : 'markdown';
+      const from = kind === 'markdown' && nameTemplate.value ? { fromId: nameTemplate.value } : {};
+      const { node } = await api.docCreateNode(spaceId.value, inFolder(dialog.folder, name), kind, from);
       if (node.kind === 'markdown') {
         store.nodes = [...store.nodes.filter((entry) => entry.id !== node.id), node];
         if (mode.value === 'read') chooseMode('live');
@@ -434,8 +462,8 @@ async function moveNode(node: DocNodeDTO, folder: string): Promise<void> {
 
 function askRemove(node: DocNodeDTO): void {
   confirm.require({
-    header: t('Supprimer « {name} » ?', { name: docBaseName(node.path) }),
-    message: node.kind === 'folder' ? t('Le dossier et son contenu vont à la corbeille pendant 15 jours.') : t('Le fichier va à la corbeille pendant 15 jours.'),
+    header: t('Supprimer « {name} » ?', { name: node.kind === 'template' ? docTitle(node.path) : docBaseName(node.path) }),
+    message: node.kind === 'folder' ? t('Le dossier et son contenu vont à la corbeille pendant 15 jours.') : node.kind === 'template' ? t('Le modèle va à la corbeille pendant 15 jours ; les notes créées d’après lui ne changent pas.') : t('Le fichier va à la corbeille pendant 15 jours.'),
     icon: 'pi pi-trash',
     acceptLabel: t('Supprimer'),
     rejectLabel: t('Annuler'),
@@ -479,16 +507,53 @@ const noteMenu = ref<InstanceType<typeof Menu> | null>(null);
 const noteMenuItems = computed<MenuItem[]>(() => {
   const node = selected.value;
   if (!node) return [];
+  if (node.kind === 'template') {
+    return [
+      { label: t('Historique'), icon: 'pi pi-history', command: () => (historyOpen.value = true) },
+      { label: t('Infos'), icon: 'pi pi-info-circle', command: () => showInfo(node, 'info') },
+      ...(store.canEdit ? [{ label: node.memo ? t('Modifier la note') : t('Ajouter une note'), icon: 'pi pi-comment', command: () => showInfo(node, 'memo') }] : []),
+      { separator: true },
+      ...(store.canEdit ? [{ label: t('Nouvelle note depuis ce modèle'), icon: 'pi pi-file-plus', command: () => askCreate('markdown', '', node.id) }] : []),
+      { label: t('Exporter en .md'), icon: 'pi pi-download', command: () => exportNode(node) },
+      ...(store.canEdit ? [{ separator: true }, { label: t('Renommer'), icon: 'pi pi-pencil', command: () => askRename(node) }, { label: t('Supprimer'), icon: 'pi pi-trash', command: () => askRemove(node) }] : []),
+    ];
+  }
   return [
     { label: t('Historique'), icon: 'pi pi-history', command: () => (historyOpen.value = true) },
     { label: t('Infos'), icon: 'pi pi-info-circle', command: () => showInfo(node, 'info') },
     ...(store.canEdit ? [{ label: node.memo ? t('Modifier la note') : t('Ajouter une note'), icon: 'pi pi-comment', command: () => showInfo(node, 'memo') }] : []),
+    ...(store.canEdit && node.kind === 'markdown' ? [{ label: t('Enregistrer comme modèle'), icon: 'pi pi-clone', command: () => askSaveAsTemplate(node) }] : []),
     { separator: true },
     { label: t('Exporter en .md'), icon: 'pi pi-download', command: () => exportNode(node) },
     ...(store.canEdit ? [{ label: t('Importer un .md'), icon: 'pi pi-upload', command: () => askImport(node) }] : []),
     ...(store.canEdit ? [{ separator: true }, { label: t('Renommer'), icon: 'pi pi-pencil', command: () => askRename(node) }, { label: t('Supprimer'), icon: 'pi pi-trash', command: () => askRemove(node) }] : []),
   ];
 });
+
+// --- Insérer un modèle dans la note ouverte ---
+const insertMenu = ref<InstanceType<typeof Menu> | null>(null);
+const insertable = computed(() => store.templates.filter((node) => node.id !== selected.value?.id));
+const insertItems = computed<MenuItem[]>(() => [
+  { label: t('Insérer un modèle'), items: insertable.value.map((node) => ({ label: docTitle(node.path), icon: 'pi pi-clone', command: () => void insertTemplate(node) })) },
+]);
+
+/** Au curseur dans l'éditeur, sinon à la fin de la note ; dans un modèle, les variables restent à remplir. */
+async function insertTemplate(template: DocNodeDTO): Promise<void> {
+  const note = selected.value;
+  const current = session.value;
+  if (!note || !current) return;
+  try {
+    const raw = (await api.docNode(template.id)).content ?? '';
+    const text = note.kind === 'template' ? raw : applyDocTemplate(raw, { title: docTitle(note.path), author: auth.user?.name ?? '', locale: currentLocale() });
+    if (session.value !== current) return;
+    if (editor.value?.insertBlock(text)) return;
+    const existing = current.text.toString();
+    current.doc.transact(() => current.text.insert(existing.length, `${existing && !existing.endsWith('\n') ? '\n\n' : ''}${text}`));
+    notify('success', t('Modèle inséré'), t('À la fin de la note.'));
+  } catch (error) {
+    notifyError(error, t('Modèle non inséré'));
+  }
+}
 
 // --- Espace : en bas de l'arbre, comme le coffre d'Obsidian ---
 const membersOpen = ref(false);
@@ -570,11 +635,14 @@ const recent = computed(() =>
       <DocTree
         class="tree"
         :nodes="store.nodes"
+        :templates="store.templates"
         :selected-id="fileId"
         :editable="store.canEdit"
         :space-id="spaceId"
         @open="openNode"
         @create="askCreate"
+        @use-template="(source, folder) => askCreate('markdown', folder, source.id)"
+        @save-as-template="askSaveAsTemplate"
         @rename="askRename"
         @remove="askRemove"
         @move="moveNode"
@@ -627,15 +695,16 @@ const recent = computed(() =>
           <Button v-tooltip.bottom="$t('Précédent')" icon="pi pi-arrow-left" text rounded size="small" severity="secondary" :disabled="!active.back.length" :aria-label="$t('Précédent')" @click="tabsState.goBack()" />
           <Button v-tooltip.bottom="$t('Suivant')" icon="pi pi-arrow-right" text rounded size="small" severity="secondary" :disabled="!active.forward.length" :aria-label="$t('Suivant')" @click="tabsState.goForward()" />
           <div class="crumbs truncate">
-            <span v-if="docParent(selected.path)" class="muted">{{ docParent(selected.path).replaceAll('/', ' / ') }} / </span>
-            <strong>{{ selected.kind === 'markdown' ? docTitle(selected.path) : docBaseName(selected.path) }}</strong>
+            <span v-if="isTemplate" class="muted"><i class="pi pi-clone template-mark"></i> {{ $t('Modèles') }} / </span>
+            <span v-else-if="docParent(selected.path)" class="muted">{{ docParent(selected.path).replaceAll('/', ' / ') }} / </span>
+            <strong>{{ isText(selected) ? docTitle(selected.path) : docBaseName(selected.path) }}</strong>
           </div>
           <div class="people">
             <span v-for="person in presence" :key="person.id" v-tooltip.bottom="$t('{name} est sur cette note', { name: person.name })" class="person" :style="{ '--ring': person.color }">
               <UserAvatar :user="users.find((user) => user.id === person.id) ?? { id: person.id, name: person.name, avatarVersion: 0 }" size="small" />
             </span>
           </div>
-          <template v-if="selected.kind === 'markdown'">
+          <template v-if="isText(selected)">
             <span v-if="writing && savedAt" v-tooltip.bottom="formatDateTime(savedAt)" class="muted small saved"><i class="pi pi-check"></i> {{ $t('Enregistré') }}</span>
             <span v-else-if="synced && !canWrite" class="muted small saved"><i class="pi pi-lock"></i> {{ $t('Lecture seule') }}</span>
             <div v-if="canWrite" class="modes" role="radiogroup" :aria-label="$t('Mode d’affichage')">
@@ -646,7 +715,12 @@ const recent = computed(() =>
             <Button v-if="writing && !live" v-tooltip.bottom="showPreview ? $t('Masquer l’aperçu') : $t('Afficher l’aperçu')" icon="pi pi-objects-column" text rounded size="small" :severity="showPreview ? undefined : 'secondary'" :aria-pressed="showPreview" :aria-label="$t('Aperçu')" @click="showPreview = !showPreview" />
             <Button v-if="outlineAvailable" v-tooltip.bottom="$t('Sommaire')" icon="pi pi-list" text rounded size="small" :severity="outlineOpen ? undefined : 'secondary'" :aria-pressed="outlineOpen" :aria-label="$t('Sommaire')" class="outline-toggle" @click="outlineOpen = !outlineOpen" />
           </template>
+          <template v-if="isText(selected) && canWrite && insertable.length">
+            <Button v-tooltip.bottom="$t('Insérer un modèle')" icon="pi pi-clone" text rounded size="small" severity="secondary" :aria-label="$t('Insérer un modèle')" aria-haspopup="true" @click="insertMenu?.toggle($event)" />
+            <Menu ref="insertMenu" :model="insertItems" popup />
+          </template>
           <Button
+            v-if="!isTemplate"
             v-tooltip.bottom="store.bookmarked.has(selected.id) ? $t('Retirer des favoris') : $t('Ajouter aux favoris')"
             :icon="store.bookmarked.has(selected.id) ? 'pi pi-star-fill' : 'pi pi-star'"
             text
@@ -661,7 +735,16 @@ const recent = computed(() =>
           <Menu ref="noteMenu" :model="noteMenuItems" popup />
         </header>
 
-        <template v-if="selected.kind === 'markdown'">
+        <template v-if="isText(selected)">
+          <div v-if="isTemplate" class="template-banner">
+            <i class="pi pi-clone"></i>
+            <span class="template-text">
+              {{ $t('Modèle : les notes créées d’après lui reçoivent ce texte.') }}
+              <span class="muted">{{ $t('Variables :') }}</span>
+              <code v-for="variable in DOC_TEMPLATE_VARIABLES" :key="variable.name" v-tooltip.bottom="`${$t(variable.description)} · ${variable.aliases.join(', ')}`">{{ variable.name }}</code>
+            </span>
+            <Button v-if="store.canEdit" :label="$t('Nouvelle note')" icon="pi pi-file-plus" size="small" text @click="askCreate('markdown', '', selected.id)" />
+          </div>
           <div v-if="!synced" class="waiting muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
           <div v-else class="note-body" :class="{ 'with-outline': showOutline }">
             <DocOutline v-if="showOutline" class="outline" :headings="headings" :active="activeHeading" @go="goToHeading" @close="outlineOpen = false" />
@@ -693,10 +776,10 @@ const recent = computed(() =>
           </div>
 
           <div class="status" role="toolbar" :aria-label="$t('Liens et commentaires')">
-            <button v-tooltip.top="$t('Notes, tickets et tableaux qui citent cette note')" type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'links' }" @click="showSide('links')">
+            <button v-if="!isTemplate" v-tooltip.top="$t('Notes, tickets et tableaux qui citent cette note')" type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'links' }" @click="showSide('links')">
               <i class="pi pi-reply"></i> {{ $t('{n} rétrolien|{n} rétroliens', { n: backlinkCount }) }}
             </button>
-            <button v-tooltip.top="$t('Ce que cite cette note')" type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'links' }" @click="showSide('links')">
+            <button v-if="!isTemplate" v-tooltip.top="$t('Ce que cite cette note')" type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'links' }" @click="showSide('links')">
               <i class="pi pi-link"></i> {{ $t('{n} lien|{n} liens', { n: linkCount }) }}
             </button>
             <button type="button" class="status-item" :class="{ active: sideOpen && sideTab === 'comments' }" @click="showSide('comments')">
@@ -766,6 +849,14 @@ const recent = computed(() =>
       <form class="name-form" @submit.prevent="submitName">
         <p v-if="nameDialog?.folder" class="muted small">{{ $t('Dans {folder}', { folder: nameDialog.folder }) }}</p>
         <InputText v-model="nameValue" autofocus fluid :aria-label="$t('Nom')" :placeholder="$t('Nom')" />
+        <label v-if="nameDialog?.kind === 'create-note' && store.templates.length" class="name-template">
+          <span class="muted small">{{ $t('Modèle') }}</span>
+          <Select v-model="nameTemplate" :options="templateOptions" option-label="label" option-value="value" size="small" fluid />
+        </label>
+        <p v-if="nameDialog?.kind === 'create-template'" class="muted small name-hint">
+          {{ nameDialog.sourceId ? $t('Le modèle reprend le texte de la note : remplacez ce qui change d’une note à l’autre par des variables.') : $t('Les notes créées d’après ce modèle reçoivent son texte, variables remplies :') }}
+          <code v-for="variable in DOC_TEMPLATE_VARIABLES" :key="variable.name">{{ variable.name }}</code>
+        </p>
         <div class="name-actions">
           <Button type="button" :label="$t('Annuler')" severity="secondary" text @click="nameDialog = null" />
           <Button type="submit" :label="$t('Valider')" icon="pi pi-check" :disabled="!nameValue.trim()" :loading="nameBusy" />
@@ -776,7 +867,7 @@ const recent = computed(() =>
     <DocMembersDialog v-model:visible="membersOpen" :users="users" />
     <DocImportDialog v-model:visible="importOpen" :space-id="spaceId" :node="importNode" @done="store.reload(spaceId)" />
     <DocTrashDialog v-model:visible="trashOpen" :space-id="spaceId" />
-    <DocHistoryDialog v-if="selected?.kind === 'markdown'" v-model:visible="historyOpen" :node="selected" :nodes="store.nodes" :users="users" :can-restore="canWrite" :current="content" />
+    <DocHistoryDialog v-if="selected && isText(selected)" v-model:visible="historyOpen" :node="selected" :nodes="store.nodes" :users="users" :can-restore="canWrite" :current="content" />
     <DocSpaceDialog v-model:visible="settingsOpen" :space="store.space" @saved="store.reload(spaceId)" />
     <DocSiteDialog v-model:visible="siteOpen" :space="store.space" @saved="store.reload(spaceId)" />
     <DocNodeInfoDialog v-model:visible="infoOpen" :node="infoNode" :mode="infoMode" :can-edit="store.canEdit" />
@@ -1206,6 +1297,44 @@ const recent = computed(() =>
 }
 .name-form p {
   margin: 0;
+}
+.name-template {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.name-hint code,
+.template-banner code {
+  margin-left: 0.3rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: var(--fb-panel-alt);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.template-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--fb-border);
+  background: color-mix(in srgb, #a855f7 8%, var(--fb-panel));
+  font-size: 0.82rem;
+}
+.template-banner > .pi {
+  color: #a855f7;
+}
+.template-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.7;
+}
+.template-banner code {
+  cursor: help;
+}
+.template-mark,
+.tab-icon.template-tab {
+  color: #a855f7;
 }
 .name-actions {
   display: flex;

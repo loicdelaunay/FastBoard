@@ -19,6 +19,10 @@ const EXACT: Record<string, string> = {
   "Choisissez au moins une personne.": "Choose at least one person.",
   "Un modèle se nomme sans dossier.": "A template is named without a folder.",
   "Un modèle porte déjà ce nom.": "A template already has this name.",
+  // 2.5 — Modèles de notes
+  "Modèle introuvable.": "Template not found.",
+  "Donnez le texte ou le modèle de départ, pas les deux.": "Give the text or the starting template, not both.",
+  "Un modèle ne se met pas en favori.": "A template cannot be bookmarked.",
   "Seul un tableau se partage.": "Only a board can be shared.",
   "Image introuvable.": "Image not found.",
   "Icône introuvable.": "Icon not found.",

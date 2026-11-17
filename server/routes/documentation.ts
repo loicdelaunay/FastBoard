@@ -16,7 +16,9 @@ import {
   findNodeByPath,
   getSpace,
   listMembers,
+  isTextNode,
   listNodes,
+  listTemplates,
   listBookmarks,
   listSpaces,
   listTrash,
@@ -89,7 +91,7 @@ export function documentationUploadRouter(ctx: AppContext): Router {
     const node = requireNode(ctx.db, idParam(req.params.id));
     const user = currentUser(res);
     requireSpace(ctx, user, node.space_id, 'editor');
-    if (node.deleted_at || node.kind === 'folder') throw badRequest('Choisissez une note ou une image.');
+    if (node.deleted_at || node.kind === 'folder' || node.kind === 'template') throw badRequest('Choisissez une note ou une image.');
     const body = req.body as unknown;
     if (!Buffer.isBuffer(body) || body.length === 0) throw badRequest('Fichier vide.');
     res.json(previewFileImport(ctx, user.id, node, body));
@@ -114,7 +116,7 @@ export function documentationRouter(ctx: AppContext): Router {
   const activeNote = (res: Response, nodeId: number, minimum: DocRole = 'reader'): NodeRow => {
     const { node } = nodeAccess(res, nodeId, minimum);
     if (node.deleted_at) throw conflict('Ce fichier est dans la corbeille.');
-    if (node.kind !== 'markdown') throw badRequest('Ce fichier n’est pas une note Markdown.');
+    if (!isTextNode(node)) throw badRequest('Ce fichier n’est pas une note Markdown.');
     return node;
   };
 
@@ -158,7 +160,7 @@ export function documentationRouter(ctx: AppContext): Router {
     const spaceId = idParam(req.params.id);
     const user = currentUser(res);
     requireSpace(ctx, user, spaceId);
-    res.json({ space: getSpace(ctx, user, spaceId), nodes: listNodes(ctx.db, spaceId), members: listMembers(ctx.db, spaceId) });
+    res.json({ space: getSpace(ctx, user, spaceId), nodes: listNodes(ctx.db, spaceId), templates: listTemplates(ctx.db, spaceId), members: listMembers(ctx.db, spaceId) });
   });
 
   router.patch('/documentation/spaces/:id', (req, res) => {
@@ -257,7 +259,7 @@ export function documentationRouter(ctx: AppContext): Router {
 
   router.get('/documentation/nodes/:id', (req, res) => {
     const { node, role } = nodeAccess(res, idParam(req.params.id));
-    res.json({ node: { id: node.id, spaceId: node.space_id, path: node.path, kind: node.kind, size: node.size, updatedAt: node.updated_at, updatedBy: node.updated_by, deletedAt: node.deleted_at, memo: node.memo }, role, content: node.kind === 'markdown' && !node.deleted_at ? (ctx.docRooms.currentText(node.id) ?? readText(ctx, node)) : null });
+    res.json({ node: { id: node.id, spaceId: node.space_id, path: node.path, kind: node.kind, size: node.size, updatedAt: node.updated_at, updatedBy: node.updated_by, deletedAt: node.deleted_at, memo: node.memo }, role, content: isTextNode(node) && !node.deleted_at ? (ctx.docRooms.currentText(node.id) ?? readText(ctx, node)) : null });
   });
 
   router.put('/documentation/nodes/:id/content', (req, res) => {
@@ -290,7 +292,7 @@ export function documentationRouter(ctx: AppContext): Router {
     }
     const data = exportFile(ctx, user.id, node, remember);
     if (!data) throw notFound('Fichier introuvable.');
-    res.setHeader('Content-Type', node.kind === 'markdown' ? 'text/markdown; charset=utf-8' : (sniffImageMime(data.subarray(0, 16)) ?? 'application/octet-stream'));
+    res.setHeader('Content-Type', isTextNode(node) ? 'text/markdown; charset=utf-8' : (sniffImageMime(data.subarray(0, 16)) ?? 'application/octet-stream'));
     res.setHeader('Content-Disposition', contentDisposition(docBaseName(node.path), false));
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.send(data);

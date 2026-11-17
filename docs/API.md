@@ -226,6 +226,15 @@ curl -s -X POST $FASTBOARD/api/documentation/nodes/5/comments -H "Authorization:
 curl -s -X PATCH $FASTBOARD/api/documentation/comments/3 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "resolved": true }'
 ```
 
+**Modèles de notes.** Chaque espace a ses modèles, à part de l'arbre : `GET /documentation/spaces/{id}` les donne dans `templates` (l'arbre reste dans `nodes`). Un modèle se crée comme une note, avec `kind: "template"` et un nom sans dossier (ses noms ne gênent pas ceux des notes), puis se lit, s'écrit, se renomme et se supprime comme elle. Pour créer une note d'après un modèle, passez son identifiant dans `fromId` à la place de `content` : `{{title}}` (ou `{{titre}}`) devient le titre de la note, `{{date}}` et `{{time}}` (ou `{{heure}}`) la date et l'heure du serveur, `{{author}}` (ou `{{auteur}}`) votre nom ; un format se donne à la manière de Moment.js, comme `{{date:DD/MM/YYYY}}` ou `{{date:dddd D MMMM}}`. Les variables inconnues restent telles quelles. Avec `kind: "template"` et `fromId` d'une note, le modèle en reprend le texte. Les modèles ne sont ni dans l'export ZIP de l'espace, ni dans la recherche, ni sur son site web.
+
+```bash
+curl -s -X POST $FASTBOARD/api/documentation/spaces/1/nodes -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "path": "Compte rendu", "kind": "template", "content": "# {{title}}\n\nLe {{date:DD/MM/YYYY}}, par {{author}}" }'
+curl -s -X POST $FASTBOARD/api/documentation/spaces/1/nodes -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "path": "Réunions/Point du lundi", "fromId": 42 }'
+```
+
 Le ZIP reproduit exactement l'arbre de l'espace, dossiers vides compris, sans fichier ajouté. Le texte exporté reste 90 jours sur le serveur, pour vos 20 derniers exports d'un espace : il sert de version d'origine à la fusion. Sans lui (autre serveur, archive trop ancienne), les fichiers modifiés des deux côtés sont présentés en conflit.
 
 Chaque fichier ou dossier porte une note libre (`memo`), écrite avec `PUT /documentation/nodes/{id}/memo`. `GET /documentation/nodes/{id}/info` donne sa taille (contenu compris pour un dossier), ses dates et, pour une note, ses mots et caractères. Chacun a ses favoris : `PUT` ou `DELETE /documentation/nodes/{id}/bookmark`, liste avec `GET /documentation/bookmarks`. Un espace peut accepter la syntaxe d'Obsidian (`obsidian`, vrai par défaut) et devenir un site web en lecture seule : `PUT /documentation/spaces/{id}/site` avec `visibility` (`members`, `people` avec `people`, ou `public`). Le site se lit à l'adresse `/wiki/{slug}`, et son contenu par `GET /wiki/{slug}` et `GET /wiki/{slug}/pages/{id}` de l'API, avec une recherche dans les titres et le texte des pages (`GET /wiki/{slug}/search?q=`) : sans compte s'il est public.
