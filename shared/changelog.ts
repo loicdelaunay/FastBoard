@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.2.0';
+export const APP_VERSION = '2.3.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,23 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.3.0',
+    date: '2026-11-17',
+    changes: [
+      {
+        category: 'Nouveauté',
+        text: 'Documentation : [[ propose les notes et les images de l’espace, cherchées par leur nom ou leur chemin, avec une miniature des images ; [[# propose les titres de la note.',
+      },
+      { category: 'Nouveauté', text: 'Documentation : un surlignage qui commence par une bille de couleur (==🟢 Validé==) prend sa couleur, comme dans Obsidian.' },
+      { category: 'Amélioration', text: 'Documentation : la taille d’une image notée à la manière d’Obsidian (![[image.png|300]]) est respectée.' },
+      { category: 'Correction', text: 'Documentation : les images ![[Dossier/image.png]] s’affichent en « Lecture et écriture », et un chemin partiel retrouve l’image où qu’elle soit dans l’espace.' },
+      {
+        category: 'Correction',
+        text: 'Documentation : un lien vers un titre de la note ([Texte](#Titre), [[#Titre]]) y amène au lieu de passer en écriture, même quand l’ancre est écrite autrement (tirets, ^).',
+      },
+    ],
+  },
   {
     version: '2.2.0',
     date: '2026-11-16',

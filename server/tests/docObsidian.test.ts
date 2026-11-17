@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { expandWikiLinks, headingKey } from '../../shared/docLinks.ts';
-import { blockIds, embeds, footnotes, prepareDocText, properties, sectionOf } from '../../shared/docObsidian.ts';
+import { expandWikiLinks, findHeading, headingKey, imageSize, resolveDocLink } from '../../shared/docLinks.ts';
+import { blockIds, embeds, footnotes, highlightColor, prepareDocText, properties, sectionOf } from '../../shared/docObsidian.ts';
+import type { DocNodeDTO } from '../../shared/docs.ts';
 import { docOutline } from '../../shared/docOutline.ts';
 
 describe('Markdown d’Obsidian', () => {
@@ -55,6 +56,41 @@ describe('Markdown d’Obsidian', () => {
   it('garde le titre visé par un lien wiki', () => {
     assert.equal(expandWikiLinks('[[#Plus bas]]'), '[Plus bas](#Plus%20bas)');
     assert.equal(headingKey('  Étape   2 '), 'étape 2');
+  });
+
+  it('retrouve une image par la fin de son chemin, et l’homonyme le plus proche de la note', () => {
+    const file = (id: number, path: string, kind: 'markdown' | 'image' = 'image') => ({ id, path, kind }) as DocNodeDTO;
+    const nodes = [file(1, 'Tests/images/schema.png'), file(2, 'Projet/Pictures/images/schema.png'), file(3, 'Projet/Pictures/Vue (1).PNG'), file(4, 'Projet/Ma note.md', 'markdown')];
+    assert.equal(resolveDocLink(nodes, 'Projet/Ma note.md', 'Pictures/Vue (1).PNG')?.id, 3, 'à côté de la note');
+    assert.equal(resolveDocLink(nodes, 'Projet/Ma note.md', 'Pictures/images/schema.png')?.id, 2);
+    assert.equal(resolveDocLink(nodes, 'Autre/Note.md', 'images/schema.png')?.id, 1, 'fin du chemin, le plus court à égalité');
+    assert.equal(resolveDocLink(nodes, 'Projet/Ma note.md', 'schema.png')?.id, 2, 'par le nom : le plus proche de la note');
+    assert.equal(resolveDocLink(nodes, 'Tests/Note.md', 'schema.png')?.id, 1);
+    assert.equal(resolveDocLink(nodes, 'Projet/Ma note.md', 'Pictures/absente.png'), undefined);
+  });
+
+  it('lit la taille d’une image à la manière d’Obsidian', () => {
+    assert.deepEqual(imageSize('300'), { alt: '', width: 300, height: null });
+    assert.deepEqual(imageSize('Schéma|300x200'), { alt: 'Schéma', width: 300, height: 200 });
+    assert.deepEqual(imageSize('Schéma de 2024'), { alt: 'Schéma de 2024', width: null, height: null });
+    assert.equal(expandWikiLinks('![[Pictures/Vue (1).png|120]]'), '![120](Pictures/Vue%20(1).png)');
+  });
+
+  it('retrouve le titre visé par une ancre écrite autrement', () => {
+    const titles = ['Sommaire', '1.1.1 UAV OAT', '1.2 Capteurs', 'Étape 2'];
+    assert.equal(findHeading(titles, '1.1.1^UAV^OAT'), 1);
+    assert.equal(findHeading(titles, '1.2-capteurs'), 2);
+    assert.equal(findHeading(titles, 'etape-2'), 3);
+    assert.equal(findHeading(titles, '  étape   2 '), 3, 'à l’identique d’abord');
+    assert.equal(findHeading(titles, 'Absent'), -1);
+    assert.equal(findHeading(titles, '^^'), -1);
+  });
+
+  it('colore un surlignage d’après sa bille emoji', () => {
+    assert.equal(highlightColor('🟢 Validé'), 'green');
+    assert.equal(highlightColor(' 🟥 Bloqué'), 'red');
+    assert.equal(highlightColor('Texte 🟢'), null);
+    assert.equal(highlightColor(''), null);
   });
 
   it('ne prend pas les propriétés en tête de note pour des titres', () => {

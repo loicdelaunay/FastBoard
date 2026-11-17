@@ -24,6 +24,24 @@ export function headingKey(text: string): string {
   return text.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+/** Titre réduit à ses lettres et chiffres : `#1.1.1^UAV^OAT`, `#uav-oat` ou `#UAV%20OAT` retrouvent leur titre. */
+export function anchorKey(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+/** Position, dans `titles`, du titre visé par une ancre : à l'identique d'abord, puis aux lettres et chiffres près. */
+export function findHeading(titles: readonly string[], anchor: string): number {
+  const exact = headingKey(anchor);
+  const found = titles.findIndex((title) => headingKey(title) === exact);
+  if (found >= 0) return found;
+  const loose = anchorKey(anchor);
+  return loose ? titles.findIndex((title) => anchorKey(title) === loose) : -1;
+}
+
 /** Transforme les liens wiki en liens Markdown ordinaires, en laissant le code intact. */
 export function expandWikiLinks(text: string): string {
   return text
@@ -51,7 +69,20 @@ function withoutDots(path: string): string {
   return segments.join('/');
 }
 
-/** Fichier visé par un lien écrit dans `fromPath` : à côté de la note, depuis la racine, ou par son seul nom. */
+/** Nombre de dossiers en commun au début de deux chemins. */
+function sharedFolders(a: string, b: string): number {
+  const left = docParent(a).split('/');
+  const right = docParent(b).split('/');
+  let count = 0;
+  while (count < left.length && count < right.length && left[count] && left[count] === right[count]) count += 1;
+  return count;
+}
+
+/**
+ * Fichier visé par un lien écrit dans `fromPath`, comme le fait Obsidian : à côté de la note, depuis la racine, puis
+ * n'importe où dans l'espace pourvu que la fin du chemin corresponde (`Pictures/schema.png`), et enfin par son seul
+ * nom. Entre homonymes, le plus proche de la note l'emporte.
+ */
 export function resolveDocLink(nodes: readonly DocNodeDTO[], fromPath: string, link: string): DocNodeDTO | undefined {
   let target: string;
   try {
@@ -61,14 +92,25 @@ export function resolveDocLink(nodes: readonly DocNodeDTO[], fromPath: string, l
   }
   if (!target) return undefined;
   const files = nodes.filter((node) => node.kind !== 'folder');
-  const same = (candidate: string) => (node: DocNodeDTO) => {
-    const path = node.path.toLowerCase();
-    const wanted = candidate.toLowerCase();
-    return path === wanted || path === `${wanted}.md`;
+  const matches = (path: string, wanted: string): boolean => {
+    const lower = path.toLowerCase();
+    return lower === wanted || lower === `${wanted}.md`;
   };
-  const beside = withoutDots(`${docParent(fromPath)}/${target}`);
-  const byName = (node: DocNodeDTO) => same(docBaseName(target))({ ...node, path: docBaseName(node.path) });
-  return files.find(same(beside)) ?? files.find(same(withoutDots(target))) ?? files.find(byName);
+  const endsWith = (path: string, wanted: string): boolean => {
+    const lower = path.toLowerCase();
+    return lower.endsWith(`/${wanted}`) || lower.endsWith(`/${wanted}.md`);
+  };
+  const closest = (list: DocNodeDTO[]): DocNodeDTO | undefined =>
+    list.sort((a, b) => sharedFolders(b.path, fromPath) - sharedFolders(a.path, fromPath) || a.path.length - b.path.length || a.path.localeCompare(b.path))[0];
+  const relative = withoutDots(target).toLowerCase();
+  const beside = withoutDots(`${docParent(fromPath)}/${target}`).toLowerCase();
+  const name = docBaseName(relative);
+  return (
+    files.find((node) => matches(node.path, beside)) ??
+    files.find((node) => matches(node.path, relative)) ??
+    closest(files.filter((node) => endsWith(node.path, relative))) ??
+    closest(files.filter((node) => matches(docBaseName(node.path), name)))
+  );
 }
 
 /** Ce qu'une note cite : chemins écrits tels quels, à résoudre au moment de la lecture, et mentions par identifiant. */
@@ -90,6 +132,13 @@ export function extractDocLinks(text: string): DocLinkTargets {
   }
   const mentioned = (kind: string): number[] => [...new Set([...plain.matchAll(new RegExp(`@\\[[^\\]\\n]{1,80}\\]\\(${kind}:(\\d+)\\)`, 'g'))].map((match) => Number(match[1])))];
   return { paths: [...paths], docs: mentioned('doc'), tickets: mentioned('ticket') };
+}
+
+/** Texte alternatif d'une image et sa taille à la manière d'Obsidian : `![[x.png|300]]`, `![Légende|300x200](x.png)`. */
+export function imageSize(alt: string): { alt: string; width: number | null; height: number | null } {
+  const match = /^(?:(.*)\|)?\s*(\d{1,4})(?:\s*x\s*(\d{1,4}))?\s*$/.exec(alt);
+  if (!match) return { alt, width: null, height: null };
+  return { alt: (match[1] ?? '').trim(), width: Number(match[2]), height: match[3] ? Number(match[3]) : null };
 }
 
 /** Texte à insérer pour une image rangée dans `imagePath`, depuis la note `notePath`. */

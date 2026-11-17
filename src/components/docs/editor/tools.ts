@@ -86,7 +86,16 @@ export function slashCommands(handlers: ToolHandlers) {
 
 /** Icône d'une ligne de la liste de complétion (commandes « / » uniquement). */
 export function completionIcon(completion: Completion): HTMLElement | null {
-  const { icon } = completion as Partial<SlashCompletion>;
+  const { icon, thumb } = completion as Partial<SlashCompletion> & { thumb?: string };
+  if (thumb) {
+    // Miniature d'une image proposée par `[[`.
+    const image = document.createElement('img');
+    image.className = 'cm-file-thumb';
+    image.src = thumb;
+    image.alt = '';
+    image.loading = 'lazy';
+    return image;
+  }
   if (!icon) return null;
   const element = document.createElement('i');
   element.className = `${icon} cm-slash-icon`;

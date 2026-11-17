@@ -1,8 +1,8 @@
 import { DOC_COMMENT_LIMITS, findQuote, type DocCommentDTO, type DocQuote } from '@shared/docComments';
 import { ref } from 'vue';
-import { headingKey, resolveDocLink } from '@shared/docLinks';
+import { findHeading, imageSize, resolveDocLink } from '@shared/docLinks';
 import { prepareDocText, sectionOf } from '@shared/docObsidian';
-import { docTitle, type DocNodeDTO } from '@shared/docs';
+import { docBaseName, docTitle, type DocNodeDTO } from '@shared/docs';
 import type { UserSummaryDTO } from '@shared/types';
 import { t } from '@/i18n';
 import { escapeHtml, renderMarkdown, type MentionResolver } from '@/utils/markdown';
@@ -26,7 +26,8 @@ export const pendingAnchor = ref<{ path: string; heading: string } | null>(null)
 
 /** Amène un titre à l'écran ; vrai s'il a été trouvé. */
 export function scrollToHeading(root: ParentNode, heading: string): boolean {
-  const target = root.querySelector(`[data-heading="${CSS.escape(headingKey(heading))}"]`);
+  const headings = [...root.querySelectorAll<HTMLElement>('[data-heading]')];
+  const target = headings[findHeading(headings.map((element) => element.dataset.heading ?? ''), heading)];
   target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   return Boolean(target);
 }
@@ -101,6 +102,12 @@ export function finishDocHtml(html: string, context: DocRenderContext, comments:
   box.innerHTML = html;
   for (const image of box.querySelectorAll('img')) {
     const source = image.getAttribute('src') ?? '';
+    const size = imageSize(image.getAttribute('alt') ?? '');
+    if (size.width) {
+      image.width = size.width;
+      if (size.height) image.height = size.height;
+      image.alt = size.alt || docBaseName(decodeURI(source));
+    }
     if (/^(https?:|data:)/i.test(source)) continue;
     const node = resolveDocLink(context.nodes, context.notePath, source);
     if (node) image.src = context.fileUrl ? context.fileUrl(node.id) : `/api/documentation/nodes/${node.id}/raw`;

@@ -202,6 +202,31 @@ function onClick(event: MouseEvent): void {
   background: color-mix(in srgb, #facc15 38%, transparent);
   color: inherit;
 }
+/* Surlignage coloré par sa bille emoji, comme dans Obsidian : ==🟢 Validé==. */
+.markdown .md-highlight[data-color='red'] {
+  background: color-mix(in srgb, #ef4444 30%, transparent);
+}
+.markdown .md-highlight[data-color='orange'] {
+  background: color-mix(in srgb, #f97316 32%, transparent);
+}
+.markdown .md-highlight[data-color='green'] {
+  background: color-mix(in srgb, #22c55e 30%, transparent);
+}
+.markdown .md-highlight[data-color='blue'] {
+  background: color-mix(in srgb, #3b82f6 28%, transparent);
+}
+.markdown .md-highlight[data-color='purple'] {
+  background: color-mix(in srgb, #a855f7 28%, transparent);
+}
+.markdown .md-highlight[data-color='brown'] {
+  background: color-mix(in srgb, #a16207 30%, transparent);
+}
+.markdown .md-highlight[data-color='black'] {
+  background: color-mix(in srgb, #6b7280 35%, transparent);
+}
+.markdown .md-highlight[data-color='white'] {
+  background: color-mix(in srgb, #cbd5e1 45%, transparent);
+}
 .markdown .md-tag {
   display: inline-block;
   padding: 0 0.45em;

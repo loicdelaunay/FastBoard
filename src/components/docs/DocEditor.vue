@@ -13,8 +13,9 @@ import type { MenuItem } from 'primevue/menuitem';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import * as Y from 'yjs';
 import { findQuote, quoteFromSource, sourceOffset, type DocCommentDTO, type DocQuote } from '@shared/docComments';
-import { imageMarkdown, resolveDocLink } from '@shared/docLinks';
-import { docParent, docTitle, type DocNodeDTO } from '@shared/docs';
+import { findHeading, imageMarkdown, resolveDocLink } from '@shared/docLinks';
+import { docOutline } from '@shared/docOutline';
+import { docBaseName, docParent, docTitle, type DocNodeDTO } from '@shared/docs';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import { useDocLinks } from '@/composables/useDocLinks';
@@ -23,7 +24,7 @@ import { copyText, pendingAnchor, renderDocBlock, selectionQuote } from '@/utils
 import { markdownBlocks } from '@/utils/markdown';
 import { mentionToken, type MentionKind } from '@/utils/mentions';
 import { notifyError } from '@/utils/notify';
-import { matchesQuery } from '@/utils/search';
+import { matchesQuery, normalizeText } from '@/utils/search';
 import { taskLine, toggleTask } from './editor/commands';
 import { docComments, setDocComments } from './editor/comments';
 import { docHighlight } from './editor/highlight';
@@ -89,26 +90,97 @@ async function mentions(context: CompletionContext): Promise<CompletionResult | 
   };
 }
 
-/** `[[` propose les notes de l'espace. */
+/** Texte le plus court qui désigne `node` depuis la note, comme dans Obsidian : son nom, sinon son chemin. */
+function linkTarget(node: DocNodeDTO): string {
+  const name = node.kind === 'markdown' ? docTitle(node.path) : docBaseName(node.path);
+  if (resolveDocLink(props.nodes, props.notePath, name)?.id === node.id) return name;
+  return node.kind === 'markdown' ? node.path.replace(/\.md$/i, '') : node.path;
+}
+
+/** Aperçu agrandi d'une image proposée, à côté de la liste. */
+function imageInfo(node: DocNodeDTO): HTMLElement {
+  const box = document.createElement('div');
+  box.className = 'cm-image-info';
+  const image = document.createElement('img');
+  image.src = `/api/documentation/nodes/${node.id}/raw`;
+  image.alt = docBaseName(node.path);
+  const caption = document.createElement('span');
+  caption.textContent = node.path;
+  box.append(image, caption);
+  return box;
+}
+
+const WIKI_RESULTS = 60;
+
+/**
+ * `[[` propose les notes et les images de l'espace, cherchées dans leur nom et leur chemin (une image s'insère
+ * en `![[…]]`, avec sa miniature) ; `[[#` propose les titres de la note.
+ */
 function wikiLinks(context: CompletionContext): CompletionResult | null {
-  const match = context.matchBefore(/\[\[[^\]\n]*/);
+  const match = context.matchBefore(/!?\[\[[^\]\n]*/);
   if (!match) return null;
-  return {
-    from: match.from + 2,
-    validFor: /^[^\]\n]*$/,
-    options: props.nodes
-      .filter((node) => node.kind === 'markdown' && node.path !== props.notePath)
-      .map((node): Completion => ({
-        label: docTitle(node.path),
-        detail: docParent(node.path),
-        type: 'text',
-        apply: (editor, completion, from, to) => {
-          const closed = editor.state.sliceDoc(to, to + 2) === ']]';
-          const text = `${docTitle(node.path)}]]`;
-          editor.dispatch({ changes: { from, to: closed ? to + 2 : to, insert: text }, selection: { anchor: from + text.length }, annotations: pickedCompletion.of(completion) });
-        },
-      })),
+  const embed = match.text.startsWith('!');
+  const start = match.from + (embed ? 3 : 2);
+  const query = match.text.slice(embed ? 3 : 2);
+  if (query.includes('|')) return null;
+  const close = (editor: EditorView, to: number): number => (editor.state.sliceDoc(to, to + 2) === ']]' ? to + 2 : to);
+
+  if (query.startsWith('#')) {
+    const wanted = query.slice(1);
+    return {
+      from: start + 1,
+      filter: false,
+      options: docOutline(context.state.doc.toString())
+        .filter((heading) => matchesQuery(wanted, [heading.title]))
+        .slice(0, WIKI_RESULTS)
+        .map((heading): Completion => ({
+          label: heading.title,
+          detail: `H${heading.level}`,
+          type: 'keyword',
+          apply: (editor, completion, from, to) => {
+            const text = `${heading.title}]]`;
+            editor.dispatch({ changes: { from, to: close(editor, to), insert: text }, selection: { anchor: from + text.length }, annotations: pickedCompletion.of(completion) });
+          },
+        })),
+    };
+  }
+
+  const wanted = normalizeText(query);
+  const rank = (node: DocNodeDTO): number | null => {
+    const name = normalizeText(node.kind === 'markdown' ? docTitle(node.path) : docBaseName(node.path));
+    // Les images d'abord après `![[`, les notes d'abord après `[[`.
+    const kind = (node.kind === 'image') === embed ? 0 : 10;
+    if (!wanted) return kind;
+    if (name.startsWith(wanted)) return kind;
+    if (name.includes(wanted)) return kind + 1;
+    return matchesQuery(query, [node.path]) ? kind + 2 : null;
   };
+  const options = props.nodes
+    .filter((node) => node.kind !== 'folder' && node.path !== props.notePath)
+    .map((node) => ({ node, score: rank(node) }))
+    .filter((entry): entry is { node: DocNodeDTO; score: number } => entry.score !== null)
+    .sort((a, b) => a.score - b.score || a.node.path.localeCompare(b.node.path, undefined, { sensitivity: 'base', numeric: true }))
+    .slice(0, WIKI_RESULTS)
+    .map(({ node }): Completion & { icon?: string; thumb?: string } => {
+      const image = node.kind === 'image';
+      return {
+        label: image ? docBaseName(node.path) : docTitle(node.path),
+        detail: docParent(node.path) || undefined,
+        type: image ? 'doc-image' : 'doc-note',
+        ...(image ? { thumb: `/api/documentation/nodes/${node.id}/raw`, info: () => imageInfo(node) } : { icon: 'pi pi-file' }),
+        apply: (editor, completion, from, to) => {
+          const text = `${linkTarget(node)}]]`;
+          // Une image s'intègre : le « ! » s'ajoute devant les crochets s'il manque.
+          const bang = image && !embed ? 1 : 0;
+          editor.dispatch({
+            changes: [...(bang ? [{ from: from - 2, insert: '!' }] : []), { from, to: close(editor, to), insert: text }],
+            selection: { anchor: from + bang + text.length },
+            annotations: pickedCompletion.of(completion),
+          });
+        },
+      };
+    });
+  return { from: start, filter: false, options };
 }
 
 /** Une image collée ou glissée est envoyée au serveur, puis son lien s'insère au curseur. */
@@ -189,9 +261,19 @@ function followRendered(element: HTMLElement): boolean {
     window.open(href, '_blank', 'noopener');
     return true;
   }
-  const raw = wiki ?? (href ? decodeURIComponent(href) : '');
+  let raw = wiki ?? href ?? '';
+  try {
+    if (!wiki) raw = decodeURIComponent(raw);
+  } catch {
+    // Adresse mal encodée : prise telle quelle.
+  }
   const [target = '', heading] = raw.split('#');
-  if (!target.trim()) return false;
+  // Un titre de la note : on y va, sans ouvrir le lien en écriture (un clic au bout de la ligne le fait).
+  if (!target.trim()) {
+    if (heading === undefined) return false;
+    scrollToAnchor(heading);
+    return true;
+  }
   const node = resolveDocLink(props.nodes, props.notePath, target.trim());
   if (!node) return false;
   pendingAnchor.value = heading ? { path: node.path, heading } : null;
@@ -359,6 +441,33 @@ function scrollToLine(line: number): void {
   view.dispatch({ effects: EditorView.scrollIntoView(position, { y: 'start', yMargin: 12 }) });
 }
 
+/** Amène au titre visé par une ancre (`#1.1.1 UAV OAT`, `#uav-oat`…) ou à un bloc `#^id` ; faux s'il n'existe pas. */
+function scrollToAnchor(anchor: string): boolean {
+  if (!view) return false;
+  const text = view.state.doc.toString();
+  const headings = docOutline(text);
+  const index = findHeading(
+    headings.map((heading) => heading.title),
+    anchor,
+  );
+  if (index >= 0) {
+    scrollToLine(headings[index]!.line);
+    return true;
+  }
+  const block = /^\^([\w-]+)$/.exec(anchor.trim());
+  const line = block ? text.split('\n').findIndex((entry) => new RegExp(`\\s\\^${block[1]}\\s*$`).test(entry)) : -1;
+  if (line < 0) return false;
+  scrollToLine(line + 1);
+  return true;
+}
+
+/** Ancre demandée en ouvrant la note (lien `[[Note#Titre]]` suivi d'une autre note) : dès que le texte est là. */
+function takePendingAnchor(): void {
+  const anchor = pendingAnchor.value;
+  if (!anchor || anchor.path !== props.notePath) return;
+  if (scrollToAnchor(anchor.heading)) pendingAnchor.value = null;
+}
+
 defineExpose({ reveal, scrollToLine });
 
 // Pour le sommaire : la ligne lue, signalée une fois par image.
@@ -409,6 +518,9 @@ onMounted(() => {
           indentWithTab,
         ]),
         editable.of(editableState(props.readonly)),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged && pendingAnchor.value) requestAnimationFrame(takePendingAnchor);
+        }),
         EditorView.domEventHandlers({
           paste(event, editor) {
             const files = images(event.clipboardData?.files);
@@ -436,6 +548,11 @@ onMounted(() => {
           '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'inherit', maxHeight: '18rem' },
           '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '0.2rem 0.5rem' },
           '.cm-slash-icon': { width: '1.4rem', color: 'var(--fb-muted)', fontSize: '0.8rem' },
+          '.cm-completionIcon-doc-image, .cm-completionIcon-doc-note': { display: 'none' },
+          '.cm-file-thumb': { width: '2.2rem', height: '1.6rem', marginRight: '0.5rem', borderRadius: '4px', objectFit: 'cover', verticalAlign: 'middle', backgroundColor: 'var(--fb-panel-alt)' },
+          '.cm-tooltip.cm-completionInfo': { padding: '0.4rem', maxWidth: '18rem' },
+          '.cm-image-info': { display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--fb-muted)', wordBreak: 'break-all' },
+          '.cm-image-info img': { maxWidth: '16rem', maxHeight: '12rem', borderRadius: '6px', objectFit: 'contain', backgroundColor: 'var(--fb-panel-alt)' },
           '.cm-ySelectionInfo': { padding: '1px 4px', borderRadius: '4px', fontFamily: 'inherit', fontSize: '0.7rem', fontWeight: '600', opacity: '1' },
           '.cm-doc-comment': { borderRadius: '2px', backgroundColor: 'color-mix(in srgb, #f59e0b 28%, transparent)' },
           ...(props.live
@@ -485,6 +602,14 @@ onMounted(() => {
                 '.cm-lp-mention, .cm-lp-embed': { padding: '0.05em 0.45em', borderRadius: '999px', backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)', fontWeight: '600', cursor: 'pointer' },
                 '.cm-lp-embed::before': { content: '"\\e9c3"', marginRight: '0.3em', fontFamily: 'primeicons', fontSize: '0.8em', fontWeight: 'normal' },
                 '.cm-lp-highlight': { borderRadius: '3px', backgroundColor: 'color-mix(in srgb, #facc15 38%, transparent)' },
+                '.cm-lp-hl-red': { backgroundColor: 'color-mix(in srgb, #ef4444 30%, transparent)' },
+                '.cm-lp-hl-orange': { backgroundColor: 'color-mix(in srgb, #f97316 32%, transparent)' },
+                '.cm-lp-hl-green': { backgroundColor: 'color-mix(in srgb, #22c55e 30%, transparent)' },
+                '.cm-lp-hl-blue': { backgroundColor: 'color-mix(in srgb, #3b82f6 28%, transparent)' },
+                '.cm-lp-hl-purple': { backgroundColor: 'color-mix(in srgb, #a855f7 28%, transparent)' },
+                '.cm-lp-hl-brown': { backgroundColor: 'color-mix(in srgb, #a16207 30%, transparent)' },
+                '.cm-lp-hl-black': { backgroundColor: 'color-mix(in srgb, #6b7280 35%, transparent)' },
+                '.cm-lp-hl-white': { backgroundColor: 'color-mix(in srgb, #cbd5e1 45%, transparent)' },
                 '.cm-lp-comment': { color: 'var(--fb-muted)', fontStyle: 'italic' },
                 '.cm-lp-tag': { padding: '0 0.4em', borderRadius: '999px', backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)', fontSize: '0.9em' },
                 '.cm-lp-footnote': { color: 'var(--fb-accent)', fontSize: '0.75em', verticalAlign: 'super' },
@@ -522,6 +647,7 @@ onMounted(() => {
     }),
   });
   view.scrollDOM.addEventListener('scroll', onScroll, { passive: true });
+  requestAnimationFrame(takePendingAnchor);
   if (props.comments.length) view.dispatch({ effects: [setDocComments.of(props.comments), ...(props.live ? [refreshLive.of()] : [])] });
   // En lecture et écriture, un curseur posé d'office ouvrirait le premier bloc.
   if (!props.live) view.focus();

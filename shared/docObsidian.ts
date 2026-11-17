@@ -19,6 +19,37 @@ export function embeds(text: string): string {
   );
 }
 
+/** Couleur des surlignages qui commencent par une bille ou un carré de couleur : `==🟢 Validé==`. */
+const HIGHLIGHT_EMOJIS: Record<string, string> = {
+  '🔴': 'red',
+  '🟥': 'red',
+  '🟠': 'orange',
+  '🟧': 'orange',
+  '🟡': 'yellow',
+  '🟨': 'yellow',
+  '🟢': 'green',
+  '🟩': 'green',
+  '🔵': 'blue',
+  '🟦': 'blue',
+  '🟣': 'purple',
+  '🟪': 'purple',
+  '🟤': 'brown',
+  '🟫': 'brown',
+  '⚫': 'black',
+  '⬛': 'black',
+  '⚪': 'white',
+  '⬜': 'white',
+};
+
+/** Couleurs proposées, dans l'ordre. */
+export const HIGHLIGHT_COLORS = ['red', 'orange', 'yellow', 'green', 'blue', 'purple', 'brown', 'black', 'white'] as const;
+
+/** Couleur d'un surlignage d'après sa première bille emoji, ou `null` (jaune par défaut). */
+export function highlightColor(text: string): string | null {
+  const first = [...text.trimStart()][0];
+  return first ? (HIGHLIGHT_EMOJIS[first] ?? null) : null;
+}
+
 /** Notes de bas de page `[^1]` et `^[en ligne]`, numérotées dans l'ordre de leur premier appel, réunies en fin de note. */
 export function footnotes(text: string): string {
   const definitions = new Map<string, string>();

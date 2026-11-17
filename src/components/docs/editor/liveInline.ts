@@ -2,6 +2,9 @@ import { syntaxTree } from '@codemirror/language';
 import type { EditorState, Extension, Range } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import katex from 'katex';
+import { imageSize } from '@shared/docLinks';
+import { highlightColor } from '@shared/docObsidian';
+import { docBaseName } from '@shared/docs';
 import { t } from '@/i18n';
 import { openLightbox } from '@/utils/lightbox';
 import { toggleTask, type TextRange } from './commands';
@@ -90,16 +93,22 @@ class ImageWidget extends WidgetType {
   readonly alt: string;
   /** Longueur du Markdown remplacé. */
   readonly length: number;
+  readonly width: number | null;
+  readonly height: number | null;
 
+  /** `alt` peut porter la taille d'Obsidian : « Légende|300 », « 300x200 ». */
   constructor(url: string, alt: string, length: number) {
     super();
+    const size = imageSize(alt);
     this.url = url;
-    this.alt = alt;
+    this.alt = size.alt || alt;
+    this.width = size.width;
+    this.height = size.height;
     this.length = length;
   }
 
   override eq(other: ImageWidget): boolean {
-    return other.url === this.url && other.alt === this.alt && other.length === this.length;
+    return other.url === this.url && other.alt === this.alt && other.length === this.length && other.width === this.width && other.height === this.height;
   }
 
   override toDOM(view: EditorView): HTMLElement {
@@ -110,6 +119,8 @@ class ImageWidget extends WidgetType {
     image.className = 'cm-lp-image';
     image.src = this.url;
     image.alt = this.alt;
+    if (this.width) image.width = this.width;
+    if (this.height) image.height = this.height;
     image.addEventListener('load', () => view.requestMeasure());
     image.addEventListener('dblclick', () => openLightbox(this.url, this.alt));
     const tools = document.createElement('span');
@@ -160,7 +171,7 @@ const line = (className: string) => Decoration.line({ class: className });
 
 const MENTION_URL = /^(user|ticket|doc):(\d+)$/;
 const WIKI = /(!?)\[\[([^\]\n]+?)\]\]/g;
-const HIGHLIGHT = /==(?!=)(?=\S)(.+?\S)==/g;
+const HIGHLIGHT = /==(?!=)(?=\S)(.+?\S)\s*==/g;
 const COMMENT = /%%.*?%%/g;
 const TAG = /(^|[\s(])(#[\p{L}\p{N}_/-]*[\p{L}_/-][\p{L}\p{N}_/-]*)/gu;
 const FOOTNOTE = /\[\^[^\]\s]+\](?!:)/g;
@@ -293,8 +304,10 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
             return true;
           }
           case 'Image': {
-            code.push([from, to]);
             const url = node.node.getChild('URL');
+            // ![[image.png]] n'est pas une image Markdown : le lien wiki est traité plus bas.
+            if (!url) return true;
+            code.push([from, to]);
             if (url && !touches(from, to)) {
               const target = doc.sliceString(url.from, url.to);
               const address = /^(https?:|data:)/i.test(target) ? target : options.imageUrl(target);
@@ -367,10 +380,12 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
         }
         if (match[1]) {
           const address = /\.(png|jpe?g|gif|webp|svg)$/i.test(target.trim()) ? options.imageUrl(target.trim()) : null;
-          swap(from, to, address ? new ImageWidget(address, target, to - from) : new TextWidget(target.split('#')[0]!.trim(), 'cm-lp-embed', { 'data-wiki': target.trim() }));
+          const label = pipe < 0 ? docBaseName(target.trim()) : `${docBaseName(target.trim())}|${inner.slice(pipe + 1)}`;
+          swap(from, to, address ? new ImageWidget(address, label, to - from) : new TextWidget(target.split('#')[0]!.trim(), 'cm-lp-embed', { 'data-wiki': target.trim() }));
           continue;
         }
-        const textStart = pipe < 0 ? from + 2 : from + 2 + pipe + 1;
+        // [[#Titre]] : le titre seul, sans son dièse.
+        const textStart = pipe >= 0 ? from + 2 + pipe + 1 : inner.startsWith('#') ? from + 3 : from + 2;
         hide(from, textStart);
         hide(to - 2, to);
         decorations.push(mark('cm-lp-link', { 'data-wiki': target.trim() }).range(textStart, to - 2));
@@ -380,7 +395,8 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
         const from = base + match.index;
         const to = from + match[0].length;
         if (!outsideCode(from, to)) continue;
-        decorations.push(mark('cm-lp-highlight').range(from, to));
+        const color = highlightColor(match[1]!);
+        decorations.push(mark(color ? `cm-lp-highlight cm-lp-hl-${color}` : 'cm-lp-highlight').range(from, to));
         if (!touches(from, to)) {
           hide(from, from + 2);
           hide(to - 2, to);
