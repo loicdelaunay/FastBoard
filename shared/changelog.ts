@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.4.1';
+export const APP_VERSION = '2.4.2';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.4.2',
+    date: '2026-11-17',
+    changes: [
+      { category: 'Correction', text: 'Documentation : la bille de couleur d’un surlignage (==🟢 Titre==) ne s’affiche plus, elle donne seulement sa couleur, en lecture comme en « Lecture et écriture ».' },
+      { category: 'Amélioration', text: 'Avancement : une personne dont la ligne n’est plus à 0 % est entourée de bleu (de vert une fois terminée), dans le ticket, les cartes, la liste et le Gantt.' },
+    ],
+  },
   {
     version: '2.4.1',
     date: '2026-11-17',

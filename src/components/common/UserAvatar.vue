@@ -8,7 +8,8 @@ const props = withDefaults(
   defineProps<{
     user: Pick<UserSummaryDTO, 'id' | 'name' | 'avatarVersion'> | null | undefined;
     size?: 'small' | 'normal' | 'large' | 'xlarge';
-    ring?: 'none' | 'done' | 'online';
+    /** `done` : part terminée (vert) ; `started` : commencée (bleu) ; `online` : en ligne. */
+    ring?: 'none' | 'done' | 'started' | 'online';
   }>(),
   { size: 'normal', ring: 'none' },
 );
@@ -48,6 +49,12 @@ const background = computed(() => (props.user ? avatarColor(props.user.id) : '#9
 }
 .ring-online {
   box-shadow: 0 0 0 2px var(--fb-panel), 0 0 0 4px #22c55e;
+}
+.ring-started {
+  box-shadow: 0 0 0 2px var(--fb-panel), 0 0 0 4px #3b82f6;
+}
+.small.ring-started {
+  box-shadow: 0 0 0 1px var(--fb-panel), 0 0 0 3px #3b82f6;
 }
 /* Un anneau proportionné au petit format, qui tient dans une ligne compacte. */
 .small.ring-done,

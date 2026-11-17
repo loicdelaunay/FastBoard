@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { expandWikiLinks, findHeading, headingKey, imageSize, resolveDocLink } from '../../shared/docLinks.ts';
-import { blockIds, embeds, footnotes, highlightColor, prepareDocText, properties, sectionOf } from '../../shared/docObsidian.ts';
+import { blockIds, embeds, footnotes, highlightColor, highlightMarker, prepareDocText, properties, sectionOf } from '../../shared/docObsidian.ts';
 import type { DocNodeDTO } from '../../shared/docs.ts';
 import { docOutline } from '../../shared/docOutline.ts';
 
@@ -91,6 +91,11 @@ describe('Markdown d’Obsidian', () => {
     assert.equal(highlightColor(' 🟥 Bloqué'), 'red');
     assert.equal(highlightColor('Texte 🟢'), null);
     assert.equal(highlightColor(''), null);
+    // La bille ne s'affiche pas : sa longueur, espaces et variante emoji compris.
+    assert.equal('🟢 Validé'.slice(highlightMarker('🟢 Validé')), 'Validé');
+    assert.equal('⚫️  Noir'.slice(highlightMarker('⚫️  Noir')), 'Noir');
+    assert.equal(highlightMarker('Texte 🟢'), 0);
+    assert.equal(highlightMarker('😀 Sourire'), 0, 'un autre emoji reste affiché');
   });
 
   it('ne prend pas les propriétés en tête de note pour des titres', () => {

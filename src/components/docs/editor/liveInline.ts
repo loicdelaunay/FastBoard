@@ -3,7 +3,7 @@ import type { EditorState, Extension, Range } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import katex from 'katex';
 import { imageSize } from '@shared/docLinks';
-import { highlightColor } from '@shared/docObsidian';
+import { highlightColor, highlightMarker } from '@shared/docObsidian';
 import { docBaseName } from '@shared/docs';
 import { t } from '@/i18n';
 import { openLightbox } from '@/utils/lightbox';
@@ -470,8 +470,12 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
         const color = highlightColor(match[1]!);
         decorations.push(mark(color ? `cm-lp-highlight cm-lp-hl-${color}` : 'cm-lp-highlight').range(from, to));
         if (!touches(from, to)) {
-          hide(from, from + 2);
-          hide(to - 2, to);
+          // Les == et la bille de couleur disparaissent tant que le curseur n'y est pas.
+          const marker = color ? highlightMarker(match[1]!) : 0;
+          hide(from, from + 2 + (marker < match[1]!.length ? marker : 0));
+          // L'espace avant les == de fin non plus.
+          const trailing = match[0].length - 4 - match[1]!.length;
+          hide(to - 2 - Math.max(0, trailing), to);
         }
       }
       for (const match of text.matchAll(COMMENT)) {

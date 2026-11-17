@@ -53,6 +53,7 @@ interface Row {
   overdue: boolean;
   assignees: Array<{ id: number; name: string; avatarVersion: number }>;
   doneIds: number[];
+  startedIds: number[];
   group: string;
   groupOrder: string;
 }
@@ -117,6 +118,7 @@ const rows = computed<Row[]>(() => {
         return user ? [{ id: user.id, name: user.name, avatarVersion: user.avatarVersion }] : [];
       }),
       doneIds: ticket.assignees.filter((assignee) => assignee.done).map((assignee) => assignee.userId),
+      startedIds: ticket.assignees.filter((assignee) => !assignee.done && assignee.progress > 0).map((assignee) => assignee.userId),
       group,
       groupOrder,
     };
@@ -262,7 +264,7 @@ function exportCsv(): void {
         <Column v-if="project.fieldOn('assignees')" filter-field="assigneeNames" :header="$t('Assignés')" v-bind="filterProps" style="width: 9rem">
           <template #filter="{ filterModel, filterCallback }"><ColumnValueFilter :filter-model="filterModel" :options="columnFilters.optionsFor('assigneeNames')" @apply="filterCallback()" /></template>
           <template #body="{ data }">
-            <UserAvatarGroup v-if="data.assignees.length" :users="data.assignees" :highlight-ids="data.doneIds" :max="4" />
+            <UserAvatarGroup v-if="data.assignees.length" :users="data.assignees" :highlight-ids="data.doneIds" :started-ids="data.startedIds" :max="4" />
             <span v-else class="muted small">—</span>
           </template>
         </Column>

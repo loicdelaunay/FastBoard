@@ -233,6 +233,11 @@ export const enV25: Record<string, string> = {
   "Tableaux blancs : des nœuds de carte mentale glissés près d’un autre nœud s’y rattachent, comme dans Whimsical ; le nœud qui les recevra s’éclaire et un lien en pointillés montre le rattachement.":
     "Whiteboards: mind map nodes dragged near another node attach to it, as in Whimsical; the node that will receive them lights up and a dotted link previews the attachment.",
 
+  "Documentation : la bille de couleur d’un surlignage (==🟢 Titre==) ne s’affiche plus, elle donne seulement sa couleur, en lecture comme en « Lecture et écriture ».":
+    "Documentation: the colour marker of a highlight (==🟢 Title==) is no longer shown, it only sets its colour, in reading as in “Read and write”.",
+  "Avancement : une personne dont la ligne n’est plus à 0 % est entourée de bleu (de vert une fois terminée), dans le ticket, les cartes, la liste et le Gantt.":
+    "Progress: a person whose line is no longer at 0% gets a blue outline (green once done), in the ticket, the cards, the list and the Gantt.",
+
   // Ajout rapide, icônes, images et modèles
   "Ajout rapide": "Quick add",
   "Forme, icône, image, modèle…": "Shape, icon, image, template…",

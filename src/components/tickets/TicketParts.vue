@@ -19,6 +19,10 @@ import PartNote from './PartNote.vue';
 import ProgressSlider from './ProgressSlider.vue';
 
 import { t } from '@/i18n';
+
+/** Anneau de la personne : vert quand la ligne est terminée, bleu dès qu'elle n'est plus à 0 %. */
+const ringOf = (part: PartDTO): 'done' | 'started' | 'none' => (part.done ? 'done' : partProgress(part) > 0 ? 'started' : 'none');
+
 /** Avancement d'un ticket : ses lignes (un texte, une personne facultative, un pourcentage ; à 100 %, la ligne est terminée). */
 const props = defineProps<{ ticket: TicketDTO }>();
 
@@ -178,14 +182,14 @@ function onDrop(target: PartDTO): void {
             @update:model-value="(userId: number) => update(part, { userId: userId || null })"
           >
             <template #value="{ value }">
-              <UserAvatar v-if="value" :user="project.usersById.get(value)" size="small" :ring="part.done ? 'done' : 'none'" />
+              <UserAvatar v-if="value" :user="project.usersById.get(value)" size="small" :ring="ringOf(part)" />
               <i v-else class="pi pi-user-plus muted no-one"></i>
             </template>
             <template #option="{ option }">
               <span class="option"><UserAvatar v-if="option.id" :user="option" size="small" /><i v-else class="pi pi-user-minus muted"></i> {{ option.name }}</span>
             </template>
           </Select>
-          <UserAvatar v-else-if="part.userId !== null" :user="project.usersById.get(part.userId)" size="small" :ring="part.done ? 'done' : 'none'" />
+          <UserAvatar v-else-if="part.userId !== null" :user="project.usersById.get(part.userId)" size="small" :ring="ringOf(part)" />
         </div>
         <div class="body">
           <strong v-if="part.userId !== null" class="who">{{ personName(part) }}<span v-if="part.userId === auth.user?.id" class="muted you">{{ $t('(vous)') }}</span></strong>

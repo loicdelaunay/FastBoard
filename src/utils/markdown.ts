@@ -3,7 +3,7 @@ import katex from 'katex';
 import { Marked, type TokenizerAndRendererExtension } from 'marked';
 import { plainText } from '@shared/docComments';
 import { headingKey } from '@shared/docLinks';
-import { highlightColor } from '@shared/docObsidian';
+import { highlightColor, highlightMarker } from '@shared/docObsidian';
 import 'katex/dist/katex.min.css';
 
 /**
@@ -86,7 +86,10 @@ function obsidianExtensions(): TokenizerAndRendererExtension[] {
     start: (src: string) => src.indexOf('=='),
     tokenizer(src: string) {
       const match = /^==(?!=)(?=\S)([\s\S]*?\S)\s*==(?!=)/.exec(src);
-      return match ? { type: 'highlight', raw: match[0], text: match[1], tokens: this.lexer.inlineTokens(match[1]!) } : undefined;
+      if (!match) return undefined;
+      // La bille de couleur (==🟢 Titre==) donne la couleur, et ne s'affiche pas.
+      const body = match[1]!.slice(highlightMarker(match[1]!));
+      return { type: 'highlight', raw: match[0], text: match[1], tokens: this.lexer.inlineTokens(body || match[1]!) };
     },
     renderer(token) {
       const color = highlightColor(String(token.text ?? ''));

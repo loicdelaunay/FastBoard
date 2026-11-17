@@ -40,6 +40,7 @@ const assignees = computed(() =>
   }),
 );
 const doneIds = computed(() => (ticketRow.value?.ticket.assignees ?? []).filter((a) => a.done).map((a) => a.userId));
+const startedIds = computed(() => (ticketRow.value?.ticket.assignees ?? []).filter((assignee) => !assignee.done && assignee.progress > 0).map((assignee) => assignee.userId));
 const overdue = computed(() => {
   const ticket = ticketRow.value?.ticket;
   if (!ticket) {
@@ -92,7 +93,7 @@ function onPlan(event: MouseEvent): void {
           <span class="key">{{ ticketKey(project.project, ticketRow.ticket) }}</span>
           <span class="title truncate">{{ ticketRow.ticket.title }}</span>
         </button>
-        <UserAvatarGroup v-if="assignees.length" :users="assignees" :highlight-ids="doneIds" :max="2" />
+        <UserAvatarGroup v-if="assignees.length" :users="assignees" :highlight-ids="doneIds" :started-ids="startedIds" :max="2" />
         <span class="percent">{{ ticketRow.progress }}%</span>
       </template>
     </div>

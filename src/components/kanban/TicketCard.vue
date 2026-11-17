@@ -60,6 +60,7 @@ const assignees = computed(() =>
   }),
 );
 const doneIds = computed(() => props.ticket.assignees.filter((assignee) => assignee.done).map((assignee) => assignee.userId));
+const startedIds = computed(() => props.ticket.assignees.filter((assignee) => !assignee.done && assignee.progress > 0).map((assignee) => assignee.userId));
 const due = computed(() => dueDate(props.ticket, delivery.value));
 const overdue = computed(() => isOverdue(props.ticket, delivery.value, todayISO()));
 const urgency = computed(() => deliveryUrgency(props.ticket, delivery.value, project.settings, todayISO()));
@@ -141,7 +142,7 @@ function onLeave(): void {
         <span v-if="ticket.attachmentCount && project.fieldOn('attachments')" class="comments" :title="$t('Pièces jointes')"><i class="pi pi-paperclip"></i>{{ ticket.attachmentCount }}</span>
         <span v-if="ticket.commentCount && project.fieldOn('comments')" class="comments" :data-comments-of="ticket.id"><i class="pi pi-comment"></i>{{ ticket.commentCount }}</span>
       </div>
-      <UserAvatarGroup v-if="assignees.length && project.fieldOn('assignees')" :users="assignees" :highlight-ids="doneIds" :max="3" />
+      <UserAvatarGroup v-if="assignees.length && project.fieldOn('assignees')" :users="assignees" :highlight-ids="doneIds" :started-ids="startedIds" :max="3" />
     </footer>
   </article>
 </template>

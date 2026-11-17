@@ -10,8 +10,10 @@ const props = withDefaults(
     size?: 'small' | 'normal' | 'large';
     /** Utilisateurs à entourer d'un anneau vert (ex. part terminée, collègue en ligne). */
     highlightIds?: number[];
+    /** Utilisateurs à entourer d'un anneau bleu : part commencée (plus à 0 %), pas encore terminée. */
+    startedIds?: number[];
   }>(),
-  { max: 4, size: 'small', highlightIds: () => [] },
+  { max: 4, size: 'small', highlightIds: () => [], startedIds: () => [] },
 );
 
 const visible = computed(() => props.users.slice(0, props.max));
@@ -25,7 +27,7 @@ const hidden = computed(() => props.users.slice(props.max));
       :key="user.id"
       :user="user"
       :size="size"
-      :ring="highlightIds.includes(user.id) ? 'done' : 'none'"
+      :ring="highlightIds.includes(user.id) ? 'done' : startedIds.includes(user.id) ? 'started' : 'none'"
     />
     <span v-if="hidden.length" class="more" :class="`more-${size}`" :title="hidden.map((user) => user.name).join(', ')">
       +{{ hidden.length }}
@@ -47,6 +49,9 @@ const hidden = computed(() => props.users.slice(props.max));
 }
 .avatar-group > :deep(.user-avatar.ring-done) {
   box-shadow: 0 0 0 2px var(--fb-panel), 0 0 0 3.5px #22c55e;
+}
+.avatar-group > :deep(.user-avatar.ring-started) {
+  box-shadow: 0 0 0 2px var(--fb-panel), 0 0 0 3.5px #3b82f6;
 }
 .more {
   display: inline-flex;

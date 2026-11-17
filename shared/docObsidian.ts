@@ -50,6 +50,15 @@ export function highlightColor(text: string): string | null {
   return first ? (HIGHLIGHT_EMOJIS[first] ?? null) : null;
 }
 
+/**
+ * Longueur (en unités de `text`) de la bille de couleur qui ouvre un surlignage, avec ses espaces et sa variante
+ * emoji : elle donne la couleur et ne s'affiche pas. 0 sans bille.
+ */
+export function highlightMarker(text: string): number {
+  const match = /^\s*(\S)\uFE0F?\s*/u.exec(text);
+  return match && HIGHLIGHT_EMOJIS[match[1]!] ? match[0].length : 0;
+}
+
 /** Notes de bas de page `[^1]` et `^[en ligne]`, numérotées dans l'ordre de leur premier appel, réunies en fin de note. */
 export function footnotes(text: string): string {
   const definitions = new Map<string, string>();
