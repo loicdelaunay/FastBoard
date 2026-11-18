@@ -2,11 +2,11 @@
 export const enV27Notifications: Record<string, string> = {
   // Niveaux de notification d'un projet
   "Ma participation": "My participation",
-  "Mentions seulement": "Mentions only",
+  "Mentions et assignations": "Mentions and assignments",
   "Toute l’activité des tickets du projet, suivis ou non.": "All ticket activity in the project, followed or not.",
   "Les tickets que vous suivez (créés, assignés, commentés, où l’on vous mentionne ou suivis avec « Suivre »), vos assignations et les mentions.":
     "Tickets you follow (created, assigned, commented, where you are mentioned or followed with “Follow”), your assignments and mentions.",
-  "Seulement quand on vous mentionne avec @.": "Only when someone mentions you with @.",
+  "Quand on vous mentionne avec @, ou qu’on vous assigne un ticket.": "When someone mentions you with @, or assigns you a ticket.",
   "Aucune notification pour ce projet, mentions comprises.": "No notifications for this project, mentions included.",
   "par défaut": "default",
   // En-tête du projet et cloche

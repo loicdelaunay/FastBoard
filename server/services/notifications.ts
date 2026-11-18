@@ -53,8 +53,10 @@ export function queueMentions(ticketId: number, text: string, previous = ''): vo
 
 // --- Réglages par projet -----------------------------------------------------------------------------------------------
 
-/** Les niveaux qui reçoivent l'activité des tickets suivis et les assignations. */
+/** Les niveaux qui reçoivent l'activité des tickets suivis. */
 const RECEIVES_ACTIVITY: ReadonlySet<NotificationLevel> = new Set(['all', 'participating']);
+/** Les niveaux qui reçoivent les assignations (« Mentions et assignations » compris). */
+const RECEIVES_ASSIGNMENTS: ReadonlySet<NotificationLevel> = new Set(['all', 'participating', 'mentions']);
 
 function toLevel(value: string | null | undefined): NotificationLevel {
   return (NOTIFICATION_LEVELS as readonly string[]).includes(value ?? '') ? (value as NotificationLevel) : DEFAULT_NOTIFICATION_LEVEL;
@@ -207,9 +209,11 @@ export function notifyDocMention(ctx: AppContext, actor: Actor, userId: number, 
  * Notifie les personnes concernées par un évènement du journal d'activité, selon le niveau choisi par chacune pour le
  * projet (jamais l'auteur de l'action) :
  * - mentions : notification « mention », sauf au niveau « Aucune » ; la personne mentionnée suit ensuite le ticket ;
- * - assignations et changements des tickets suivis : niveaux « Tout » et « Ma participation » (par défaut) ;
+ * - assignations : tous les niveaux sauf « Aucune » ;
+ * - changements des tickets suivis : niveaux « Tout » et « Ma participation » (par défaut) ;
  * - changements des autres tickets du projet : niveau « Tout ».
- * Met aussi à jour les abonnements automatiques (créateur, assignés, commentateurs, personnes mentionnées).
+ * Met aussi à jour les abonnements automatiques (créateur, assignés, commentateurs, personnes mentionnées) ; une action
+ * faite avec un jeton d'API (agent, script) n'abonne pas la personne du jeton.
  */
 export function notifyActivity(ctx: AppContext, actor: Actor, projectId: number, data: ActivityData, options: { mentionsOnly?: boolean } = {}): void {
   const ticketId = data.kind === 'ticket' || data.kind === 'comment' ? data.ticketId : null;
@@ -219,7 +223,7 @@ export function notifyActivity(ctx: AppContext, actor: Actor, projectId: number,
 
   let followed = false;
   const assigned = new Set<number>();
-  if (actor.userId !== null && ((data.kind === 'ticket' && data.entry.kind === 'created') || (data.kind === 'comment' && data.action === 'created'))) {
+  if (actor.userId !== null && !actor.token && ((data.kind === 'ticket' && data.entry.kind === 'created') || (data.kind === 'comment' && data.action === 'created'))) {
     followed = watchTicket(db, ticketId, actor.userId) || followed;
   }
   if (data.kind === 'ticket' && data.entry.kind === 'assignees') {
@@ -245,7 +249,7 @@ export function notifyActivity(ctx: AppContext, actor: Actor, projectId: number,
   }
   if (!options.mentionsOnly) {
     for (const userId of assigned) {
-      if (done.has(userId) || !RECEIVES_ACTIVITY.has(levelOf(userId)) || !canSee(db, userId, projectId)) continue;
+      if (done.has(userId) || !RECEIVES_ASSIGNMENTS.has(levelOf(userId)) || !canSee(db, userId, projectId)) continue;
       insert(ctx, userId, 'assigned', projectId, ticketId, actor, data, null);
       done.add(userId);
     }

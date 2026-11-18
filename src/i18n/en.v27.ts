@@ -94,6 +94,10 @@ export const enV27: Record<string, string> = {
   'Contenu du thème (JSON)': 'Theme content (JSON)',
 
   // Journal des modifications
+  "Notifications : un agent qui crée ou commente des tickets avec votre jeton d’API ne vous y abonne plus ; les personnes assignées ou mentionnées les suivent toujours.":
+    "Notifications: an agent that creates or comments on tickets with your API token no longer subscribes you to them; assigned or mentioned people still follow them.",
+  "Notifications : le niveau « Mentions seulement » devient « Mentions et assignations » et prévient aussi quand on vous assigne un ticket.":
+    "Notifications: the “Mentions only” level becomes “Mentions and assignments” and also notifies you when you are assigned a ticket.",
   "Tableaux blancs : grouper et dégrouper des éléments (Ctrl G, Ctrl Maj G ou clic droit) ; un clic prend tout le groupe, un double-clic y entre pour choisir un seul élément.":
     "Whiteboards: group and ungroup elements (Ctrl G, Ctrl Shift G or right-click); a click takes the whole group, a double-click enters it to pick a single element.",
   "Notifications : chacun choisit, projet par projet, ce qui le notifie (tout, sa participation par défaut, ses mentions seulement, ou rien), depuis la cloche de l’en-tête du projet ou Mon compte → Notifications.":

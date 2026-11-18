@@ -40,7 +40,7 @@ export function notificationLevelOptions(): NotificationLevelOption[] {
   return [
     { value: 'all', label: t('Tout'), hint: t('Toute l’activité des tickets du projet, suivis ou non.'), icon: 'pi pi-eye' },
     { value: 'participating', label: t('Ma participation'), hint: t('Les tickets que vous suivez (créés, assignés, commentés, où l’on vous mentionne ou suivis avec « Suivre »), vos assignations et les mentions.'), icon: 'pi pi-bell' },
-    { value: 'mentions', label: t('Mentions seulement'), hint: t('Seulement quand on vous mentionne avec @.'), icon: 'pi pi-at' },
+    { value: 'mentions', label: t('Mentions et assignations'), hint: t('Quand on vous mentionne avec @, ou qu’on vous assigne un ticket.'), icon: 'pi pi-at' },
     { value: 'none', label: t('Aucune'), hint: t('Aucune notification pour ce projet, mentions comprises.'), icon: 'pi pi-bell-slash' },
   ];
 }

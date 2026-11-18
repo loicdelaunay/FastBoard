@@ -192,10 +192,10 @@ curl -s -X PUT $FASTBOARD/api/me/notification-settings/3 -H "Authorization: Bear
 | --- | --- |
 | `all` | toute l'activité des tickets du projet, suivis ou non, assignations et mentions |
 | `participating` (par défaut) | changements des tickets suivis, assignations et mentions |
-| `mentions` | seulement les mentions `@` |
+| `mentions` | mentions `@` et assignations |
 | `none` | rien, mentions comprises |
 
-Les mentions dans la documentation ne dépendent pas d'un projet : elles sont toujours notifiées.
+Les mentions dans la documentation ne dépendent pas d'un projet : elles sont toujours notifiées. Les tickets que vous créez ou commentez avec un jeton d'API ne s'ajoutent pas à vos tickets suivis (un agent qui travaille pour vous ne remplit pas vos notifications) ; les personnes assignées ou mentionnées les suivent comme d'habitude.
 
 ### Lignes d'avancement
 

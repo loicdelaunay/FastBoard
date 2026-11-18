@@ -113,13 +113,14 @@ describe('notifications : niveaux par projet, suivi des tickets, mentions', () =
     assert.deepEqual((await fresh('erin', ids.ticket!)).map((item) => item.type), ['activity']);
   });
 
-  it('« Mentions seulement » : ni activité ni assignation, mais les mentions', async () => {
+  it('« Mentions et assignations » : les mentions et les assignations, pas l’activité', async () => {
     assert.equal((await setLevel('alice', 'mentions')).status, 200);
     await clients.bob!.patch(`/api/tickets/${ids.ticket}`, { assigneeIds: [ids.alice] });
+    assert.deepEqual((await fresh('alice', ids.ticket!)).map((item) => item.type), ['assigned'], 'l’assignation est notifiée');
     const ticket = (await clients.bob!.get(`/api/tickets/${ids.ticket}`)).body.ticket as TicketDTO;
     assert.ok(ticket.watcherIds.includes(ids.alice!), 'l’assignée suit le ticket (utile si elle change de niveau)');
     await clients.bob!.patch(`/api/tickets/${ids.ticket}`, { title: 'Paiement 3-D Secure' });
-    assert.equal((await fresh('alice', ids.ticket!)).length, 0, 'pas d’assignation ni d’activité');
+    assert.equal((await fresh('alice', ids.ticket!)).length, 0, 'pas d’activité');
 
     await clients.bob!.patch(`/api/tickets/${ids.ticket}`, { description: `À valider par ${mention('alice')}` });
     const items = await fresh('alice', ids.ticket!);
@@ -130,6 +131,24 @@ describe('notifications : niveaux par projet, suivi des tickets, mentions', () =
     assert.equal((await setLevel('alice', 'participating')).body.setting.level, 'participating');
     await clients.bob!.patch(`/api/tickets/${ids.ticket}`, { title: 'Paiement' });
     assert.deepEqual((await fresh('alice', ids.ticket!)).map((item) => item.type), ['activity']);
+  });
+
+  it('un agent qui travaille avec un jeton n’abonne pas la personne du jeton', async () => {
+    const secret = (await clients.alice!.post('/api/me/tokens', { name: 'agent-tri', scope: 'write' })).body.secret as string;
+    const agent = app.client().useToken(secret);
+    const created = await agent.post(`/api/projects/${ids.project}/tickets`, { title: 'Créé par l’agent', status: 'todo', assigneeIds: [ids.erin] });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const ticketId = created.body.ticket.id as number;
+    assert.equal((await agent.post(`/api/tickets/${ticketId}/comments`, { body: 'Analyse faite.' })).status, 201);
+    const ticket = (await clients.bob!.get(`/api/tickets/${ticketId}`)).body.ticket as TicketDTO;
+    assert.ok(!ticket.watcherIds.includes(ids.alice!), 'alice ne suit pas les tickets de son agent');
+    assert.ok(ticket.watcherIds.includes(ids.erin!), 'l’assignée suit le ticket comme d’habitude');
+    await clients.bob!.patch(`/api/tickets/${ticketId}`, { title: 'Créé par l’agent, revu' });
+    assert.equal((await fresh('alice', ticketId)).length, 0, 'pas de notification pour alice');
+
+    // Dans l'interface, créer un ticket l'ajoute toujours à ses tickets suivis.
+    const own = (await clients.alice!.post(`/api/projects/${ids.project}/tickets`, { title: 'Créé par alice', status: 'todo' })).body.ticket as TicketDTO;
+    assert.ok(own.watcherIds.includes(ids.alice!));
   });
 
   it('« Aucune » : rien, mentions comprises (tickets et journal d’activité)', async () => {

@@ -35,4 +35,6 @@ export interface Actor {
   origin: string | null;
   /** Nom du jeton d'API quand l'action vient de l'API (agent, script) et non d'une session de l'interface. */
   via?: string | null;
+  /** Action faite avec un jeton d'API : la personne du jeton ne suit pas pour autant les tickets touchés. */
+  token?: boolean;
 }

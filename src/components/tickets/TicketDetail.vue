@@ -79,7 +79,7 @@ const watching = computed(() => auth.user !== null && props.ticket.watcherIds.in
 const watchers = computed(() => props.ticket.watcherIds.flatMap((id) => project.usersById.get(id) ?? []));
 const watchBusy = ref(false);
 const watchHover = ref(false);
-/** Niveau « Mentions seulement » ou « Aucune » pour le projet : le suivi n'apporte rien tant qu'il ne change pas. */
+/** Niveau « Mentions et assignations » ou « Aucune » pour le projet : le suivi n'apporte rien tant qu'il ne change pas. */
 const notifications = useNotificationsStore();
 const projectLevel = computed(() => notifications.levelOf(props.ticket.projectId));
 const quietProject = computed(() => projectLevel.value === 'mentions' || projectLevel.value === 'none');
@@ -212,7 +212,7 @@ function askDelete(): void {
         />
         <span v-if="watchers.length" class="muted small" :title="watchers.map((user) => user.name).join(', ')">{{ $t('{n} abonné|{n} abonnés', { n: watchers.length }) }}</span>
         <span v-if="watching && quietProject" v-tooltip.top="$t('Vos notifications pour ce projet sont réglées ainsi : choisissez « Ma participation » ou « Tout » (cloche en haut du projet) pour être prévenu des changements des tickets suivis.')" class="muted small quiet" tabindex="0">
-          <i :class="projectLevel === 'none' ? 'pi pi-bell-slash' : 'pi pi-at'"></i> {{ projectLevel === 'none' ? $t('Notifications coupées') : $t('Mentions seulement') }}
+          <i :class="projectLevel === 'none' ? 'pi pi-bell-slash' : 'pi pi-at'"></i> {{ projectLevel === 'none' ? $t('Notifications coupées') : $t('Mentions et assignations') }}
         </span>
       </div>
       <StaleBar :ticket="ticket" />

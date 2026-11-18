@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.6.0';
+export const APP_VERSION = '2.6.1';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.6.1',
+    date: '2026-11-18',
+    changes: [
+      { category: 'Amélioration', text: 'Notifications : un agent qui crée ou commente des tickets avec votre jeton d’API ne vous y abonne plus ; les personnes assignées ou mentionnées les suivent toujours.' },
+      { category: 'Amélioration', text: 'Notifications : le niveau « Mentions seulement » devient « Mentions et assignations » et prévient aussi quand on vous assigne un ticket.' },
+    ],
+  },
   {
     version: '2.6.0',
     date: '2026-11-18',

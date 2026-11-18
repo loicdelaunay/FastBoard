@@ -612,8 +612,8 @@ export function createTicket(ctx: AppContext, actor: Actor, projectId: number, i
       replaceComponents(db, lastInsertRowid, projectId, input.componentIds);
     }
     for (const userId of assigneeIds) insertPart(db, lastInsertRowid, userId);
-    // Le créateur et les assignés suivent le ticket (notifications).
-    if (actor.userId !== null) watchTicket(db, lastInsertRowid, actor.userId);
+    // Le créateur et les assignés suivent le ticket (notifications) ; pas la personne d'un jeton d'API (agent, script).
+    if (actor.userId !== null && !actor.token) watchTicket(db, lastInsertRowid, actor.userId);
     for (const userId of assigneeIds) watchTicket(db, lastInsertRowid, userId);
     collector.history.push(addHistory(db, lastInsertRowid, actor, { kind: 'created', title: input.title }));
     if (assigneeIds.length > 0) {
