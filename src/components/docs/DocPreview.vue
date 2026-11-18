@@ -113,8 +113,11 @@ function onContextMenu(event: MouseEvent): void {
 
 <style scoped>
 .doc-preview {
-  max-width: 52rem;
-  margin: 0 auto;
+  max-width: var(--fb-reading-width, 52rem);
+  margin-right: auto;
+  margin-left: max(0px, calc((100% - var(--fb-reading-width, 52rem)) / 2 + var(--reading-shift, 0px)));
+  font-family: var(--fb-font-doc, var(--fb-font, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif));
+  font-size: var(--fb-doc-size, 1rem);
 }
 .doc-preview :deep(img:not(a img)) {
   cursor: zoom-in;

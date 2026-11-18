@@ -95,3 +95,15 @@ export const CLIENT_ID_HEADER = 'x-client-id';
  * (connexion dans un autre onglet), le serveur répond 401 `session_changed` au lieu d'agir en son nom.
  */
 export const USER_ID_HEADER = 'x-user-id';
+
+/**
+ * Niveaux de notification d'une personne dans un projet :
+ * - `all` : toute l'activité des tickets du projet, suivis ou non ;
+ * - `participating` (par défaut) : les tickets suivis (créés, assignés, commentés, où l'on est mentionné ou suivis à la
+ *   main), les assignations et les mentions ;
+ * - `mentions` : seulement les mentions `@` ;
+ * - `none` : rien, mentions comprises.
+ */
+export const NOTIFICATION_LEVELS = ['all', 'participating', 'mentions', 'none'] as const;
+export type NotificationLevel = (typeof NOTIFICATION_LEVELS)[number];
+export const DEFAULT_NOTIFICATION_LEVEL: NotificationLevel = 'participating';

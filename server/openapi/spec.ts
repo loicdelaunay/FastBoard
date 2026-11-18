@@ -74,6 +74,8 @@ const DOC_NODE_ID = { id: 'Identifiant du fichier ou du dossier.' };
 const BOARD_SPACE_ID = { id: 'Identifiant de l’espace de tableaux.' };
 const BOARD_NODE_ID = { id: 'Identifiant du tableau ou du dossier.' };
 const BOARD_ID = { id: 'Identifiant du tableau.' };
+/** Thème de la bibliothèque du site. */
+const SHARED_THEME = obj({ id: str(), theme: { type: 'object', description: 'label, mode, preset, primary, surface, colors, fonts' }, authorId: nullable(int()), authorName: str(), createdAt: str() });
 const TICKET_ID = { id: 'Identifiant du ticket (champ `id`, pas la clé `APP-12`).' };
 
 const OPERATIONS: Operation[] = [
@@ -235,9 +237,31 @@ const OPERATIONS: Operation[] = [
   { method: 'post', path: '/me/notifications/read', tag: 'Notifications', summary: 'Marquer des notifications comme lues (toutes si `ids` est absent)', body: S.markReadSchema, ok: obj({ unread: int() }) },
   { method: 'post', path: '/tickets/{id}/watch', tag: 'Notifications', summary: 'Suivre un ticket (être notifié de ses changements)', params: TICKET_ID, ok: obj({ ticket: ref('Ticket') }) },
   { method: 'delete', path: '/tickets/{id}/watch', tag: 'Notifications', summary: 'Ne plus suivre un ticket', params: TICKET_ID, ok: obj({ ticket: ref('Ticket') }) },
+  {
+    method: 'get',
+    path: '/me/notification-settings',
+    tag: 'Notifications',
+    summary: 'Mes niveaux de notification, projet par projet',
+    description:
+      'Un réglage par projet visible. `level` : `all` (toute l’activité des tickets du projet), `participating` (par défaut : tickets suivis — créés, assignés, commentés, où l’on est mentionné ou suivis avec « Suivre » —, assignations et mentions), `mentions` (seulement les mentions `@`), `none` (rien, mentions comprises). Les mentions dans la documentation ne dépendent pas d’un projet : elles sont toujours notifiées.',
+    ok: obj({ settings: arr(ref('NotificationSetting')), defaultLevel: str('Niveau des projets sans réglage.', { enum: ['participating'] }) }),
+  },
+  {
+    method: 'put',
+    path: '/me/notification-settings/{id}',
+    tag: 'Notifications',
+    summary: 'Choisir mon niveau de notification pour un projet',
+    description: 'Il suffit de voir le projet. Diffusé en direct aux autres onglets de la personne (`notifications.settings`).',
+    params: PROJECT_ID,
+    body: S.notificationSettingSchema,
+    ok: obj({ setting: ref('NotificationSetting') }),
+  },
 
   // --- Profil ----------------------------------------------------------------------------------------------------------
-  { method: 'patch', path: '/me', tag: 'Profil', access: 'session', summary: 'Modifier mon nom ou mon thème', body: S.profileSchema, ok: obj({ user: ref('Me') }) },
+  { method: 'patch', path: '/me', tag: 'Profil', access: 'session', summary: 'Modifier mon nom ou mon thème', description: '`appearance` : thèmes personnalisés (couleurs réglées une à une, polices), polices et largeur du texte des notes.', body: S.profileSchema, ok: obj({ user: ref('Me') }) },
+  { method: 'get', path: '/themes/shared', tag: 'Profil', summary: 'Thèmes partagés du site', description: 'Thèmes personnalisés publiés par les personnes du site, à ajouter à ses propres thèmes.', ok: obj({ themes: arr(SHARED_THEME) }) },
+  { method: 'post', path: '/themes/shared', tag: 'Profil', access: 'session', summary: 'Publier un thème dans la bibliothèque', body: S.sharedThemeSchema, status: 201, ok: obj({ theme: SHARED_THEME }) },
+  { method: 'delete', path: '/themes/shared/{id}', tag: 'Profil', access: 'session', permission: 'son auteur, ou `settings.manage`', summary: 'Retirer un thème de la bibliothèque', params: { id: 'Identifiant du thème partagé.' }, stringParams: ['id'], ok: ref('Ok') },
   { method: 'post', path: '/me/password', tag: 'Profil', access: 'session', summary: 'Changer mon mot de passe', body: S.passwordSchema, ok: ref('Ok') },
   {
     method: 'put',

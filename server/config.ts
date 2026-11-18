@@ -45,7 +45,8 @@ export function loadConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     logToConsole: process.env.FASTBOARD_LOG_CONSOLE !== '0',
     // L'exécutable autonome se comporte toujours comme en production (en-tête CSP, interface embarquée).
     isProd: process.env.NODE_ENV === 'production' || runningAsExecutable,
-    sessionDays: 14,
+    // Durée sans utilisation après laquelle une session expire : chaque jour d'usage la prolonge d'autant.
+    sessionDays: 30,
     cookieName: 'fb_session',
     allowedOrigins: (process.env.ALLOWED_ORIGINS ?? '').split(',').map((entry) => entry.trim()).filter(Boolean),
     loginRateLimit: { max: 10, windowMs: 10 * 60 * 1000 },

@@ -10,8 +10,10 @@ import { exportMermaid, mermaidToElements } from '@shared/boardMermaid';
 import {
   boardAssetUrl,
   boardIconUrl,
+  elementGroup,
   isPlaced,
   newElementId,
+  withGroup,
   type BoardAssetDTO,
   type BoardColor,
   type BoardElement,
@@ -127,6 +129,130 @@ watch(index, (current) => {
 });
 // Les autres voient ce que l'on a sélectionné.
 watch(selection, (ids) => props.session.awareness.setLocalStateField('selection', [...ids].slice(0, 200)));
+
+// --- Groupes (façon Whimsical) -----------------------------------------------------------------------------------------
+
+/** Groupes du tableau, d'au moins deux éléments (un groupe resté seul ne compte plus). */
+const groupMembers = computed(() => {
+  const groups = new Map<string, BoardElement[]>();
+  for (const element of elements.value) {
+    const group = elementGroup(element);
+    if (!group) continue;
+    const members = groups.get(group);
+    if (members) members.push(element);
+    else groups.set(group, [element]);
+  }
+  for (const [group, members] of groups) if (members.length < 2) groups.delete(group);
+  return groups;
+});
+const groupKeyOf = (element: BoardElement | undefined): string | null => {
+  const group = element ? elementGroup(element) : null;
+  return group && groupMembers.value.has(group) ? group : null;
+};
+
+/** Groupe ouvert par un double-clic : ses éléments se choisissent un à un, jusqu'à un clic en dehors. */
+const entered = ref<string | null>(null);
+// On sort d'un groupe ouvert dès que plus rien de lui n'est sélectionné (ou qu'il est défait).
+watch(
+  () => entered.value !== null && [...selection.value].some((id) => groupKeyOf(index.value.get(id)) === entered.value),
+  (inside) => {
+    if (!inside) entered.value = null;
+  },
+);
+
+/**
+ * Ce qu'un clic sur un élément sélectionne : tout son groupe (sauf le groupe ouvert) et toute sa copie de modèle, de
+ * proche en proche.
+ */
+function unitOf(element: BoardElement): string[] {
+  const found = new Set<string>([element.id]);
+  const queue = [element];
+  while (queue.length) {
+    const current = queue.pop()!;
+    const group = groupKeyOf(current);
+    const mates = [...(group && group !== entered.value ? groupMembers.value.get(group)! : []), ...(current.tpl ? (instances.value.get(current.tpl.inst) ?? []) : [])];
+    for (const mate of mates) {
+      if (found.has(mate.id)) continue;
+      found.add(mate.id);
+      queue.push(mate);
+    }
+  }
+  return [...found];
+}
+
+/** Ces éléments et tous ceux qui vont avec eux. */
+function withUnits(ids: Iterable<string>): Set<string> {
+  const result = new Set<string>();
+  for (const id of ids) {
+    if (result.has(id)) continue;
+    const element = index.value.get(id);
+    if (element) for (const member of unitOf(element)) result.add(member);
+  }
+  return result;
+}
+
+function selectAll(): void {
+  entered.value = null;
+  select(elements.value.map((element) => element.id));
+}
+
+/** Groupes sélectionnés en entier (hors groupe ouvert) : un seul cadre les montre, sans contour par élément. */
+const selectedGroups = computed(() => {
+  const groups = new Set<string>();
+  for (const [group, members] of groupMembers.value) {
+    if (group !== entered.value && members.every((member) => selection.value.has(member.id))) groups.add(group);
+  }
+  return groups;
+});
+/** Éléments qui montrent leur propre contour de sélection. */
+const outlined = computed(() => {
+  const groups = selectedGroups.value;
+  if (!groups.size) return selection.value;
+  return new Set(
+    [...selection.value].filter((id) => {
+      const group = groupKeyOf(index.value.get(id));
+      return !group || !groups.has(group);
+    }),
+  );
+});
+/**
+ * Ce que la sélection permet : grouper (deux éléments au moins, hors cartes mentales, qui ne forment pas déjà un seul
+ * groupe ou une seule copie de modèle), dégrouper.
+ */
+const grouping = computed(() => {
+  const groupable = selected.value.filter((element) => element.type !== 'mind');
+  const keys = new Set(groupable.map(groupKeyOf));
+  const only = keys.size === 1 ? [...keys][0] : null;
+  const alreadyOne = Boolean(only && groupMembers.value.get(only)!.length === groupable.length) || (keys.size === 1 && only === null && selectedInstance.value !== null);
+  return { canGroup: groupable.length > 1 && !alreadyOne, canUngroup: selected.value.some((element) => groupKeyOf(element) !== null) };
+});
+
+/** Range la sélection dans un nouveau groupe ; ceux de ses éléments déjà groupés quittent leur ancien groupe. */
+function groupSelection(): void {
+  if (!editable.value) return;
+  if (selected.value.some((element) => element.type === 'mind')) notify('info', t('Les nœuds de carte mentale ne se groupent pas : leur carte les range.'));
+  if (!grouping.value.canGroup) return;
+  model.stopCapturing();
+  model.regroup(
+    selected.value.filter((element) => element.type !== 'mind').map((element) => element.id),
+    newElementId(),
+  );
+  model.stopCapturing();
+  entered.value = null;
+}
+
+/** Défait les groupes de la sélection ; leurs éléments restent sélectionnés. */
+function ungroupSelection(): void {
+  const groups = new Set(selected.value.map(groupKeyOf).filter((group): group is string => group !== null));
+  if (!editable.value || !groups.size) return;
+  model.stopCapturing();
+  model.regroup(
+    elements.value.filter((element) => groups.has(elementGroup(element) ?? '')).map((element) => element.id),
+    null,
+  );
+  model.stopCapturing();
+  entered.value = null;
+}
 
 // --- Coordonnées -------------------------------------------------------------------------------------------------------
 
@@ -528,17 +654,19 @@ function onPointerDown(event: PointerEvent): void {
 
   if (!editable.value || tool.value === 'select') {
     if (element) {
-      const group = groupOf(element);
+      // Un clic hors du groupe ouvert le referme.
+      if (entered.value && groupKeyOf(element) !== entered.value) entered.value = null;
+      const unit = unitOf(element);
       if (event.shiftKey || event.ctrlKey || event.metaKey) {
         const next = new Set(selection.value);
         const on = !next.has(element.id);
-        for (const id of group) {
+        for (const id of unit) {
           if (on) next.add(id);
           else next.delete(id);
         }
         select(next);
       } else if (!selection.value.has(element.id)) {
-        select(group);
+        select(unit);
       }
       if (editable.value && selection.value.has(element.id)) {
         model.stopCapturing();
@@ -546,6 +674,7 @@ function onPointerDown(event: PointerEvent): void {
       }
       return;
     }
+    entered.value = null;
     if (!event.shiftKey) select([]);
     gesture = { kind: 'marquee', start: world, base: new Set(event.shiftKey ? selection.value : []) };
     return;
@@ -680,18 +809,20 @@ function onPointerMove(event: PointerEvent): void {
     case 'marquee': {
       const rect = rectFrom(gesture.start, world);
       marquee.value = rect;
-      const ids = new Set(gesture.base);
+      const touched = new Set(gesture.base);
       for (const element of elements.value) {
         if (isPlaced(element)) {
-          if (element.type === 'frame' ? rect.x <= element.x && rect.y <= element.y && rect.x + rect.w >= element.x + element.w && rect.y + rect.h >= element.y + element.h : intersects(rect, element)) ids.add(element.id);
+          if (element.type === 'frame' ? rect.x <= element.x && rect.y <= element.y && rect.x + rect.w >= element.x + element.w && rect.y + rect.h >= element.y + element.h : intersects(rect, element)) touched.add(element.id);
         }
       }
+      // Un élément touché emmène tout son groupe (et sa copie de modèle).
+      const ids = withUnits(touched);
       for (const element of elements.value) {
-        if (element.type !== 'connector') continue;
+        if (element.type !== 'connector' || ids.has(element.id)) continue;
         const bounds = boundsOf([element], index.value);
         if (bounds && intersects(rect, bounds) && (!element.from.id || ids.has(element.from.id)) && (!element.to.id || ids.has(element.to.id))) ids.add(element.id);
       }
-      select(ids);
+      select(withUnits(ids));
       break;
     }
     case 'connect': {
@@ -853,8 +984,8 @@ function finishConnect(from: { id: string | null; side: Side | null; point: Poin
     model.add([link]);
     select([link.id]);
   } else if (source && isPlaced(source) && (source.type === 'shape' || source.type === 'sticky') && Math.hypot(world.x - from.point.x, world.y - from.point.y) > 40) {
-    // Comme dans Whimsical : tirer dans le vide crée la forme suivante, déjà reliée.
-    const copy = { ...source, id: newElementId(), z: model.nextZ(), x: snap(world.x - source.w / 2), y: snap(world.y - source.h / 2), text: '' } as PlacedElement;
+    // Comme dans Whimsical : tirer dans le vide crée la forme suivante, déjà reliée (hors du groupe et du modèle de l'original).
+    const copy = { ...unlinked(withGroup(source, null)), id: newElementId(), z: model.nextZ(), x: snap(world.x - source.w / 2), y: snap(world.y - source.h / 2), text: '' } as PlacedElement;
     if (copy.type === 'sticky') copy.votes = [];
     const link = connector({ id: copy.id, side: null, x: world.x, y: world.y });
     model.add([copy, link]);
@@ -889,12 +1020,20 @@ function onWheel(event: WheelEvent): void {
 }
 
 function onDoubleClick(event: MouseEvent): void {
-  if (!editable.value || (event.target as Element).closest('.board-ui, .edit-overlay')) return;
+  if ((event.target as Element).closest('.board-ui, .edit-overlay')) return;
   // Poignées et bulles de liaison : rien à éditer ni à créer.
   if (document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-handle], [data-dot], [data-end]')) return;
   // Avec la capture du pointeur, le double-clic peut viser le tableau lui-même : on regarde ce qui est sous le pointeur.
   const hit = (event.target as Element).closest<SVGElement | HTMLElement>('[data-id]');
   const element = (hit ? index.value.get(hit.dataset.id!) : undefined) ?? elementAt(event.clientX, event.clientY, () => true) ?? undefined;
+  // Comme dans Whimsical, un double-clic entre dans le groupe et n'en prend que cet élément ; le suivant l'édite.
+  const group = groupKeyOf(element);
+  if (element && group && entered.value !== group && (!editable.value || tool.value === 'select')) {
+    entered.value = group;
+    select(unitOf(element));
+    return;
+  }
+  if (!editable.value) return;
   if (element) {
     if (element.locked) return;
     if (element.type === 'table') {
@@ -1198,7 +1337,14 @@ function onKeyDown(event: KeyboardEvent): void {
   }
   if (mod && key === 'a') {
     event.preventDefault();
-    select(elements.value.map((element) => element.id));
+    selectAll();
+    return;
+  }
+  // Ctrl G groupe, Ctrl Maj G dégroupe (le navigateur n'en fait pas une recherche).
+  if (mod && key === 'g') {
+    event.preventDefault();
+    if (event.shiftKey) ungroupSelection();
+    else groupSelection();
     return;
   }
   if (event.key === '/' && editable.value) {
@@ -1233,7 +1379,10 @@ function onKeyDown(event: KeyboardEvent): void {
     return;
   }
   if (event.key === 'Escape') {
-    select([]);
+    // Dans un groupe ouvert : on en sort, le groupe entier sélectionné.
+    const inside = entered.value ? groupMembers.value.get(entered.value) : undefined;
+    entered.value = null;
+    select(inside ? withUnits(inside.map((element) => element.id)) : []);
     tool.value = 'select';
     return;
   }
@@ -1307,36 +1456,71 @@ function patchSelection(patch: Record<string, unknown>, filter?: (element: Board
   }
 }
 
+/** Bloc à aligner : un élément seul, ou tout un groupe (ou une copie de modèle) qui bouge d'un bloc. */
+interface Block {
+  members: BoardElement[];
+  box: Rect;
+}
+
+/** Blocs de la sélection ; une sélection d'un seul bloc aligne les éléments qui le composent. */
+function alignBlocks(): Block[] {
+  const movable = selected.value.filter((element) => !element.locked);
+  const chosen = new Map(movable.map((element) => [element.id, element]));
+  const seen = new Set<string>();
+  const blocks: Block[] = [];
+  for (const element of movable) {
+    if (seen.has(element.id) || !isPlaced(element)) continue;
+    const members = unitOf(element)
+      .map((id) => chosen.get(id))
+      .filter((member): member is BoardElement => member !== undefined);
+    for (const member of members) seen.add(member.id);
+    const box = boundsOf(members.filter(isPlaced));
+    if (box) blocks.push({ members, box });
+  }
+  if (blocks.length !== 1) return blocks;
+  return movable.filter(isPlaced).map((element) => ({ members: [element], box: { x: element.x, y: element.y, w: element.w, h: element.h } }));
+}
+
+/** Décale tout un bloc (les liens libres du bloc suivent). */
+function shiftBlock(block: Block, dx: number, dy: number, patches: Map<string, Partial<BoardElement>>): void {
+  for (const element of block.members) {
+    if (isPlaced(element)) patches.set(element.id, { x: element.x + dx, y: element.y + dy });
+    else patches.set(element.id, { from: { ...element.from, x: element.from.x + dx, y: element.from.y + dy }, to: { ...element.to, x: element.to.x + dx, y: element.to.y + dy } });
+  }
+}
+
 function align(how: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'): void {
-  const placed = selected.value.filter((element): element is PlacedElement => isPlaced(element) && !element.locked);
-  const bounds = boundsOf(placed);
-  if (!bounds || placed.length < 2) return;
-  const patches = new Map<string, Partial<PlacedElement>>();
-  for (const element of placed) {
-    if (how === 'left') patches.set(element.id, { x: bounds.x });
-    if (how === 'center') patches.set(element.id, { x: bounds.x + bounds.w / 2 - element.w / 2 });
-    if (how === 'right') patches.set(element.id, { x: bounds.x + bounds.w - element.w });
-    if (how === 'top') patches.set(element.id, { y: bounds.y });
-    if (how === 'middle') patches.set(element.id, { y: bounds.y + bounds.h / 2 - element.h / 2 });
-    if (how === 'bottom') patches.set(element.id, { y: bounds.y + bounds.h - element.h });
+  const blocks = alignBlocks();
+  if (blocks.length < 2) return;
+  const left = Math.min(...blocks.map(({ box }) => box.x));
+  const top = Math.min(...blocks.map(({ box }) => box.y));
+  const right = Math.max(...blocks.map(({ box }) => box.x + box.w));
+  const bottom = Math.max(...blocks.map(({ box }) => box.y + box.h));
+  const patches = new Map<string, Partial<BoardElement>>();
+  for (const block of blocks) {
+    const { box } = block;
+    const x = how === 'left' ? left : how === 'center' ? (left + right) / 2 - box.w / 2 : how === 'right' ? right - box.w : box.x;
+    const y = how === 'top' ? top : how === 'middle' ? (top + bottom) / 2 - box.h / 2 : how === 'bottom' ? bottom - box.h : box.y;
+    shiftBlock(block, x - box.x, y - box.y, patches);
   }
   model.stopCapturing();
   model.updateMany(patches);
 }
 
 function distribute(axis: 'x' | 'y'): void {
-  const placed = selected.value.filter((element): element is PlacedElement => isPlaced(element) && !element.locked).sort((a, b) => a[axis] - b[axis]);
-  if (placed.length < 3) return;
+  const blocks = alignBlocks().sort((a, b) => a.box[axis] - b.box[axis]);
+  if (blocks.length < 3) return;
   const length = axis === 'x' ? 'w' : 'h';
-  const first = placed[0]!;
-  const last = placed[placed.length - 1]!;
-  const total = placed.reduce((sum, element) => sum + element[length], 0);
-  const gap = (last[axis] + last[length] - first[axis] - total) / (placed.length - 1);
+  const first = blocks[0]!.box;
+  const last = blocks[blocks.length - 1]!.box;
+  const total = blocks.reduce((sum, { box }) => sum + box[length], 0);
+  const gap = (last[axis] + last[length] - first[axis] - total) / (blocks.length - 1);
   let cursor = first[axis];
-  const patches = new Map<string, Partial<PlacedElement>>();
-  for (const element of placed) {
-    patches.set(element.id, { [axis]: cursor });
-    cursor += element[length] + gap;
+  const patches = new Map<string, Partial<BoardElement>>();
+  for (const block of blocks) {
+    const offset = cursor - block.box[axis];
+    shiftBlock(block, axis === 'x' ? offset : 0, axis === 'y' ? offset : 0, patches);
+    cursor += block.box[length] + gap;
   }
   model.stopCapturing();
   model.updateMany(patches);
@@ -1392,6 +1576,12 @@ function runAction(action: SelectionAction): void {
       model.stopCapturing();
       model.updateMany(new Map([...ids].map((id) => [id, { locked: action === 'lock' }])));
       break;
+    case 'group':
+      groupSelection();
+      break;
+    case 'ungroup':
+      ungroupSelection();
+      break;
     case 'mermaid':
       openExport();
       break;
@@ -1433,10 +1623,15 @@ function onContextMenu(event: MouseEvent): void {
   menuPoint.value = toWorld(event.clientX, event.clientY);
   const hit = (event.target as Element).closest<SVGElement | HTMLElement>('[data-id]');
   const element = hit ? index.value.get(hit.dataset.id!) : undefined;
-  if (element && !selection.value.has(element.id)) select([element.id]);
+  if (element && !selection.value.has(element.id)) {
+    if (entered.value && groupKeyOf(element) !== entered.value) entered.value = null;
+    select(unitOf(element));
+  }
   const has = selected.value.length > 0;
   const write = editable.value;
   const locked = selected.value.some((entry) => entry.locked);
+  const blocks = write && has ? alignBlocks().length : 0;
+  const { canGroup, canUngroup } = grouping.value;
   menuItems.value = has
     ? [
         ...(write ? [{ label: t('Couper'), icon: 'pi pi-times', command: () => copySelection(true) }] : []),
@@ -1477,7 +1672,7 @@ function onContextMenu(event: MouseEvent): void {
               {
                 label: t('Aligner'),
                 icon: 'pi pi-align-left',
-                disabled: selected.value.filter(isPlaced).length < 2,
+                disabled: blocks < 2,
                 items: [
                   { label: t('À gauche'), icon: 'pi pi-align-left', command: () => align('left') },
                   { label: t('Au centre'), icon: 'pi pi-align-center', command: () => align('center') },
@@ -1487,10 +1682,13 @@ function onContextMenu(event: MouseEvent): void {
                   { label: t('Au milieu'), icon: 'pi pi-minus', command: () => align('middle') },
                   { label: t('En bas'), icon: 'pi pi-arrow-down', command: () => align('bottom') },
                   { separator: true },
-                  { label: t('Répartir horizontalement'), icon: 'pi pi-arrows-h', disabled: selected.value.filter(isPlaced).length < 3, command: () => distribute('x') },
-                  { label: t('Répartir verticalement'), icon: 'pi pi-arrows-v', disabled: selected.value.filter(isPlaced).length < 3, command: () => distribute('y') },
+                  { label: t('Répartir horizontalement'), icon: 'pi pi-arrows-h', disabled: blocks < 3, command: () => distribute('x') },
+                  { label: t('Répartir verticalement'), icon: 'pi pi-arrows-v', disabled: blocks < 3, command: () => distribute('y') },
                 ],
               },
+              ...(canGroup || canUngroup ? [{ separator: true }] : []),
+              ...(canGroup ? [{ label: t('Grouper (Ctrl G)'), icon: 'pi pi-box', command: groupSelection }] : []),
+              ...(canUngroup ? [{ label: t('Dégrouper (Ctrl Maj G)'), icon: 'pi pi-objects-column', command: ungroupSelection }] : []),
               { separator: true },
               locked ? { label: t('Déverrouiller'), icon: 'pi pi-lock-open', command: () => runAction('unlock') } : { label: t('Verrouiller'), icon: 'pi pi-lock', command: () => runAction('lock') },
               { label: t('Placer dans une section'), icon: 'pi pi-th-large', command: wrapInSection },
@@ -1520,7 +1718,7 @@ function onContextMenu(event: MouseEvent): void {
               { separator: true },
             ]
           : []),
-        { label: t('Tout sélectionner'), icon: 'pi pi-check-square', command: () => select(elements.value.map((entry) => entry.id)) },
+        { label: t('Tout sélectionner'), icon: 'pi pi-check-square', command: selectAll },
         { label: t('Ajuster à l’écran'), icon: 'pi pi-expand', command: () => fit() },
         { label: t('Exporter le tableau en Mermaid'), icon: 'pi pi-share-alt', disabled: !elements.value.length, command: openExport },
       ];
@@ -1747,12 +1945,6 @@ function stateOf(group: readonly BoardElement[]): InstanceState {
 
 const instanceStates = computed(() => new Map([...instances.value.entries()].map(([inst, group]) => [inst, stateOf(group)])));
 
-/** Les éléments à sélectionner d'un clic : toute la copie d'un modèle, sinon l'élément seul. */
-function groupOf(element: BoardElement): string[] {
-  const group = element.tpl ? instances.value.get(element.tpl.inst) : undefined;
-  return group ? group.map((entry) => entry.id) : [element.id];
-}
-
 /** La sélection est exactement une copie de modèle. */
 const selectedInstance = computed(() => {
   const first = selected.value[0];
@@ -1805,7 +1997,13 @@ async function updateInstance(inst: string): Promise<void> {
     templateCache.delete(link.id);
     const { version, elements: source } = await templateElements(link.id);
     const reuse = new Map(group.map((element) => [element.tpl!.key, element.id]));
-    const copies = instantiate(source, { templateId: link.id, version, at: { x: frame.x, y: frame.y }, z: Math.min(...group.map((element) => element.z)), inst, reuse });
+    // Les groupes de la copie sur ce tableau restent ; si elle était groupée d'un bloc, ses nouveaux éléments y entrent.
+    const previous = new Map(group.map((element) => [element.id, elementGroup(element)]));
+    const shared = new Set(previous.values());
+    const whole = shared.size === 1 ? [...shared][0]! : null;
+    const copies = instantiate(source, { templateId: link.id, version, at: { x: frame.x, y: frame.y }, z: Math.min(...group.map((element) => element.z)), inst, reuse }).map((copy) =>
+      previous.has(copy.id) ? withGroup(copy, previous.get(copy.id)!) : whole ? withGroup(copy, whole) : copy,
+    );
     const kept = new Set(copies.map((element) => element.id));
     model.stopCapturing();
     model.transact(() => {
@@ -1825,7 +2023,7 @@ async function applyInstance(inst: string): Promise<void> {
   const link = group?.[0]?.tpl;
   if (!group || !link) return;
   const keys = new Map(group.map((element) => [element.id, element.tpl!.key]));
-  const source = templateSource(group).map((element): BoardElement => {
+  const source = templateSource(group, elements.value).map((element): BoardElement => {
     const id = keys.get(element.id)!;
     if (element.type === 'connector') {
       const end = (side: typeof element.from) => ({ ...side, id: side.id ? (keys.get(side.id) ?? null) : null });
@@ -1869,7 +2067,7 @@ async function createTemplate(): Promise<void> {
   const chosen = selected.value;
   savingTemplate.value = true;
   try {
-    const { node } = await api.boardCreateNode(props.spaceId, name, 'template', templateSource(chosen));
+    const { node } = await api.boardCreateNode(props.spaceId, name, 'template', templateSource(chosen, elements.value));
     const inst = newElementId();
     model.stopCapturing();
     model.updateMany(new Map(chosen.map((element) => [element.id, { tpl: { id: node.id, inst, key: element.id, v: node.updatedAt } }])));
@@ -1940,11 +2138,25 @@ const hovered = computed(() => {
   const element = hoverId.value ? index.value.get(hoverId.value) : undefined;
   return element && connectable(element) && editable.value && (tool.value === 'select' || tool.value === 'connector') && !gesture && !element.locked ? (element as PlacedElement) : null;
 });
+/**
+ * Cadres en pointillés des groupes : sélectionné avec d'autres éléments (seul, le cadre de la sélection est le sien),
+ * ouvert par un double-clic, ou survolé.
+ */
+const groupBoxes = computed(() => {
+  const chosen = selectedGroups.value;
+  const hoveredGroup = groupKeyOf(hoverId.value ? index.value.get(hoverId.value) : undefined);
+  const alone = chosen.size === 1 && [...selection.value].every((id) => chosen.has(groupKeyOf(index.value.get(id)) ?? ''));
+  return [...groupMembers.value].flatMap(([group, members]) => {
+    const state = group === entered.value ? 'entered' : chosen.has(group) ? (alone ? null : 'selected') : group === hoveredGroup ? 'hover' : null;
+    const bounds = state ? boundsOf(members, index.value) : null;
+    return state && bounds ? [{ group, state, bounds }] : [];
+  });
+});
 const myVote = (element: StickyElement): boolean => auth.user !== null && element.votes.includes(auth.user.id);
 const selectionBar = ref<InstanceType<typeof BoardSelectionBar> | null>(null);
 const barWidth = ref(360);
 watch(
-  () => selected.value.map((element) => element.type).join(),
+  () => `${selected.value.map((element) => element.type).join()}:${grouping.value.canGroup}:${grouping.value.canUngroup}`,
   async () => {
     await nextTick();
     const element = selectionBar.value?.$el as HTMLElement | undefined;
@@ -2011,7 +2223,7 @@ defineExpose({ fit, openImport });
 
       <g :transform="`translate(${view.x},${view.y}) scale(${view.zoom})`">
         <!-- Sections, toujours derrière -->
-        <g v-for="element in frames" :key="element.id" :data-id="element.id" class="el frame" :class="[`c-${element.color}`, { selected: selection.has(element.id) }]">
+        <g v-for="element in frames" :key="element.id" :data-id="element.id" class="el frame" :class="[`c-${element.color}`, { selected: outlined.has(element.id) }]">
           <template v-if="element.type === 'frame'">
             <rect class="frame-body" :x="element.x" :y="element.y" :width="element.w" :height="element.h" rx="14" />
             <foreignObject v-if="editingId !== element.id" :x="element.x" :y="element.y - 32" :width="Math.max(160, element.w)" height="30">
@@ -2025,7 +2237,7 @@ defineExpose({ fit, openImport });
         <path v-for="link in mindDropLinks" :key="`d${link.id}`" :d="link.d" class="mind-drop-link" />
 
         <template v-for="element in others" :key="element.id">
-          <g v-if="element.type === 'connector'" :data-id="element.id" class="el connector" :class="[`c-${element.color}`, { selected: selection.has(element.id), dashed: element.dashed }]">
+          <g v-if="element.type === 'connector'" :data-id="element.id" class="el connector" :class="[`c-${element.color}`, { selected: outlined.has(element.id), dashed: element.dashed }]">
             <path class="hit" :d="geometry(element).d" />
             <path class="line" :d="geometry(element).d" :marker-end="element.arrowEnd ? `url(#arrow-${element.color})` : undefined" :marker-start="element.arrowStart ? `url(#arrow-${element.color})` : undefined" />
             <foreignObject v-if="element.label && editingId !== element.id" :x="geometry(element).mid.x - 90" :y="geometry(element).mid.y - 14" width="180" height="28">
@@ -2033,14 +2245,14 @@ defineExpose({ fit, openImport });
             </foreignObject>
           </g>
 
-          <g v-else-if="element.type === 'shape'" :data-id="element.id" class="el shape" :class="[`c-${element.color}`, `fill-${element.fill}`, { selected: selection.has(element.id), hover: hoverId === element.id }]" :transform="`translate(${element.x},${element.y})`">
+          <g v-else-if="element.type === 'shape'" :data-id="element.id" class="el shape" :class="[`c-${element.color}`, `fill-${element.fill}`, { selected: outlined.has(element.id), hover: hoverId === element.id }]" :transform="`translate(${element.x},${element.y})`">
             <path class="body" :d="shapePath(element.shape, element.w, element.h)" />
             <foreignObject v-if="editingId !== element.id" :x="box(element).x" :y="box(element).y" :width="box(element).w" :height="box(element).h">
               <div class="label" :class="`size-${element.size}`">{{ element.text }}</div>
             </foreignObject>
           </g>
 
-          <g v-else-if="element.type === 'sticky'" :data-id="element.id" class="el sticky" :class="[`c-${element.color}`, { selected: selection.has(element.id), hover: hoverId === element.id }]" :transform="`translate(${element.x},${element.y})`">
+          <g v-else-if="element.type === 'sticky'" :data-id="element.id" class="el sticky" :class="[`c-${element.color}`, { selected: outlined.has(element.id), hover: hoverId === element.id }]" :transform="`translate(${element.x},${element.y})`">
             <rect class="sticky-body" :width="element.w" :height="element.h" rx="6" />
             <foreignObject v-if="editingId !== element.id" x="0" y="0" :width="element.w" :height="element.h">
               <div class="sticky-text">{{ element.text }}</div>
@@ -2051,44 +2263,44 @@ defineExpose({ fit, openImport });
             </g>
           </g>
 
-          <g v-else-if="element.type === 'text'" :data-id="element.id" class="el text" :class="[`c-${element.color}`, { selected: selection.has(element.id) }]">
+          <g v-else-if="element.type === 'text'" :data-id="element.id" class="el text" :class="[`c-${element.color}`, { selected: outlined.has(element.id) }]">
             <foreignObject v-if="editingId !== element.id" :x="element.x" :y="element.y" :width="element.w" :height="element.h">
               <div class="free-text" :class="[`size-${element.size}`, `align-${element.align}`]">{{ element.text }}</div>
             </foreignObject>
             <rect v-else :x="element.x" :y="element.y" :width="element.w" :height="element.h" fill="transparent" />
           </g>
 
-          <g v-else-if="element.type === 'mind'" :data-id="element.id" class="el mind" :class="[`c-${element.color}`, { selected: selection.has(element.id), root: !element.parent, drop: dropTarget === element.id }]" :transform="`translate(${element.x},${element.y})`">
+          <g v-else-if="element.type === 'mind'" :data-id="element.id" class="el mind" :class="[`c-${element.color}`, { selected: outlined.has(element.id), root: !element.parent, drop: dropTarget === element.id }]" :transform="`translate(${element.x},${element.y})`">
             <rect class="mind-body" :width="element.w" :height="element.h" :rx="Math.min(20, element.h / 2)" />
             <foreignObject v-if="editingId !== element.id" x="0" y="0" :width="element.w" :height="element.h">
               <div class="mind-text">{{ element.text || '…' }}</div>
             </foreignObject>
           </g>
 
-          <g v-else-if="element.type === 'path'" :data-id="element.id" class="el path" :class="[`c-${element.color}`, { selected: selection.has(element.id), erasing: erasing.has(element.id), highlighter: element.highlighter }]">
+          <g v-else-if="element.type === 'path'" :data-id="element.id" class="el path" :class="[`c-${element.color}`, { selected: outlined.has(element.id), erasing: erasing.has(element.id), highlighter: element.highlighter }]">
             <polyline class="hit" :points="pathPoints(element)" />
             <polyline class="stroke" :points="pathPoints(element)" :stroke-width="element.width" />
           </g>
 
-          <g v-else-if="element.type === 'fast'" :data-id="element.id" class="el fast" :class="{ selected: selection.has(element.id) }">
+          <g v-else-if="element.type === 'fast'" :data-id="element.id" class="el fast" :class="{ selected: outlined.has(element.id) }">
             <foreignObject :x="element.x" :y="element.y" :width="element.w" :height="element.h">
               <BoardFastCard :element="element" />
             </foreignObject>
           </g>
 
-          <g v-else-if="element.type === 'table'" :data-id="element.id" class="el table" :class="[`c-${element.color}`, { selected: selection.has(element.id) }]">
+          <g v-else-if="element.type === 'table'" :data-id="element.id" class="el table" :class="[`c-${element.color}`, { selected: outlined.has(element.id) }]">
             <foreignObject :x="element.x" :y="element.y" :width="element.w" :height="element.h">
               <BoardTable :rows="element.rows" :color="element.color" :editing="editingId === element.id" @change="(rows) => saveTable(element.id, rows)" @done="editing = null" />
             </foreignObject>
           </g>
 
-          <g v-else-if="element.type === 'chart'" :data-id="element.id" class="el chart" :class="{ selected: selection.has(element.id) }">
+          <g v-else-if="element.type === 'chart'" :data-id="element.id" class="el chart" :class="{ selected: outlined.has(element.id) }">
             <foreignObject :x="element.x" :y="element.y" :width="element.w" :height="element.h">
               <BoardChart :element="element" :rows="chartRows(element)" />
             </foreignObject>
           </g>
 
-          <g v-else-if="element.type === 'icon'" :data-id="element.id" class="el icon" :class="{ selected: selection.has(element.id) }">
+          <g v-else-if="element.type === 'icon'" :data-id="element.id" class="el icon" :class="{ selected: outlined.has(element.id) }">
             <rect class="hit" :x="element.x" :y="element.y" :width="element.w" :height="element.h" />
             <!-- eslint-disable-next-line vue/no-v-html -- icône de la bibliothèque intégrée (attributs échappés). -->
             <svg v-if="element.icon.startsWith('lucide:')" :x="element.x" :y="element.y" :width="element.w" :height="element.h" viewBox="0 0 24 24" fill="none" :stroke="iconStroke(element)" :stroke-width="element.stroke" stroke-linecap="round" stroke-linejoin="round" v-html="libraryMarkup(element.icon)"></svg>
@@ -2098,7 +2310,7 @@ defineExpose({ fit, openImport });
             </foreignObject>
           </g>
 
-          <g v-else-if="element.type === 'image'" :data-id="element.id" class="el image" :class="{ selected: selection.has(element.id) }">
+          <g v-else-if="element.type === 'image'" :data-id="element.id" class="el image" :class="{ selected: outlined.has(element.id) }">
             <rect class="image-back" :x="element.x" :y="element.y" :width="element.w" :height="element.h" rx="4" />
             <image :href="boardAssetUrl(element.asset)" :x="element.x" :y="element.y" :width="element.w" :height="element.h" preserveAspectRatio="xMidYMid meet" />
           </g>
@@ -2112,6 +2324,23 @@ defineExpose({ fit, openImport });
           </foreignObject>
           <circle v-if="mark.state === 'outdated'" class="instance-dot" :cx="mark.frame.x + mark.frame.w + 10 / view.zoom" :cy="mark.frame.y - 10 / view.zoom" :r="5 / view.zoom" />
         </g>
+
+        <!-- Groupes : un cadre autour de tout le groupe -->
+        <template v-if="!editing">
+          <rect
+            v-for="mark in groupBoxes"
+            :key="`g${mark.group}`"
+            class="group-box"
+            :class="mark.state"
+            :x="mark.bounds.x - 8 / view.zoom"
+            :y="mark.bounds.y - 8 / view.zoom"
+            :width="mark.bounds.w + 16 / view.zoom"
+            :height="mark.bounds.h + 16 / view.zoom"
+            :rx="6 / view.zoom"
+            :stroke-width="1.5 / view.zoom"
+            :stroke-dasharray="`${6 / view.zoom} ${4 / view.zoom}`"
+          />
+        </template>
 
         <!-- Brouillons : création, lien, trait, cadre de sélection -->
         <rect v-if="creating" class="draft-box" :x="creating.x" :y="creating.y" :width="creating.w" :height="creating.h" rx="6" />
@@ -2189,6 +2418,8 @@ defineExpose({ fit, openImport });
       :editable="editable"
       :template="selectedInstance"
       :can-template="templatesOn"
+      :can-group="grouping.canGroup"
+      :can-ungroup="grouping.canUngroup"
       @patch="patchSelection"
       @action="runAction"
     />
@@ -2669,6 +2900,17 @@ defineExpose({ fit, openImport });
 .image.selected .image-back {
   fill: var(--board-select);
   fill-opacity: 0.06;
+}
+.group-box {
+  fill: none;
+  stroke: var(--board-select);
+  pointer-events: none;
+}
+.group-box.entered {
+  opacity: 0.55;
+}
+.group-box.hover {
+  opacity: 0.4;
 }
 .instance-mark {
   pointer-events: none;

@@ -20,10 +20,16 @@
   --fb-hl-number: #0f766e;
   --fb-hl-type: #2563eb;
   --fb-hl-property: #0369a1;
+  /* Largeur du texte des notes (Mon compte → Apparence → Lecture) : « toute la largeur » la porte à 100 %. */
+  --fb-reading-width: 52rem;
   /* Polices réglables dans Mon compte → Apparence (variables posées par themeManager). */
   font-family: var(--fb-font, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
   font-size: var(--fb-font-size, 15px);
   line-height: 1.45;
+}
+
+:root[data-reading='full'] {
+  --fb-reading-width: 100%;
 }
 
 :root.app-dark {
@@ -350,6 +356,10 @@ button {
   --board-pink-text: #831843;
   --board-pink-sticky: #fbcfe8;
 }
+:root[data-reading='full'] {
+  --fb-reading-width: 100%;
+}
+
 :root.app-dark {
   --board-canvas: #111827;
   --board-dot: #334155;

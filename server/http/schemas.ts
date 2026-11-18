@@ -5,7 +5,7 @@
 import { AI_CONTEXT_KINDS, AI_LIMITS, REASONING_LEVELS } from '../../shared/ai.ts';
 import { parseRetentionRules } from '../../shared/backup.ts';
 import { BOARD_ICON_LIMITS, BOARD_LIMITS, BOARD_SHARE_AUDIENCES, BOARD_SHARE_LIMITS, BOARD_SHARE_ROLES } from '../../shared/boards.ts';
-import { LIMITS, TICKET_STATUSES } from '../../shared/constants.ts';
+import { LIMITS, NOTIFICATION_LEVELS, TICKET_STATUSES } from '../../shared/constants.ts';
 import { isISODate } from '../../shared/dates.ts';
 import { DOC_COMMENT_LIMITS } from '../../shared/docComments.ts';
 import { DOC_LIMITS, DOC_ROLES, DOC_SITE_VISIBILITIES } from '../../shared/docs.ts';
@@ -14,7 +14,7 @@ import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
 import { CUSTOM_FIELD_LIMITS, CUSTOM_FIELD_TYPES, TICKET_FIELDS } from '../../shared/ticketFields.ts';
-import { APPEARANCE_LIMITS, SURFACE_PALETTES, THEME_PRESETS, isFontFamily, isThemeId } from '../../shared/themes.ts';
+import { APPEARANCE_LIMITS, READING_WIDTHS, SURFACE_PALETTES, THEME_COLORS, THEME_PRESETS, isFontFamily, isThemeId, type ThemeColorKey } from '../../shared/themes.ts';
 import { z } from './validate.ts';
 
 // --- Briques communes -----------------------------------------------------------------------------------------------
@@ -38,6 +38,26 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
+const fontFamily = z.string().max(APPEARANCE_LIMITS.fontMax).refine(isFontFamily, 'Police invalide.');
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+const themeColorsSchema = z
+  .object(Object.fromEntries(THEME_COLORS.map((entry) => [entry.key, hexColor.optional()])) as Record<ThemeColorKey, z.ZodOptional<typeof hexColor>>)
+  .describe('Couleurs réglées une à une (#RRGGBB) : interface (`background`, `panel`, `text`…) et rendu Markdown (`mdH1`, `mdLink`, `mdCodeBg`…).');
+const themeFontsSchema = z.object({ body: fontFamily, heading: fontFamily, mono: fontFamily, doc: fontFamily });
+
+/** Thème personnalisé publié dans la bibliothèque du site (sans identifiant : il en reçoit un). */
+export const sharedThemeSchema = z.object({
+  theme: z.object({
+    label: z.string().trim().min(1).max(APPEARANCE_LIMITS.labelMax),
+    mode: z.enum(['light', 'dark']),
+    preset: z.enum(THEME_PRESETS as [string, ...string[]]),
+    primary: hexColor,
+    surface: z.union([z.enum(SURFACE_PALETTES), hexColor]),
+    colors: themeColorsSchema.default({}),
+    fonts: themeFontsSchema.default({ body: '', heading: '', mono: '', doc: '' }),
+  }),
+});
+
 export const profileSchema = z.object({
   name: z.string().trim().min(1).max(LIMITS.nameMax).optional(),
   theme: z
@@ -57,15 +77,20 @@ export const profileSchema = z.object({
             preset: z.enum(THEME_PRESETS as [string, ...string[]]),
             primary: z.string().regex(/^#[0-9a-fA-F]{6}$/),
             surface: z.union([z.enum(SURFACE_PALETTES), z.string().regex(/^#[0-9a-fA-F]{6}$/)]),
+            colors: themeColorsSchema.default({}),
+            fonts: themeFontsSchema.default({ body: '', heading: '', mono: '', doc: '' }),
           }),
         )
         .max(APPEARANCE_LIMITS.themes),
       fonts: z.object({
-        body: z.string().max(APPEARANCE_LIMITS.fontMax).refine(isFontFamily, 'Police invalide.'),
-        heading: z.string().max(APPEARANCE_LIMITS.fontMax).refine(isFontFamily, 'Police invalide.'),
-        mono: z.string().max(APPEARANCE_LIMITS.fontMax).refine(isFontFamily, 'Police invalide.'),
+        body: fontFamily,
+        heading: fontFamily,
+        mono: fontFamily,
         size: z.number().int().min(APPEARANCE_LIMITS.sizeMin).max(APPEARANCE_LIMITS.sizeMax),
+        doc: fontFamily.default(''),
+        docSize: z.union([z.literal(0), z.number().int().min(APPEARANCE_LIMITS.docSizeMin).max(APPEARANCE_LIMITS.docSizeMax)]).default(0).describe('Taille du texte des notes en pixels (0 : comme l’interface).'),
       }),
+      reading: z.enum(READING_WIDTHS).default('screen').describe('Largeur du texte des notes : `screen` centré sur l’écran, `column` centré dans sa colonne, `full` sans marges.'),
     })
     .optional()
     .describe('Thèmes personnalisés (couleurs, style) et polices de l’interface (remplace l’ensemble).'),
@@ -625,6 +650,11 @@ export const notificationQuerySchema = z.object({
 });
 export const markReadSchema = z.object({
   ids: z.array(id).max(500).optional().describe('Notifications à marquer comme lues ; absent = toutes.'),
+});
+export const notificationSettingSchema = z.object({
+  level: z
+    .enum(NOTIFICATION_LEVELS)
+    .describe('`all` : toute l’activité des tickets du projet ; `participating` (par défaut) : tickets suivis, assignations et mentions ; `mentions` : seulement les mentions ; `none` : aucune notification, mentions comprises.'),
 });
 
 export const appNameSchema = z.object({ name: z.string().trim().min(1).max(40).describe("Nom affiché de l'application.") });

@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import type { ClientMessage, PresenceUser, ProjectEvent, ServerMessage } from '@shared/realtime';
+import type { NotificationLevel } from '@shared/constants';
 import type { AppInfoDTO, NotificationDTO } from '@shared/types';
 
 /** Messages de la documentation, traités par les écrans qui les attendent. */
@@ -29,6 +30,8 @@ interface Handlers {
   app: Array<(info: AppInfoDTO) => void>;
   notification: Array<(notification: NotificationDTO, unread: number) => void>;
   notificationsRead: Array<(unread: number) => void>;
+  /** Niveau de notification d'un projet changé (autre onglet, API). */
+  notificationSettings: Array<(projectId: number, level: NotificationLevel) => void>;
   doc: Array<(message: DocServerMessage) => void>;
   board: Array<(message: BoardServerMessage) => void>;
 }
@@ -49,7 +52,7 @@ class RealtimeClient {
   #hasConnectedOnce = false;
   /** Visiteur sans compte d'un tableau partagé : connexion limitée aux tableaux. */
   #guest = false;
-  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], doc: [], board: [] };
+  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], notificationSettings: [], doc: [], board: [] };
 
   on<K extends keyof Handlers>(type: K, handler: Handlers[K][number]): () => void {
     (this.#handlers[type] as Array<typeof handler>).push(handler);
@@ -177,6 +180,9 @@ class RealtimeClient {
         break;
       case 'notifications.read':
         this.#handlers.notificationsRead.forEach((handler) => handler(message.unread));
+        break;
+      case 'notifications.settings':
+        this.#handlers.notificationSettings.forEach((handler) => handler(message.projectId, message.level));
         break;
       case 'project.revoked':
         if (message.projectId === this.#projectId) {

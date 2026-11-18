@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.5.0';
+export const APP_VERSION = '2.6.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,22 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.6.0',
+    date: '2026-11-18',
+    changes: [
+      { category: 'Nouveauté', text: 'Thèmes personnalisés : chaque couleur se règle une à une, celles de l’interface comme celles du rendu des notes (titres, liens, code, citations, tableaux…), avec un aperçu en direct, et un thème peut avoir ses propres polices.' },
+      { category: 'Nouveauté', text: 'Thèmes partagés : un thème s’exporte en fichier et s’importe, ou se publie dans la bibliothèque du site, où chacun l’ajoute à ses thèmes d’un clic.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : grouper et dégrouper des éléments (Ctrl G, Ctrl Maj G ou clic droit) ; un clic prend tout le groupe, un double-clic y entre pour choisir un seul élément.' },
+      { category: 'Nouveauté', text: 'Notifications : chacun choisit, projet par projet, ce qui le notifie (tout, sa participation par défaut, ses mentions seulement, ou rien), depuis la cloche de l’en-tête du projet ou Mon compte → Notifications.' },
+      { category: 'Nouveauté', text: 'Notifications du navigateur : une notification système prévient quand FastBoard n’est pas au premier plan, et un clic ouvre le ticket ou la note.' },
+      { category: 'Amélioration', text: 'Documentation : le texte des notes se centre sur l’écran pour lire sans tourner la tête ; dans Apparence, on peut aussi le centrer dans sa colonne ou lui laisser toute la largeur, et choisir sa police et sa taille.' },
+      { category: 'Amélioration', text: 'Connexion : la session ne s’arrête plus 14 jours après la connexion mais après 30 jours sans utilisation, et la page de connexion mémorise l’adresse e-mail.' },
+      { category: 'Amélioration', text: 'Tableaux blancs : clic droit (ou « ⋯ ») sur les tableaux de la vue d’ensemble d’un espace pour les ouvrir, renommer, dupliquer, partager ou supprimer.' },
+      { category: 'Amélioration', text: 'Notifications : une personne mentionnée dans un ticket le suit, et le bouton « Suivre » se met à jour en direct.' },
+      { category: 'Correction', text: 'Commentaires : l’avatar d’une personne mentionnée avec @ n’est plus écrasé.' },
+    ],
+  },
   {
     version: '2.5.0',
     date: '2026-11-17',

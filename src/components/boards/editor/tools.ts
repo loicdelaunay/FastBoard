@@ -13,6 +13,8 @@ export type SelectionAction =
   | 'back'
   | 'lock'
   | 'unlock'
+  | 'group'
+  | 'ungroup'
   | 'mermaid'
   | 'section'
   | 'add-row'

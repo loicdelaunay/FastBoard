@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { useAppStore } from '@/stores/app';
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from 'primevue/button';
+import Checkbox from 'primevue/checkbox';
 import InputText from 'primevue/inputtext';
 import Message from 'primevue/message';
 import Password from 'primevue/password';
@@ -16,8 +17,34 @@ const app = useAppStore();
 const route = useRoute();
 const router = useRouter();
 
-const email = ref('');
+/** Adresse mémorisée sur ce navigateur (jamais le mot de passe). */
+const EMAIL_KEY = 'fb.login.email';
+function storedEmail(): string {
+  try {
+    return localStorage.getItem(EMAIL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+const email = ref(storedEmail());
+const remember = ref(true);
 const password = ref('');
+
+// Adresse déjà connue : on n'a plus qu'à taper le mot de passe.
+onMounted(() => {
+  if (!email.value) return;
+  document.querySelector<HTMLInputElement>('.login-card input[type="password"]')?.focus();
+});
+
+function rememberEmail(): void {
+  try {
+    if (remember.value) localStorage.setItem(EMAIL_KEY, email.value.trim());
+    else localStorage.removeItem(EMAIL_KEY);
+  } catch {
+    // Stockage indisponible : l'adresse sera à retaper.
+  }
+}
 const loading = ref(false);
 const error = ref('');
 /** Avec l'annuaire, on se connecte aussi avec un identifiant qui n'est pas une adresse e-mail. */
@@ -29,6 +56,7 @@ async function submit(): Promise<void> {
   loading.value = true;
   try {
     await auth.login(email.value.trim(), password.value);
+    rememberEmail();
     const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/') ? route.query.redirect : '/';
     await router.replace(redirect);
   } catch (cause) {
@@ -55,11 +83,15 @@ async function submit(): Promise<void> {
 
       <div class="field">
         <label for="email">{{ loginLabel }}</label>
-        <InputText id="email" v-model="email" :type="ldap ? 'text' : 'email'" autocomplete="username" autofocus required :placeholder="ldap ? undefined : $t('vous@exemple.fr')" />
+        <InputText id="email" v-model="email" :type="ldap ? 'text' : 'email'" autocomplete="username" :autofocus="!email" required :placeholder="ldap ? undefined : $t('vous@exemple.fr')" />
       </div>
       <div class="field">
         <label for="password">{{ $t('Mot de passe') }}</label>
         <Password id="password" v-model="password" :feedback="false" toggle-mask autocomplete="current-password" required fluid />
+      </div>
+      <div class="remember">
+        <Checkbox v-model="remember" input-id="remember" binary />
+        <label for="remember">{{ ldap ? $t('Mémoriser mon identifiant sur ce navigateur') : $t('Mémoriser mon adresse sur ce navigateur') }}</label>
       </div>
 
       <Button type="submit" :label="$t('Se connecter')" icon="pi pi-sign-in" :loading="loading" fluid />
@@ -79,6 +111,16 @@ async function submit(): Promise<void> {
     radial-gradient(60rem 30rem at 15% -10%, var(--fb-accent-soft), transparent 60%),
     radial-gradient(50rem 28rem at 100% 110%, var(--fb-accent-soft), transparent 60%),
     var(--fb-bg);
+}
+.remember {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: -0.35rem;
+  font-size: 0.88rem;
+}
+.remember label {
+  cursor: pointer;
 }
 .login-card {
   display: flex;

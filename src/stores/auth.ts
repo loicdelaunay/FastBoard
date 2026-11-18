@@ -7,7 +7,7 @@ import { realtime } from '@/realtime/socket';
 import type { Locale } from '@shared/locales';
 import { currentLocale, rememberLocale } from '@/i18n';
 import type { AppearanceDTO } from '@shared/themes';
-import { applyFonts, applyTheme, customThemes } from '@/theme/themeManager';
+import { applyFonts, applyReading, applyTheme, customThemes } from '@/theme/themeManager';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<MeDTO | null>(null);
@@ -28,8 +28,9 @@ export const useAuthStore = defineStore('auth', () => {
     setCurrentUserId(next?.id ?? null);
     if (next) {
       customThemes.value = next.appearance.customThemes;
-      applyTheme(next.theme);
       applyFonts(next.appearance.fonts);
+      applyTheme(next.theme);
+      applyReading(next.appearance.reading);
       // La langue du compte l'emporte : on la mémorise et on recharge, les textes étant lus au chargement.
       if (next.locale && next.locale !== currentLocale()) {
         rememberLocale(next.locale);
@@ -83,6 +84,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (patch.appearance) {
       customThemes.value = patch.appearance.customThemes;
       applyFonts(patch.appearance.fonts);
+      applyReading(patch.appearance.reading);
     }
     if (patch.theme) {
       applyTheme(patch.theme);
@@ -93,7 +95,10 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (error) {
       // Refusé : l'apparence d'avant revient.
       customThemes.value = previous.themes;
-      if (previous.appearance) applyFonts(previous.appearance.fonts);
+      if (previous.appearance) {
+        applyFonts(previous.appearance.fonts);
+        applyReading(previous.appearance.reading);
+      }
       applyTheme(previous.theme);
       throw error;
     }

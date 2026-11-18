@@ -29,6 +29,7 @@ import DocSpaceDialog from '@/components/docs/DocSpaceDialog.vue';
 import DocTrashDialog from '@/components/docs/DocTrashDialog.vue';
 import DocTree from '@/components/docs/DocTree.vue';
 import { useDocTabs } from '@/composables/useDocTabs';
+import { useReadingShift } from '@/composables/useReadingShift';
 import { DocSession, type DocPresence } from '@/realtime/docSession';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
@@ -211,6 +212,13 @@ const showOutline = computed(() => outlineOpen.value && outlineAvailable.value);
 const headings = computed(() => docOutline(content.value));
 const activeHeading = ref(0);
 const previewPane = ref<HTMLElement | null>(null);
+/** Volets de la note : le texte y est recentré sur l'écran (Mon compte → Apparence → Lecture). */
+const panes = ref<HTMLElement | null>(null);
+useReadingShift(
+  panes,
+  () => !(writing.value && !live.value && showPreview.value),
+  () => [selected.value?.id, mode.value, showOutline.value, treeHidden.value, synced.value, showPreview.value],
+);
 /** Après un clic sur un titre, le défilement ne doit pas en mettre un autre en avant. */
 let followAfter = 0;
 let spyFrame = 0;
@@ -748,7 +756,7 @@ const recent = computed(() =>
           <div v-if="!synced" class="waiting muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
           <div v-else class="note-body" :class="{ 'with-outline': showOutline }">
             <DocOutline v-if="showOutline" class="outline" :headings="headings" :active="activeHeading" @go="goToHeading" @close="outlineOpen = false" />
-            <div class="panes" :class="{ split: writing && !live && showPreview }">
+            <div ref="panes" class="panes" :class="{ split: writing && !live && showPreview }">
               <div v-if="writing && session" class="pane editor">
                 <DocEditor
                   :key="`${session.nodeId}-${mode}`"
@@ -1120,6 +1128,11 @@ const recent = computed(() =>
 }
 .pane.preview {
   padding: 1.25rem 1.5rem 3.5rem;
+}
+/* « Toute la largeur » : le texte va presque jusqu'aux bords. */
+:global(:root[data-reading='full']) .pane.preview {
+  padding-right: 1rem;
+  padding-left: 1rem;
 }
 .pane.preview :deep(.markdown > :is(h1, h2, h3, h4, h5, h6)) {
   scroll-margin-top: 0.75rem;

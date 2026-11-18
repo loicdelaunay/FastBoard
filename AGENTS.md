@@ -38,6 +38,8 @@ Une modification sans effet visible (refactorisation, tests, documentation inter
 - **Permissions** : une action protégée vérifie sa permission côté serveur (`requireProject` / `requireGlobal`) ;
   l'interface ne fait que masquer.
 - **Vérifications avant de rendre la main** : `npm run typecheck` et `npm test` doivent passer.
+- **Pas de délégation** : faites le travail vous-même, dans la session en cours. Ne le confiez pas à des sous-agents
+  (ni à d'autres sessions), sauf si l'utilisateur le demande explicitement.
 
 ## Données de développement
 

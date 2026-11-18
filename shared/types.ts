@@ -1,6 +1,6 @@
 /** Objets échangés entre l'API REST / WebSocket et l'interface. */
 
-import type { TicketStatus } from './constants.ts';
+import type { NotificationLevel, TicketStatus } from './constants.ts';
 import type { RoleScope } from './permissions.ts';
 import type { Locale } from './locales.ts';
 import type { ProjectSettingsDTO } from './settings.ts';
@@ -565,4 +565,13 @@ export interface NotificationDTO {
   doc: { nodeId: number; title: string } | null;
   createdAt: string;
   readAt: string | null;
+}
+
+/** Réglage des notifications d'une personne pour un projet qu'elle voit (`level` vaut le défaut s'il n'a pas été choisi). */
+export interface NotificationSettingDTO {
+  projectId: number;
+  projectKey: string;
+  projectName: string;
+  archived: boolean;
+  level: NotificationLevel;
 }

@@ -27,7 +27,7 @@ const round = (value: number): number => Math.round(value);
 /** Un élément en quelques champs lisibles par le modèle. */
 function describe(element: BoardElement): Record<string, unknown> {
   const text = clip(elementText(element), 300);
-  const base: Record<string, unknown> = { id: element.id, type: element.type, ...(text ? { text } : {}) };
+  const base: Record<string, unknown> = { id: element.id, type: element.type, ...(text ? { text } : {}), ...(element.group ? { group: element.group } : {}) };
   if (element.type === 'connector') return { ...base, from: element.from.id, to: element.to.id, color: element.color };
   const placed: Record<string, unknown> = { ...base, x: round(element.x), y: round(element.y), w: round(element.w), h: round(element.h) };
   if ('color' in element) placed.color = element.color;
@@ -89,7 +89,7 @@ export const BOARD_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'read_board',
-    description: 'Lit un tableau blanc : ses éléments (id, type, texte, position, couleur, liens) et sa structure en Mermaid.',
+    description: 'Lit un tableau blanc : ses éléments (id, type, texte, position, couleur, liens, groupe) et sa structure en Mermaid.',
     parameters: { type: 'object', properties: { board: BOARD }, required: ['board'] },
     write: false,
     boards: true,

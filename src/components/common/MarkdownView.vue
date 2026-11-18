@@ -64,8 +64,30 @@ function onClick(event: MouseEvent): void {
 <style>
 /* Sans portée : les blocs rendus de l’éditeur de documentation partagent ces styles. */
 .markdown {
+  color: var(--md-text, currentColor);
   line-height: 1.6;
   overflow-wrap: anywhere;
+}
+.markdown h1 {
+  color: var(--md-h1, currentColor);
+}
+.markdown h2 {
+  color: var(--md-h2, currentColor);
+}
+.markdown h3 {
+  color: var(--md-h3, currentColor);
+}
+.markdown :is(h4, h5, h6) {
+  color: var(--md-h4, currentColor);
+}
+.markdown strong {
+  color: var(--md-strong, currentColor);
+}
+.markdown em {
+  color: var(--md-em, currentColor);
+}
+.markdown li::marker {
+  color: var(--md-marker, currentColor);
 }
 .markdown > :first-child {
   margin-top: 0;
@@ -109,31 +131,34 @@ function onClick(event: MouseEvent): void {
   list-style: none;
 }
 .markdown a {
-  color: var(--fb-accent);
+  color: var(--md-link, var(--fb-accent));
   text-decoration: underline;
 }
 .markdown blockquote {
   padding: 0.25rem 0.9rem;
-  border-left: 3px solid var(--fb-accent);
-  background: var(--fb-panel-alt);
-  color: var(--fb-muted);
+  border-left: 3px solid var(--md-quote-bar, var(--fb-accent));
+  background: var(--md-quote-bg, var(--fb-panel-alt));
+  color: var(--md-quote, var(--fb-muted));
 }
 .markdown code {
   padding: 0.1rem 0.35rem;
   border-radius: 5px;
-  background: var(--fb-panel-alt);
+  background: var(--md-code-bg, var(--fb-panel-alt));
+  color: var(--md-code, currentColor);
   font-family: var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
   font-size: 0.85em;
 }
 .markdown pre {
   padding: 0.75rem 0.9rem;
   border-radius: 8px;
-  background: var(--fb-panel-alt);
+  background: var(--md-pre-bg, var(--fb-panel-alt));
+  color: var(--md-pre, currentColor);
   overflow-x: auto;
 }
 .markdown pre code {
   padding: 0;
   background: none;
+  color: inherit;
 }
 .markdown table {
   border-collapse: collapse;
@@ -144,14 +169,14 @@ function onClick(event: MouseEvent): void {
 .markdown th,
 .markdown td {
   padding: 0.35rem 0.6rem;
-  border: 1px solid var(--fb-border);
+  border: 1px solid var(--md-table-border, var(--fb-border));
 }
 .markdown th {
-  background: var(--fb-panel-alt);
+  background: var(--md-th-bg, var(--fb-panel-alt));
 }
 .markdown hr {
   border: 0;
-  border-top: 1px solid var(--fb-border);
+  border-top: 1px solid var(--md-hr, var(--fb-border));
   margin: 1rem 0;
 }
 .markdown img {
@@ -247,7 +272,7 @@ function onClick(event: MouseEvent): void {
 .markdown mark {
   padding: 0 0.1em;
   border-radius: 3px;
-  background: color-mix(in srgb, #facc15 38%, transparent);
+  background: var(--md-highlight, color-mix(in srgb, #facc15 38%, transparent));
   color: inherit;
 }
 /* Surlignage coloré par sa bille emoji, comme dans Obsidian : ==🟢 Validé==. */
@@ -279,8 +304,8 @@ function onClick(event: MouseEvent): void {
   display: inline-block;
   padding: 0 0.45em;
   border-radius: 999px;
-  background: var(--fb-accent-soft);
-  color: var(--fb-accent);
+  background: color-mix(in srgb, var(--md-tag, var(--fb-accent)) 14%, transparent);
+  color: var(--md-tag, var(--fb-accent));
   font-size: 0.85em;
   font-weight: 600;
 }

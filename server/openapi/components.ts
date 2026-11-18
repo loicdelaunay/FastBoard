@@ -1,5 +1,5 @@
 /** Schémas JSON (OpenAPI 3.1) des objets retournés par l'API. */
-import { TICKET_STATUSES } from '../../shared/constants.ts';
+import { NOTIFICATION_LEVELS, TICKET_STATUSES } from '../../shared/constants.ts';
 
 export type Schema = Record<string, unknown>;
 
@@ -502,6 +502,13 @@ export const componentSchemas: Record<string, Schema> = {
     doc: nullable(obj({ nodeId: int(), title: str() })),
     createdAt: dateTime(),
     readAt: nullable(dateTime()),
+  }),
+  NotificationSetting: obj({
+    projectId: int(),
+    projectKey: str(),
+    projectName: str(),
+    archived: bool(),
+    level: str('Niveau de notification dans ce projet (`participating` s’il n’a pas été choisi).', { enum: [...NOTIFICATION_LEVELS] }),
   }),
   SearchResult: obj({
     query: str(),

@@ -1,7 +1,7 @@
 import { computed, shallowRef } from 'vue';
 import * as Y from 'yjs';
 import { contains, layoutMind, mindRoot } from '@shared/boardGeometry';
-import { isPlaced, newElementId, TEXT_SIZE_PX, type BoardElement, type MindElement, type PlacedElement } from '@shared/boards';
+import { elementGroup, isPlaced, newElementId, TEXT_SIZE_PX, withGroup, type BoardElement, type MindElement, type PlacedElement } from '@shared/boards';
 import type { BoardSession } from '@/realtime/boardSession';
 
 /** Origine des écritures faites ici : seules elles s'annulent avec Ctrl Z. */
@@ -119,8 +119,11 @@ export class BoardModel {
       }
     }
     const roots = new Set<string>();
+    const groups = new Set<string>();
     for (const id of doomed) {
       const element = this.session.elements.get(id);
+      const group = element ? elementGroup(element) : null;
+      if (group) groups.add(group);
       if (element?.type === 'mind' && element.parent && !doomed.has(element.parent)) {
         const root = mindRoot(this.session.elements as unknown as ReadonlyMap<string, BoardElement>, element.parent);
         if (root) roots.add(root.id);
@@ -128,8 +131,38 @@ export class BoardModel {
     }
     this.transact(() => {
       for (const id of doomed) this.session.elements.delete(id);
+      this.#dissolveLoneGroups(groups);
     });
     for (const root of roots) this.layoutMind(root);
+  }
+
+  /** Range des éléments dans le groupe `group` (`null` : les sort de leur groupe) ; un groupe resté seul se défait. */
+  regroup(ids: Iterable<string>, group: string | null): void {
+    this.transact(() => {
+      const left = new Set<string>();
+      for (const id of ids) {
+        const current = this.session.elements.get(id);
+        if (!current) continue;
+        const previous = elementGroup(current);
+        if (previous && previous !== group) left.add(previous);
+        this.session.elements.set(id, withGroup(current, group));
+      }
+      this.#dissolveLoneGroups(left);
+    });
+  }
+
+  /** Défait ceux de ces groupes qui n'ont plus qu'un élément (dans une transaction). */
+  #dissolveLoneGroups(groups: ReadonlySet<string>): void {
+    if (!groups.size) return;
+    const members = new Map<string, BoardElement[]>();
+    for (const element of this.session.elements.values()) {
+      const group = elementGroup(element);
+      if (!group || !groups.has(group)) continue;
+      const list = members.get(group);
+      if (list) list.push(element);
+      else members.set(group, [element]);
+    }
+    for (const [lone, ...others] of members.values()) if (lone && !others.length) this.session.elements.set(lone.id, withGroup(lone, null));
   }
 
   /** Copie des éléments, décalée, avec de nouveaux identifiants (les liens suivent leurs extrémités copiées). */
@@ -142,8 +175,19 @@ export class BoardModel {
       if (!instances.has(element.tpl.inst)) instances.set(element.tpl.inst, newElementId());
       return { ...element, tpl: { ...element.tpl, inst: instances.get(element.tpl.inst)! } };
     };
+    // Un groupe copié forme un nouveau groupe (pas celui de l'original), s'il garde au moins deux éléments.
+    const groupCount = new Map<string, number>();
+    for (const element of source) {
+      const group = elementGroup(element);
+      if (group) groupCount.set(group, (groupCount.get(group) ?? 0) + 1);
+    }
+    const groups = new Map([...groupCount].filter(([, count]) => count > 1).map(([group]) => [group, newElementId()]));
+    const ownGroup = <T extends BoardElement>(element: T): T => {
+      const group = elementGroup(element);
+      return withGroup(element, group ? (groups.get(group) ?? null) : null);
+    };
     let z = this.nextZ();
-    const copies = source.map(relink).map((element): BoardElement => {
+    const copies = source.map(relink).map(ownGroup).map((element): BoardElement => {
       const id = ids.get(element.id)!;
       if (element.type === 'connector') {
         const end = (side: typeof element.from) => ({ ...side, id: side.id ? (ids.get(side.id) ?? null) : null, x: side.x + offset.x, y: side.y + offset.y });

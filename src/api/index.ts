@@ -1,4 +1,4 @@
-import { FILE_NAME_HEADER, type TicketStatus } from '@shared/constants';
+import { FILE_NAME_HEADER, type NotificationLevel, type TicketStatus } from '@shared/constants';
 import type { RoleScope, PermissionDef } from '@shared/permissions';
 import type { DocBookmarkDTO, DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocNodeInfoDTO, DocRole, DocSearchHitDTO, DocSiteDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, WikiDTO, WikiPageDTO, WikiSearchHitDTO } from '@shared/docs';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
@@ -20,6 +20,7 @@ import type {
   HistoryEntryDTO,
   MeDTO,
   NotificationDTO,
+  NotificationSettingDTO,
   MaintenanceDTO,
   AppInfoDTO,
   ProjectDTO,
@@ -36,7 +37,7 @@ import type {
 } from '@shared/types';
 import type { LogEntryDTO, LogLevel, MonitoringRange, MonitoringSnapshotDTO } from '@shared/monitoring';
 import type { AiContext, AiConversationDTO, AiConversationSummaryDTO, AiModelChoiceDTO, AiModelDTO, AiSettingsDTO, DetectedModelDTO } from '@shared/ai';
-import type { AppearanceDTO } from '@shared/themes';
+import type { AppearanceDTO, CustomThemeDef, SharedThemeDTO } from '@shared/themes';
 import type { CustomFieldValue } from '@shared/ticketFields';
 import type { CertificateFormat, CertificateInfoDTO, HttpsSettingsDTO, HttpsStatusDTO } from '@shared/https';
 import type { BackupDestinationDTO, BackupOverviewDTO, BackupRunDTO } from '@shared/backup';
@@ -212,6 +213,9 @@ export const api = {
   updateToken: (tokenId: number, patch: { displayName?: string | null; expiresInDays?: number | null }) =>
     http<{ token: ApiTokenDTO }>('PATCH', `/me/tokens/${tokenId}`, { body: patch }),
   revealToken: (tokenId: number, password: string) => http<{ secret: string }>('POST', `/me/tokens/${tokenId}/reveal`, { body: { password } }),
+  sharedThemes: () => http<{ themes: SharedThemeDTO[] }>('GET', '/themes/shared'),
+  publishTheme: (theme: Omit<CustomThemeDef, 'id'>) => http<{ theme: SharedThemeDTO }>('POST', '/themes/shared', { body: { theme } }),
+  removeSharedTheme: (id: string) => http<{ ok: true }>('DELETE', `/themes/shared/${encodeURIComponent(id)}`),
   updateMe: (patch: { name?: string; theme?: string; locale?: Locale; appearance?: AppearanceDTO }) => http<{ user: MeDTO }>('PATCH', '/me', { body: patch }),
   changePassword: (currentPassword: string, newPassword: string) =>
     http<{ ok: true }>('POST', '/me/password', { body: { currentPassword, newPassword } }),
@@ -223,6 +227,9 @@ export const api = {
     http<{ notifications: NotificationDTO[]; unread: number; nextBefore: number | null }>('GET', `/me/notifications?limit=30${before ? `&before=${before}` : ''}`),
   markNotificationsRead: (ids?: number[]) => http<{ unread: number }>('POST', '/me/notifications/read', { body: ids ? { ids } : {} }),
   watchTicket: (ticketId: number, watch: boolean) => http<{ ticket: TicketDTO }>(watch ? 'POST' : 'DELETE', `/tickets/${ticketId}/watch`),
+  notificationSettings: () => http<{ settings: NotificationSettingDTO[]; defaultLevel: NotificationLevel }>('GET', '/me/notification-settings'),
+  setNotificationLevel: (projectId: number, level: NotificationLevel) =>
+    http<{ setting: NotificationSettingDTO }>('PUT', `/me/notification-settings/${projectId}`, { body: { level } }),
   userSummary: (userId: number) => http<{ summary: UserSummaryPageDTO }>('GET', `/users/${userId}/summary`),
   ticketPreview: (ticketId: number) => http<{ preview: TicketPreviewDTO }>('GET', `/tickets/${ticketId}/preview`),
   search: (q: string, options: { limit?: number; type?: SearchKind[] } = {}) => {

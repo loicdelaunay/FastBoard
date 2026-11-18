@@ -159,6 +159,8 @@ interface Placed {
   h: number;
   locked?: boolean;
   tpl?: TemplateLink;
+  /** Groupe : les éléments qui portent le même identifiant se sélectionnent et se déplacent ensemble. */
+  group?: string;
 }
 
 export interface ShapeElement extends Placed {
@@ -284,6 +286,7 @@ export interface ConnectorElement {
   color: BoardColor;
   locked?: boolean;
   tpl?: TemplateLink;
+  group?: string;
 }
 
 export type PlacedElement = ShapeElement | TextElement | StickyElement | FrameElement | MindElement | PathElement | FastElement | TableElement | ChartElement | IconElement | ImageElement;
@@ -291,6 +294,21 @@ export type BoardElement = PlacedElement | ConnectorElement;
 export type BoardElementType = BoardElement['type'];
 
 export const isPlaced = (element: BoardElement): element is PlacedElement => element.type !== 'connector';
+
+/** Longueur maximale de l'identifiant d'un groupe. */
+export const GROUP_ID_MAX = 40;
+
+/**
+ * Groupe d'un élément, façon Whimsical : un clic prend tout le groupe. Les nœuds de carte mentale n'en ont jamais (leur
+ * carte les range et les déplace).
+ */
+export const elementGroup = (element: BoardElement): string | null => (element.type !== 'mind' && element.group ? element.group : null);
+
+/** L'élément rangé dans le groupe `group`, ou sorti de tout groupe (`null`). */
+export function withGroup<T extends BoardElement>(element: T, group: string | null): T {
+  const { group: _group, ...rest } = element;
+  return (group && element.type !== 'mind' ? { ...rest, group } : rest) as T;
+}
 
 /** Éléments qui portent un texte qu'on peut lier par un lien (export Mermaid, recherche). */
 export function elementText(element: BoardElement): string {

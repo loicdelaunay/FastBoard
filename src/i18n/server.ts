@@ -23,6 +23,10 @@ const EXACT: Record<string, string> = {
   "Modèle introuvable.": "Template not found.",
   "Donnez le texte ou le modèle de départ, pas les deux.": "Give the text or the starting template, not both.",
   "Un modèle ne se met pas en favori.": "A template cannot be bookmarked.",
+  // 2.6 — Thèmes partagés
+  "Thème invalide.": "Invalid theme.",
+  "Thème introuvable.": "Theme not found.",
+  "La bibliothèque est pleine (200 thèmes) : retirez-en avant d’en publier.": "The library is full (200 themes): remove some before publishing.",
   "Seul un tableau se partage.": "Only a board can be shared.",
   "Image introuvable.": "Image not found.",
   "Icône introuvable.": "Icon not found.",

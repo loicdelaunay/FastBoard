@@ -63,6 +63,21 @@ describe('géométrie des tableaux blancs', () => {
     assert.deepEqual({ ...clean[0], z: 0 }, { id: 'x', type: 'shape', z: 0, x: 0, y: 1_000_000, w: 4, h: 80, shape: 'rect', text: '', color: 'default', fill: 'solid', size: 'm' });
   });
 
+  it('garde le groupe d’un élément, borné, sauf sur un nœud de carte mentale', () => {
+    const mind: MindElement = { id: 'm', type: 'mind', z: 1, x: 0, y: 0, w: 120, h: 40, text: 'Idée', color: 'blue', parent: null, direction: 'right' };
+    const clean = sanitizeElements([
+      { ...shape('a', 0, 0), group: 'g1' },
+      { ...link('l', 'a', 'b'), group: 'g1' },
+      { ...shape('b', 300, 0), group: 'x'.repeat(100) },
+      { ...shape('c', 600, 0), group: 42 },
+      { ...shape('d', 900, 0), group: '   ' },
+      { ...mind, group: 'g1' },
+    ]);
+    const groups = Object.fromEntries(clean.map((element) => [element.id, element.group]));
+    assert.deepEqual(groups, { a: 'g1', l: 'g1', b: 'x'.repeat(40), c: undefined, d: undefined, m: undefined });
+    assert.ok(!('group' in clean.find((element) => element.id === 'c')!), 'pas de champ vide');
+  });
+
   it('dessine un aperçu SVG sans rien d’exécutable', () => {
     const svg = boardPreviewSvg([shape('a', 0, 0, '<script>alert(1)</script>'), shape('b', 300, 0), link('l', 'a', 'b')]);
     assert.ok(svg.startsWith('<svg'));
@@ -169,6 +184,27 @@ describe('tableaux blancs', () => {
     const copy = (await bob.post(`/api/boards/nodes/${board.id}/duplicate`)).body.node as BoardNodeDTO;
     assert.equal(copy.path, 'Architecture (copie)');
     assert.equal(copy.elementCount, 1);
+  });
+
+  it('gardent les groupes d’éléments, par l’API comme par un modèle', async () => {
+    const spaceId = await newSpace('Groupes');
+    const board = await newBoard(spaceId, 'Groupé', [{ ...shape('a', 0, 0), group: 'g1' }, { ...shape('b', 300, 0), group: 'g1' }, shape('c', 600, 0)]);
+    const groupsOf = async () => Object.fromEntries(((await bob.get(`/api/boards/nodes/${board.id}`)).body.elements as BoardElement[]).map((element) => [element.id, element.group ?? null]));
+    assert.deepEqual(await groupsOf(), { a: 'g1', b: 'g1', c: null });
+
+    assert.equal((await bob.request('PUT', `/api/boards/nodes/${board.id}/elements`, { elements: [{ ...shape('a', 0, 0), group: 'g2' }, { ...shape('b', 300, 0), group: 'g2' }, { ...shape('c', 600, 0), group: 'g2' }] })).status, 200);
+    assert.deepEqual(await groupsOf(), { a: 'g2', b: 'g2', c: 'g2' });
+
+    // Dégrouper : l'élément revient sans son champ.
+    assert.equal((await bob.request('PATCH', `/api/boards/nodes/${board.id}/elements`, { upsert: [shape('c', 600, 0), { ...shape('d', 0, 200), group: 'g2' }], remove: [] })).status, 200);
+    assert.deepEqual(await groupsOf(), { a: 'g2', b: 'g2', c: null, d: 'g2' });
+
+    // Un modèle garde ses groupes, et sa copie de tableau aussi.
+    const template = (await bob.post(`/api/boards/spaces/${spaceId}/nodes`, { path: 'Paire', kind: 'template', elements: [{ ...shape('a', 0, 0), group: 'p' }, { ...shape('b', 0, 100), group: 'p' }] })).body.node as BoardNodeDTO;
+    const stored = (await bob.get(`/api/boards/nodes/${template.id}`)).body.elements as BoardElement[];
+    assert.deepEqual(stored.map((element) => element.group), ['p', 'p']);
+    const copy = (await bob.post(`/api/boards/nodes/${board.id}/duplicate`)).body.node as BoardNodeDTO;
+    assert.deepEqual(Object.fromEntries(((await bob.get(`/api/boards/nodes/${copy.id}`)).body.elements as BoardElement[]).map((element) => [element.id, element.group ?? null])), { a: 'g2', b: 'g2', c: null, d: 'g2' });
   });
 
   it('s’éditent à plusieurs en temps réel, et s’enregistrent', async () => {

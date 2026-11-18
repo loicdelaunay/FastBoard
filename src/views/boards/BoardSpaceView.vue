@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from 'primevue/button';
+import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Menu from 'primevue/menu';
@@ -280,6 +281,28 @@ function remove(node: BoardNodeDTO): void {
 const membersOpen = ref(false);
 const shareOpen = ref(false);
 const shareTarget = ref<BoardNodeDTO | null>(null);
+// --- Clic droit (ou « ⋯ ») sur un tableau de la vue d'ensemble ---
+const cardMenu = ref<InstanceType<typeof ContextMenu> | null>(null);
+const cardMenuItems = ref<MenuItem[]>([]);
+
+function openCardMenu(event: MouseEvent, node: BoardNodeDTO): void {
+  event.preventDefault();
+  event.stopPropagation();
+  cardMenuItems.value = [
+    ...(node.id !== boardId.value ? [{ label: t('Ouvrir'), icon: 'pi pi-objects-column', command: () => open(node) }, { separator: true }] : []),
+    ...(store.canEdit
+      ? [
+          { label: t('Renommer'), icon: 'pi pi-pencil', command: () => askRename(node) },
+          { label: t('Dupliquer'), icon: 'pi pi-clone', command: () => void duplicate(node) },
+          ...(store.isOwner ? [{ label: t('Partager…'), icon: 'pi pi-share-alt', command: () => openShare(node) }] : []),
+          { separator: true },
+          { label: t('Supprimer'), icon: 'pi pi-trash', class: 'menu-danger', command: () => remove(node) },
+        ]
+      : []),
+  ];
+  cardMenu.value?.show(event);
+}
+
 function openShare(node: BoardNodeDTO | null = board.value): void {
   if (!node) return;
   shareTarget.value = node;
@@ -371,6 +394,7 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
           <Button v-tooltip.bottom="$t('Importer du Mermaid…')" icon="pi pi-file-import" text rounded size="small" severity="secondary" :aria-label="$t('Importer du Mermaid…')" :disabled="!session.canWrite.value" @click="canvas?.openImport()" />
           <Button v-tooltip.bottom="$t('Copier le lien du tableau')" icon="pi pi-link" text rounded size="small" severity="secondary" :aria-label="$t('Copier le lien du tableau')" @click="copyLink" />
           <Button v-if="store.isOwner && !isTemplate" :label="$t('Partager')" :icon="board.share === 'public' ? 'pi pi-globe' : 'pi pi-share-alt'" size="small" :severity="board.share ? 'warn' : undefined" :outlined="!board.share" class="share-button" @click="openShare()" />
+          <Button v-if="store.canEdit && !isTemplate" v-tooltip.bottom="$t('Plus d’actions')" icon="pi pi-ellipsis-v" text rounded size="small" severity="secondary" :aria-label="$t('Plus d’actions')" aria-haspopup="true" @click="openCardMenu($event, board)" />
         </template>
       </header>
 
@@ -388,13 +412,25 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
           <Button v-if="store.canEdit" :label="$t('Nouveau tableau')" icon="pi pi-plus" @click="askCreate('board', '')" />
         </div>
         <div v-if="boards.length" class="cards">
-          <button v-for="node in boards" :key="node.id" type="button" class="card board-card" @click="open(node)">
+          <div
+            v-for="node in boards"
+            :key="node.id"
+            role="button"
+            tabindex="0"
+            class="card board-card"
+            @click="open(node)"
+            @keydown.enter="open(node)"
+            @contextmenu="openCardMenu($event, node)"
+          >
             <span class="thumb"><img :src="api.boardPreviewUrl(node.id, 360, darkMode)" :alt="boardTitle(node.path)" loading="lazy" draggable="false" /></span>
-            <span class="card-text">
-              <strong class="truncate">{{ boardTitle(node.path) }}</strong>
-              <span class="muted small truncate">{{ parentOf(node.path) || $t('Racine') }} · {{ $t('modifié {when}', { when: formatRelative(node.updatedAt) }) }}</span>
+            <span class="card-foot">
+              <span class="card-text">
+                <strong class="truncate">{{ boardTitle(node.path) }}</strong>
+                <span class="muted small truncate">{{ parentOf(node.path) || $t('Racine') }} · {{ $t('modifié {when}', { when: formatRelative(node.updatedAt) }) }}</span>
+              </span>
+              <Button v-tooltip.top="$t('Plus d’actions')" icon="pi pi-ellipsis-v" text rounded size="small" severity="secondary" class="card-more" :aria-label="$t('Plus d’actions')" aria-haspopup="true" @click.stop="openCardMenu($event, node)" />
             </span>
-          </button>
+          </div>
         </div>
         <div v-else class="empty">
           <i class="pi pi-objects-column icon"></i>
@@ -418,6 +454,7 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
     <BoardMembersDialog v-model:visible="membersOpen" :users="users" />
     <BoardShareDialog v-model:visible="shareOpen" :board="shareTarget" :users="users" @saved="store.reload(spaceId)" />
     <BoardSpaceDialog v-model:visible="settingsOpen" :space="store.space" @saved="store.reload(spaceId)" />
+    <ContextMenu ref="cardMenu" :model="cardMenuItems" />
     <BoardTrashDialog v-model:visible="trashOpen" :space-id="spaceId" />
   </div>
 
@@ -626,12 +663,33 @@ button.crumb:hover {
   max-height: 100%;
   object-fit: contain;
 }
+.card-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding-right: 0.35rem;
+}
 .card-text {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 0.15rem;
   min-width: 0;
-  padding: 0.65rem 0.8rem;
+  padding: 0.65rem 0 0.65rem 0.8rem;
+}
+.card-more {
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.board-card:hover .card-more,
+.board-card:focus-within .card-more,
+.card-more[aria-expanded='true'] {
+  opacity: 1;
+}
+.board-card:focus-visible {
+  outline: 2px solid var(--fb-accent);
+  outline-offset: 2px;
 }
 .empty,
 .state {

@@ -4,40 +4,42 @@ import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
 import Slider from 'primevue/slider';
+import ToggleSwitch from 'primevue/toggleswitch';
 import { APPEARANCE_LIMITS, DEFAULT_FONTS, FONT_CHOICES, isFontFamily, type FontSettings } from '@shared/themes';
 import { useAuthStore } from '@/stores/auth';
 import { applyFonts } from '@/theme/themeManager';
 import { notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
-/** Polices de l'interface (texte, titres, code) et taille du texte, enregistrées sur le compte. */
+/** Polices de l'interface (texte, titres, code) et des notes, et tailles du texte, enregistrées sur le compte. */
 const auth = useAuthStore();
 const fonts = reactive<FontSettings>({ ...(auth.user?.appearance.fonts ?? DEFAULT_FONTS) });
 /** Police saisie à la main (installée sur le poste) pour chaque usage. */
-const typed = reactive({ body: '', heading: '', mono: '' });
+const typed = reactive({ body: '', heading: '', mono: '', doc: '' });
 const OTHER = '__other__';
 /** Police par défaut (Select ne marque pas une option de valeur vide comme choisie). */
 const DEFAULT = '__default__';
 
-type Slot = 'body' | 'heading' | 'mono';
+type Slot = 'body' | 'heading' | 'mono' | 'doc';
 const SLOTS: Array<{ key: Slot; label: string; sample: string }> = [
   { key: 'body', label: t('Texte'), sample: t('Le rapide renard brun saute par-dessus le chien paresseux.') },
   { key: 'heading', label: t('Titres'), sample: t('Réglages du projet') },
   { key: 'mono', label: t('Code et identifiants'), sample: 'APP-12 · const total = 42;' },
+  { key: 'doc', label: t('Texte des notes'), sample: t('Une note de documentation, lue au calme et sans fatigue.') },
 ];
 
 function options(slot: Slot) {
   const kinds = slot === 'mono' ? ['mono'] : ['sans', 'serif'];
   return [
-    { value: DEFAULT, label: slot === 'heading' ? t('Comme le texte') : t('Par défaut') },
+    { value: DEFAULT, label: slot === 'heading' || slot === 'doc' ? t('Comme le texte') : t('Par défaut') },
     ...FONT_CHOICES.filter((choice) => kinds.includes(choice.kind)).map((choice) => ({ value: choice.value, label: choice.label })),
     { value: OTHER, label: t('Autre police installée…') },
   ];
 }
 
 /** Valeur du menu : une police proposée, ou « autre » pour une police saisie. */
-const choice = reactive<Record<Slot, string>>({ body: DEFAULT, heading: DEFAULT, mono: DEFAULT });
-for (const slot of ['body', 'heading', 'mono'] as Slot[]) {
+const choice = reactive<Record<Slot, string>>({ body: DEFAULT, heading: DEFAULT, mono: DEFAULT, doc: DEFAULT });
+for (const slot of ['body', 'heading', 'mono', 'doc'] as Slot[]) {
   const known = FONT_CHOICES.some((entry) => entry.value === fonts[slot]);
   choice[slot] = !fonts[slot] ? DEFAULT : known ? fonts[slot] : OTHER;
   if (!known && fonts[slot]) typed[slot] = fonts[slot].split(',')[0]!.replace(/['"]/g, '').trim();
@@ -83,7 +85,7 @@ async function save(): Promise<void> {
   if (!current || JSON.stringify(current.fonts) === JSON.stringify(fonts)) return;
   saving.value = true;
   try {
-    await auth.updateProfile({ appearance: { customThemes: current.customThemes, fonts: { ...fonts } } });
+    await auth.updateProfile({ appearance: { ...current, fonts: { ...fonts } } });
   } catch (error) {
     notifyError(error, t('Polices non enregistrées'));
   } finally {
@@ -95,13 +97,19 @@ async function save(): Promise<void> {
 function sampleFont(slot: Slot): string | undefined {
   if (fonts[slot]) return fonts[slot];
   if (slot === 'mono') return "ui-monospace, 'Cascadia Mono', Consolas, monospace";
-  return slot === 'heading' && fonts.body ? fonts.body : undefined;
+  return (slot === 'heading' || slot === 'doc') && fonts.body ? fonts.body : undefined;
 }
+
+/** Taille du texte des notes : 0 suit la taille de l'interface. */
+const docSizeOn = computed({
+  get: () => fonts.docSize > 0,
+  set: (on: boolean) => (fonts.docSize = on ? Math.max(APPEARANCE_LIMITS.docSizeMin, fonts.size + 1) : 0),
+});
 
 function reset(): void {
   Object.assign(fonts, DEFAULT_FONTS);
-  Object.assign(choice, { body: DEFAULT, heading: DEFAULT, mono: DEFAULT });
-  Object.assign(typed, { body: '', heading: '', mono: '' });
+  Object.assign(choice, { body: DEFAULT, heading: DEFAULT, mono: DEFAULT, doc: DEFAULT });
+  Object.assign(typed, { body: '', heading: '', mono: '', doc: '' });
 }
 
 const isDefault = computed(() => JSON.stringify({ ...fonts }) === JSON.stringify(DEFAULT_FONTS));
@@ -132,6 +140,17 @@ const isDefault = computed(() => JSON.stringify({ ...fonts }) === JSON.stringify
       <div class="controls size">
         <Slider v-model="fonts.size" :min="APPEARANCE_LIMITS.sizeMin" :max="APPEARANCE_LIMITS.sizeMax" :step="1" class="slider" :aria-label="$t('Taille du texte')" />
         <span class="value">{{ fonts.size }} px</span>
+      </div>
+    </div>
+    <div class="row-font">
+      <label class="label" for="doc-size-on">{{ $t('Taille du texte des notes') }}</label>
+      <div class="controls size">
+        <ToggleSwitch v-model="docSizeOn" input-id="doc-size-on" :aria-label="$t('Taille propre au texte des notes')" />
+        <template v-if="docSizeOn">
+          <Slider v-model="fonts.docSize" :min="APPEARANCE_LIMITS.docSizeMin" :max="APPEARANCE_LIMITS.docSizeMax" :step="1" class="slider" :aria-label="$t('Taille du texte des notes')" />
+          <span class="value">{{ fonts.docSize }} px</span>
+        </template>
+        <span v-else class="muted small">{{ $t('Comme le texte de l’interface') }}</span>
       </div>
     </div>
   </section>

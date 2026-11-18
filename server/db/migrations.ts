@@ -746,6 +746,20 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE UNIQUE INDEX idx_doc_nodes_path ON doc_nodes (space_id, kind = 'template', path COLLATE NOCASE) WHERE deleted_at IS NULL;
     `);
   },
+  // 26 — Notifications : niveau choisi par chaque personne pour chaque projet (`all`, `mentions`, `none` ; sans ligne,
+  // le niveau par défaut `participating` : tickets suivis, assignations et mentions).
+  (db) => {
+    db.exec(`
+      CREATE TABLE notification_settings (
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        level      TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, project_id)
+      );
+      CREATE INDEX idx_notification_settings_project ON notification_settings (project_id, level);
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

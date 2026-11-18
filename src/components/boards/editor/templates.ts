@@ -1,5 +1,5 @@
 import { boundsOf, type Rect } from '@shared/boardGeometry';
-import { newElementId, type BoardElement, type TemplateLink } from '@shared/boards';
+import { elementGroup, newElementId, withGroup, type BoardElement, type TemplateLink } from '@shared/boards';
 
 /**
  * Modèles des tableaux (façon « prefab ») : une copie est un groupe d'éléments qui portent le même `tpl.inst` ; chacun
@@ -43,9 +43,17 @@ export function instantiate(
   const dx = options.at.x - frame.x;
   const dy = options.at.y - frame.y;
   const ids = new Map(template.map((element) => [element.id, options.reuse?.get(element.id) ?? newElementId()]));
+  // Les groupes du modèle deviennent ceux de la copie, sans rejoindre ceux d'une autre copie.
+  const groups = new Map<string, string>();
+  const groupOf = (element: BoardElement): string | null => {
+    const group = elementGroup(element);
+    if (!group) return null;
+    if (!groups.has(group)) groups.set(group, newElementId());
+    return groups.get(group)!;
+  };
   let z = options.z;
   return template.map((original): BoardElement => {
-    const element = unlinked(original);
+    const element = withGroup(unlinked(original), groupOf(original));
     const tpl: TemplateLink = { id: options.templateId, inst, key: original.id, v: options.version };
     const id = ids.get(original.id)!;
     if (element.type === 'connector') {
@@ -65,6 +73,7 @@ const round = (value: number): number => Math.round(value * 10) / 10;
 /**
  * Empreinte d'un ensemble d'éléments, indépendante de sa position, des identifiants et de l'empilement : deux
  * ensembles qui ont la même empreinte se ressemblent à l'identique. `keyOf` donne la clé commune (celle du modèle).
+ * Le verrou et les groupes, qui disent comment on manipule les éléments sur un tableau, n'y entrent pas.
  */
 export function fingerprint(elements: readonly BoardElement[], keyOf: (element: BoardElement) => string): string {
   const frame = frameOf(elements);
@@ -72,7 +81,7 @@ export function fingerprint(elements: readonly BoardElement[], keyOf: (element: 
   const keys = new Map(elements.map((element) => [element.id, keyOf(element)]));
   const ref = (id: string | null): string | null => (id ? (keys.get(id) ?? `outside:${id}`) : null);
   const normalized = elements.map((original) => {
-    const { id: _id, z: _z, tpl: _tpl, locked: _locked, ...rest } = original as BoardElement & Record<string, unknown>;
+    const { id: _id, z: _z, tpl: _tpl, locked: _locked, group: _group, ...rest } = original as BoardElement & Record<string, unknown>;
     const entry: Record<string, unknown> = { ...rest, key: keys.get(original.id) };
     if (original.type === 'connector') {
       const end = (side: typeof original.from) => ({ ...side, id: ref(side.id), x: round(side.x - frame.x), y: round(side.y - frame.y) });
@@ -120,11 +129,21 @@ export function instancesOf(elements: readonly BoardElement[]): Map<string, Boar
   return groups;
 }
 
-/** Les éléments à enregistrer comme modèle : sans lien, et sans lien vers l'extérieur de la sélection. */
-export function templateSource(elements: readonly BoardElement[]): BoardElement[] {
+/**
+ * Les éléments à enregistrer comme modèle : sans lien, et sans lien vers l'extérieur de la sélection. Un groupe n'est
+ * gardé que s'il y est tout entier (`board` : tous les éléments du tableau), avec au moins deux éléments.
+ */
+export function templateSource(elements: readonly BoardElement[], board: readonly BoardElement[] = elements): BoardElement[] {
   const ids = new Set(elements.map((element) => element.id));
+  const counts = new Map<string, number>();
+  for (const element of elements) {
+    const group = elementGroup(element);
+    if (group) counts.set(group, (counts.get(group) ?? 0) + 1);
+  }
+  const outside = new Set(board.filter((element) => !ids.has(element.id)).map(elementGroup));
+  const kept = (group: string | null): string | null => (group && (counts.get(group) ?? 0) > 1 && !outside.has(group) ? group : null);
   return elements.map((original) => {
-    const element = unlinked(structuredClone(original));
+    const element = withGroup(unlinked(structuredClone(original)), kept(elementGroup(original)));
     if (element.type === 'connector') {
       if (element.from.id && !ids.has(element.from.id)) element.from = { ...element.from, id: null, side: null };
       if (element.to.id && !ids.has(element.to.id)) element.to = { ...element.to, id: null, side: null };

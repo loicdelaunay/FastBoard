@@ -5,8 +5,10 @@ import {
   CHART_KINDS,
   CONNECTOR_ROUTES,
   FILL_STYLES,
+  GROUP_ID_MAX,
   SHAPE_KINDS,
   TEXT_SIZES,
+  withGroup,
   type BoardColor,
   type BoardElement,
   type ConnectorEnd,
@@ -61,6 +63,12 @@ function templateLink(value: unknown): { tpl: TemplateLink } | Record<string, ne
   return Number.isInteger(link.id) && (link.id as number) > 0 && link.inst && link.key ? { tpl: link as TemplateLink } : {};
 }
 
+/** Groupe de l'élément ; absent s'il n'est pas lisible. */
+function groupId(value: unknown): { group: string } | Record<string, never> {
+  const group = typeof value === 'string' ? value.trim().slice(0, GROUP_ID_MAX) : '';
+  return group ? { group } : {};
+}
+
 /** `lucide:nom` ou `custom:12`. */
 const ICON_ID = /^(lucide:[a-z0-9-]{1,80}|custom:\d{1,9})$/;
 /** Clé d'une image d'espace. */
@@ -73,7 +81,7 @@ export function sanitizeElement(value: unknown): BoardElement | null {
   const id = typeof raw.id === 'string' ? raw.id.slice(0, 40) : '';
   if (!id) return null;
   const z = num(raw.z, 0, -1e9, 1e9);
-  const locked = { ...(raw.locked === true ? { locked: true } : {}), ...templateLink(raw.tpl) };
+  const flags = { ...(raw.locked === true ? { locked: true } : {}), ...templateLink(raw.tpl), ...groupId(raw.group) };
   if (raw.type === 'connector') {
     return {
       id,
@@ -87,10 +95,10 @@ export function sanitizeElement(value: unknown): BoardElement | null {
       arrowStart: raw.arrowStart === true,
       arrowEnd: raw.arrowEnd !== false,
       color: color(raw.color),
-      ...locked,
+      ...flags,
     };
   }
-  const box = { id, z, x: num(raw.x, 0), y: num(raw.y, 0), w: num(raw.w, 160, 4, 20_000), h: num(raw.h, 80, 4, 20_000), ...locked };
+  const box = { id, z, x: num(raw.x, 0), y: num(raw.y, 0), w: num(raw.w, 160, 4, 20_000), h: num(raw.h, 80, 4, 20_000), ...flags };
   switch (raw.type) {
     case 'shape':
       return { ...box, type: 'shape', shape: pick(raw.shape, SHAPE_KINDS, 'rect'), text: text(raw.text), color: color(raw.color), fill: pick(raw.fill, FILL_STYLES, 'solid'), size: pick(raw.size, TEXT_SIZES, 'm') };
@@ -101,7 +109,8 @@ export function sanitizeElement(value: unknown): BoardElement | null {
     case 'frame':
       return { ...box, type: 'frame', title: text(raw.title, 200), color: color(raw.color) };
     case 'mind':
-      return { ...box, type: 'mind', text: text(raw.text, 2000), color: color(raw.color), parent: typeof raw.parent === 'string' && raw.parent ? raw.parent.slice(0, 40) : null, direction: raw.direction === 'left' ? 'left' : 'right' };
+      // Un nœud de carte mentale ne se groupe pas : sa carte le range.
+      return withGroup({ ...box, type: 'mind', text: text(raw.text, 2000), color: color(raw.color), parent: typeof raw.parent === 'string' && raw.parent ? raw.parent.slice(0, 40) : null, direction: raw.direction === 'left' ? 'left' : 'right' }, null);
     case 'path': {
       const points = Array.isArray(raw.points) ? raw.points.slice(0, BOARD_LIMITS.pathPoints * 2).map((point) => num(point, 0)) : [];
       return { ...box, type: 'path', points: points.length % 2 ? points.slice(0, -1) : points, color: color(raw.color), width: num(raw.width, 3, 1, 60), highlighter: raw.highlighter === true };

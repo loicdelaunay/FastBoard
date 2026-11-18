@@ -3,7 +3,7 @@ import { defineStore } from 'pinia';
 import type { TicketStatus } from '@shared/constants';
 import type { TicketInput } from '@/api';
 
-export type ProfileTab = 'profile' | 'appearance' | 'security' | 'tokens';
+export type ProfileTab = 'profile' | 'appearance' | 'notifications' | 'security' | 'tokens';
 
 export type TicketDraftDefaults = Partial<Pick<TicketInput, 'title' | 'status' | 'categoryId' | 'priorityId' | 'componentIds' | 'deliveryId' | 'assigneeIds' | 'startDate' | 'endDate'>>;
 

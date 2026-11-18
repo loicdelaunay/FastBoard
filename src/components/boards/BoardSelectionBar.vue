@@ -12,6 +12,9 @@ const props = defineProps<{
   template?: { name: string; state: InstanceState } | null;
   /** Les modèles sont proposés (tableau d'un espace). */
   canTemplate?: boolean;
+  /** La sélection peut former un groupe, ou contient des groupes à défaire. */
+  canGroup?: boolean;
+  canUngroup?: boolean;
 }>();
 const emit = defineEmits<{ patch: [patch: Record<string, unknown>]; action: [action: SelectionAction] }>();
 
@@ -171,6 +174,8 @@ function toggle(menu: 'shape' | 'color' | 'chart'): void {
     <div class="group">
       <button v-if="exportable" v-tooltip.top="$t('Exporter en Mermaid')" type="button" class="item" :aria-label="$t('Exporter en Mermaid')" @click="emit('action', 'mermaid')"><i class="pi pi-share-alt"></i></button>
       <template v-if="editable">
+        <button v-if="canGroup" v-tooltip.top="$t('Grouper (Ctrl G)')" type="button" class="item" :aria-label="$t('Grouper')" @click="emit('action', 'group')"><i class="pi pi-box"></i></button>
+        <button v-if="canUngroup" v-tooltip.top="$t('Dégrouper (Ctrl Maj G)')" type="button" class="item" :aria-label="$t('Dégrouper')" @click="emit('action', 'ungroup')"><i class="pi pi-objects-column"></i></button>
         <button v-tooltip.top="locked ? $t('Déverrouiller') : $t('Verrouiller')" type="button" class="item" :aria-label="locked ? $t('Déverrouiller') : $t('Verrouiller')" @click="emit('action', locked ? 'unlock' : 'lock')">
           <i :class="locked ? 'pi pi-lock' : 'pi pi-lock-open'"></i>
         </button>

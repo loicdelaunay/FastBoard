@@ -6,14 +6,15 @@ import Popover from 'primevue/popover';
 import type { NotificationDTO } from '@shared/types';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useNotificationsStore } from '@/stores/notifications';
-import { describeActivity } from '@/utils/activitySummary';
+import { useUiStore } from '@/stores/ui';
 import { formatDateTime, formatRelative } from '@/utils/format';
+import { notificationIcon as icon, notificationRoute, notificationSentence as sentence } from '@/utils/notificationText';
 import { notifyError } from '@/utils/notify';
 
-import { t } from '@/i18n';
 /** Cloche : notifications des tickets suivis, assignations et mentions ; `label` : avec son nom, dans la barre latérale. */
 defineProps<{ label?: string }>();
 const store = useNotificationsStore();
+const ui = useUiStore();
 const router = useRouter();
 const panel = ref<InstanceType<typeof Popover> | null>(null);
 const onlyUnread = ref(false);
@@ -25,30 +26,16 @@ onMounted(() => {
 const visible = computed(() => (onlyUnread.value ? store.items.filter((item) => !item.readAt) : store.items));
 const badge = computed(() => (store.unread > 99 ? '99+' : String(store.unread)));
 
-function sentence(item: NotificationDTO): string {
-  if (item.doc) return t('vous a mentionné dans');
-  if (item.type === 'mention') return item.ticketKey ? t('vous a mentionné sur') : t('vous a mentionné dans l’activité du projet');
-  if (item.type === 'assigned') return t('vous a assigné');
-  return item.activity ? describeActivity(item.activity).text : t('a modifié');
-}
-
-function icon(item: NotificationDTO): string {
-  if (item.type === 'mention') return 'pi pi-at';
-  if (item.type === 'assigned') return 'pi pi-user-plus';
-  return item.activity ? describeActivity(item.activity).icon : 'pi pi-bell';
-}
-
 async function open(item: NotificationDTO): Promise<void> {
   panel.value?.hide();
   if (!item.readAt) void store.markRead([item.id]).catch(() => undefined);
-  if (item.doc) {
-    await router.push({ name: 'doc-file', params: { nodeId: item.doc.nodeId } });
-  } else if (item.projectId && item.ticketId) {
-    await router.push({ name: 'project', params: { projectId: item.projectId }, query: { ticket: String(item.ticketId) } });
-  } else if (item.projectId && item.type === 'mention') {
-    // Mention dans un commentaire du journal d'activité.
-    await router.push({ name: 'activity', params: { projectId: item.projectId } });
-  }
+  const route = notificationRoute(item);
+  if (route) await router.push(route);
+}
+
+function openSettings(): void {
+  panel.value?.hide();
+  ui.openProfile('notifications');
 }
 
 async function readAll(): Promise<void> {
@@ -71,6 +58,7 @@ async function readAll(): Promise<void> {
         <strong>{{ $t('Notifications') }}</strong>
         <label class="row small toggle"><input v-model="onlyUnread" type="checkbox" /> {{ $t('Non lues') }}</label>
         <Button :label="$t('Tout marquer comme lu')" text size="small" :disabled="!store.unread" @click="readAll" />
+        <Button v-tooltip.bottom="$t('Réglages des notifications')" icon="pi pi-cog" text rounded size="small" severity="secondary" :aria-label="$t('Réglages des notifications')" @click="openSettings" />
       </header>
       <ul v-if="visible.length" class="list">
         <li v-for="item in visible" :key="item.id">

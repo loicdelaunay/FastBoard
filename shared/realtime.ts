@@ -1,6 +1,7 @@
 /** Protocole WebSocket (JSON). */
 
 import type { BoardNodeDTO } from './boards.ts';
+import type { NotificationLevel } from './constants.ts';
 import type { DocNodeDTO } from './docs.ts';
 import type { DocCommentDTO } from './docComments.ts';
 import type {
@@ -71,6 +72,8 @@ export type ServerMessage =
   | { t: 'notification'; notification: NotificationDTO; unread: number }
   /** Notifications lues (depuis un autre onglet). */
   | { t: 'notifications.read'; unread: number }
+  /** Niveau de notification d'un projet modifié (depuis un autre onglet ou par l'API). */
+  | { t: 'notifications.settings'; projectId: number; level: NotificationLevel }
   /** Arborescence d'un espace de documentation modifiée. */
   | { t: 'docs.tree'; spaceId: number; nodes: DocNodeDTO[]; templates: DocNodeDTO[] }
   /** Rôle changé dans un espace : relire ses droits. */

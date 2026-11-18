@@ -64,6 +64,52 @@ export const SURFACE_SWATCHES: Record<(typeof SURFACE_PALETTES)[number], { light
   stone: { light: '#fafaf9', dark: '#0c0a09' },
 };
 
+/**
+ * Couleurs réglables une à une dans un thème personnalisé : celles de l'interface et celles du rendu Markdown (notes,
+ * descriptions, commentaires). Chacune remplace une variable CSS ; absente, la couleur du thème de base s'applique.
+ */
+export const THEME_COLORS = [
+  { key: 'background', group: 'interface', label: 'Fond de page', vars: ['--fb-bg'] },
+  { key: 'panel', group: 'interface', label: 'Panneaux et cartes', vars: ['--fb-panel', '--p-content-background'] },
+  { key: 'panelAlt', group: 'interface', label: 'Panneaux secondaires', vars: ['--fb-panel-alt'] },
+  { key: 'border', group: 'interface', label: 'Bordures', vars: ['--fb-border', '--p-content-border-color'] },
+  { key: 'text', group: 'interface', label: 'Texte', vars: ['--fb-text', '--p-text-color'] },
+  { key: 'muted', group: 'interface', label: 'Texte secondaire', vars: ['--fb-muted', '--p-text-muted-color'] },
+  { key: 'mdText', group: 'markdown', label: 'Texte des notes', vars: ['--md-text'] },
+  { key: 'mdH1', group: 'markdown', label: 'Titre 1', vars: ['--md-h1'] },
+  { key: 'mdH2', group: 'markdown', label: 'Titre 2', vars: ['--md-h2'] },
+  { key: 'mdH3', group: 'markdown', label: 'Titre 3', vars: ['--md-h3'] },
+  { key: 'mdH4', group: 'markdown', label: 'Titres 4 à 6', vars: ['--md-h4'] },
+  { key: 'mdBold', group: 'markdown', label: 'Gras', vars: ['--md-strong'] },
+  { key: 'mdItalic', group: 'markdown', label: 'Italique', vars: ['--md-em'] },
+  { key: 'mdLink', group: 'markdown', label: 'Liens', vars: ['--md-link'] },
+  { key: 'mdCode', group: 'markdown', label: 'Code dans le texte', vars: ['--md-code'] },
+  { key: 'mdCodeBg', group: 'markdown', label: 'Fond du code dans le texte', vars: ['--md-code-bg'] },
+  { key: 'mdPre', group: 'markdown', label: 'Texte des blocs de code', vars: ['--md-pre'] },
+  { key: 'mdPreBg', group: 'markdown', label: 'Fond des blocs de code', vars: ['--md-pre-bg'] },
+  { key: 'mdQuote', group: 'markdown', label: 'Texte des citations', vars: ['--md-quote'] },
+  { key: 'mdQuoteBar', group: 'markdown', label: 'Barre des citations', vars: ['--md-quote-bar'] },
+  { key: 'mdQuoteBg', group: 'markdown', label: 'Fond des citations', vars: ['--md-quote-bg'] },
+  { key: 'mdHighlight', group: 'markdown', label: 'Surlignage', vars: ['--md-highlight'] },
+  { key: 'mdTableHead', group: 'markdown', label: 'En-tête des tableaux', vars: ['--md-th-bg'] },
+  { key: 'mdTableBorder', group: 'markdown', label: 'Bordures des tableaux', vars: ['--md-table-border'] },
+  { key: 'mdRule', group: 'markdown', label: 'Lignes horizontales', vars: ['--md-hr'] },
+  { key: 'mdMarker', group: 'markdown', label: 'Puces et numéros', vars: ['--md-marker'] },
+  { key: 'mdTag', group: 'markdown', label: 'Étiquettes', vars: ['--md-tag'] },
+] as const;
+
+export type ThemeColorKey = (typeof THEME_COLORS)[number]['key'];
+export type ThemeColors = Partial<Record<ThemeColorKey, string>>;
+
+/** Polices propres à un thème (`''` : celles choisies dans « Polices » s'appliquent). */
+export interface ThemeFonts {
+  body: string;
+  heading: string;
+  mono: string;
+  /** Texte des notes. */
+  doc: string;
+}
+
 export interface CustomThemeDef {
   /** `custom-…` */
   id: string;
@@ -74,6 +120,9 @@ export interface CustomThemeDef {
   primary: string;
   /** Palette de surface (`slate`…) ou couleur #RRGGBB. */
   surface: string;
+  /** Couleurs réglées une à une (les autres viennent du thème de base). */
+  colors: ThemeColors;
+  fonts: ThemeFonts;
 }
 
 /** Polices de l'interface : pile CSS (`''` = police par défaut) et taille de base en pixels. */
@@ -82,15 +131,28 @@ export interface FontSettings {
   heading: string;
   mono: string;
   size: number;
+  /** Texte des notes (`''` : comme le texte de l'interface). */
+  doc: string;
+  /** Taille du texte des notes en pixels (0 : comme l'interface). */
+  docSize: number;
 }
+
+/**
+ * Largeur du texte des notes : `screen` centré sur l'écran (pour lire sans tourner la tête), `column` centré dans sa
+ * colonne, `full` sans marges sur les côtés.
+ */
+export const READING_WIDTHS = ['screen', 'column', 'full'] as const;
+export type ReadingWidth = (typeof READING_WIDTHS)[number];
 
 export interface AppearanceDTO {
   customThemes: CustomThemeDef[];
   fonts: FontSettings;
+  reading: ReadingWidth;
 }
 
-export const APPEARANCE_LIMITS = { themes: 20, labelMax: 40, fontMax: 200, sizeMin: 12, sizeMax: 20 };
-export const DEFAULT_FONTS: FontSettings = { body: '', heading: '', mono: '', size: 15 };
+export const APPEARANCE_LIMITS = { themes: 20, labelMax: 40, fontMax: 200, sizeMin: 12, sizeMax: 20, docSizeMin: 12, docSizeMax: 26 };
+export const DEFAULT_FONTS: FontSettings = { body: '', heading: '', mono: '', size: 15, doc: '', docSize: 0 };
+export const EMPTY_THEME_FONTS: ThemeFonts = { body: '', heading: '', mono: '', doc: '' };
 
 /** Polices proposées (celles du système ; « Autre » permet de saisir une police installée sur le poste). */
 export const FONT_CHOICES: ReadonlyArray<{ value: string; label: string; kind: 'sans' | 'serif' | 'mono' }> = [
@@ -119,27 +181,85 @@ export function isCustomThemeId(id: unknown): id is string {
   return typeof id === 'string' && /^custom-[a-z0-9]{4,24}$/.test(id);
 }
 
+const asRecord = (value: unknown): Record<string, unknown> => (value && typeof value === 'object' ? (value as Record<string, unknown>) : {});
+const fontOf = (source: Record<string, unknown>, key: string): string => (isFontFamily(source[key]) ? (source[key] as string).trim() : '');
+
+/** Couleurs réglées d'un thème : seules les clés connues, en #RRGGBB. */
+export function normalizeThemeColors(raw: unknown): ThemeColors {
+  const source = asRecord(raw);
+  const colors: ThemeColors = {};
+  for (const { key } of THEME_COLORS) {
+    if (isHexColor(source[key])) colors[key] = (source[key] as string).toLowerCase();
+  }
+  return colors;
+}
+
+/** Un thème personnalisé lu d'ailleurs (compte, fichier importé, bibliothèque partagée), ou `null` s'il est invalide. */
+export function normalizeCustomTheme(raw: unknown, id?: string): CustomThemeDef | null {
+  const theme = asRecord(raw);
+  const themeId = id ?? theme.id;
+  if (!isCustomThemeId(themeId) || !isHexColor(theme.primary)) return null;
+  const surface = typeof theme.surface === 'string' && ((SURFACE_PALETTES as readonly string[]).includes(theme.surface) || isHexColor(theme.surface)) ? theme.surface : 'slate';
+  const fonts = asRecord(theme.fonts);
+  return {
+    id: themeId,
+    label: (typeof theme.label === 'string' ? theme.label.trim().slice(0, APPEARANCE_LIMITS.labelMax) : '') || 'Mon thème',
+    mode: theme.mode === 'dark' ? 'dark' : 'light',
+    preset: (THEME_PRESETS as readonly unknown[]).includes(theme.preset) ? (theme.preset as ThemePresetName) : 'aura',
+    primary: theme.primary.toLowerCase(),
+    surface,
+    colors: normalizeThemeColors(theme.colors),
+    fonts: { body: fontOf(fonts, 'body'), heading: fontOf(fonts, 'heading'), mono: fontOf(fonts, 'mono'), doc: fontOf(fonts, 'doc') },
+  };
+}
+
+const clampInt = (value: unknown, min: number, max: number, fallback: number): number => (typeof value === 'number' && Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback);
+
 export function normalizeAppearance(raw: unknown): AppearanceDTO {
-  const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const source = asRecord(raw);
   const seen = new Set<string>();
   const customThemes: CustomThemeDef[] = [];
   for (const entry of Array.isArray(source.customThemes) ? source.customThemes : []) {
-    const theme = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>;
-    if (!isCustomThemeId(theme.id) || seen.has(theme.id) || !isHexColor(theme.primary)) continue;
-    const surface = typeof theme.surface === 'string' && ((SURFACE_PALETTES as readonly string[]).includes(theme.surface) || isHexColor(theme.surface)) ? theme.surface : 'slate';
+    const theme = normalizeCustomTheme(entry);
+    if (!theme || seen.has(theme.id)) continue;
     seen.add(theme.id);
-    customThemes.push({
-      id: theme.id,
-      label: (typeof theme.label === 'string' ? theme.label.trim().slice(0, APPEARANCE_LIMITS.labelMax) : '') || 'Mon thème',
-      mode: theme.mode === 'dark' ? 'dark' : 'light',
-      preset: (THEME_PRESETS as readonly unknown[]).includes(theme.preset) ? (theme.preset as ThemePresetName) : 'aura',
-      primary: theme.primary,
-      surface,
-    });
+    customThemes.push(theme);
     if (customThemes.length >= APPEARANCE_LIMITS.themes) break;
   }
-  const fontsSource = (source.fonts && typeof source.fonts === 'object' ? source.fonts : {}) as Record<string, unknown>;
-  const font = (key: 'body' | 'heading' | 'mono') => (isFontFamily(fontsSource[key]) ? (fontsSource[key] as string).trim() : '');
-  const size = typeof fontsSource.size === 'number' && Number.isInteger(fontsSource.size) ? Math.min(APPEARANCE_LIMITS.sizeMax, Math.max(APPEARANCE_LIMITS.sizeMin, fontsSource.size)) : DEFAULT_FONTS.size;
-  return { customThemes, fonts: { body: font('body'), heading: font('heading'), mono: font('mono'), size } };
+  const fontsSource = asRecord(source.fonts);
+  const size = clampInt(fontsSource.size, APPEARANCE_LIMITS.sizeMin, APPEARANCE_LIMITS.sizeMax, DEFAULT_FONTS.size);
+  const docSize = fontsSource.docSize === 0 ? 0 : clampInt(fontsSource.docSize, APPEARANCE_LIMITS.docSizeMin, APPEARANCE_LIMITS.docSizeMax, 0);
+  const reading = (READING_WIDTHS as readonly unknown[]).includes(source.reading) ? (source.reading as ReadingWidth) : 'screen';
+  return {
+    customThemes,
+    fonts: { body: fontOf(fontsSource, 'body'), heading: fontOf(fontsSource, 'heading'), mono: fontOf(fontsSource, 'mono'), size, doc: fontOf(fontsSource, 'doc'), docSize },
+    reading,
+  };
 }
+
+// --- Partage d'un thème : fichier exporté, bibliothèque du site ------------------------------------------------------
+
+export const THEME_FILE_FORMAT = 'fastboard-theme';
+
+/** Ce qu'on exporte d'un thème : tout sauf son identifiant, propre au compte. */
+export function themeFile(theme: CustomThemeDef): { format: string; version: 1; theme: Omit<CustomThemeDef, 'id'> } {
+  const { id: _id, ...rest } = theme;
+  return { format: THEME_FILE_FORMAT, version: 1, theme: rest };
+}
+
+/** Thème lu dans un fichier exporté (ou son seul contenu), avec l'identifiant donné ; `null` s'il est invalide. */
+export function parseThemeFile(raw: unknown, id: string): CustomThemeDef | null {
+  const source = asRecord(raw);
+  return normalizeCustomTheme(source.format === THEME_FILE_FORMAT ? source.theme : source, id);
+}
+
+/** Thème publié dans la bibliothèque du site, que chacun peut ajouter à ses thèmes. */
+export interface SharedThemeDTO {
+  id: string;
+  theme: Omit<CustomThemeDef, 'id'>;
+  authorId: number | null;
+  authorName: string;
+  createdAt: string;
+}
+
+export const SHARED_THEMES_MAX = 200;

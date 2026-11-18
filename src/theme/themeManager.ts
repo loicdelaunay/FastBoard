@@ -4,7 +4,24 @@ import Aura from '@primeuix/themes/aura';
 import Lara from '@primeuix/themes/lara';
 import Material from '@primeuix/themes/material';
 import Nora from '@primeuix/themes/nora';
-import { DEFAULT_FONTS, DEFAULT_THEME_ID, findTheme, isCustomThemeId, isHexColor, normalizeAppearance, type CustomThemeDef, type FontSettings, type ThemeMode, type ThemePresetName } from '@shared/themes';
+import {
+  DEFAULT_FONTS,
+  DEFAULT_THEME_ID,
+  EMPTY_THEME_FONTS,
+  READING_WIDTHS,
+  THEME_COLORS,
+  findTheme,
+  isCustomThemeId,
+  isHexColor,
+  normalizeAppearance,
+  type CustomThemeDef,
+  type FontSettings,
+  type ReadingWidth,
+  type ThemeColors,
+  type ThemeFonts,
+  type ThemeMode,
+  type ThemePresetName,
+} from '@shared/themes';
 
 const PRESETS = { aura: Aura, lara: Lara, material: Material, nora: Nora } as const;
 const SHADES = ['50', '100', '200', '300', '400', '500', '600', '700', '800', '900', '950'] as const;
@@ -14,6 +31,7 @@ const STORAGE_MODE = 'fb.mode';
 /** Définition du thème personnalisé actif, pour l'appliquer avant la connexion (pas de flash de couleurs). */
 const STORAGE_CUSTOM = 'fb.theme.custom';
 const STORAGE_FONTS = 'fb.fonts';
+const STORAGE_READING = 'fb.reading';
 
 export const currentThemeId = ref<string>(DEFAULT_THEME_ID);
 /** Thèmes personnalisés du compte connecté. */
@@ -75,8 +93,29 @@ function resolve(id: string | null | undefined): ResolvedTheme {
   return { id: fallback.id, mode: fallback.mode, preset: fallback.preset, primary: fallback.primary, surface: fallback.surface, custom: null };
 }
 
+/** Variables CSS posées par les couleurs réglées du thème actif, à retirer au changement de thème. */
+let paintedColors: string[] = [];
+
+/** Couleurs réglées une à une : elles remplacent les variables de l'interface et du rendu Markdown. */
+function paintColors(colors: ThemeColors): void {
+  const style = document.documentElement.style;
+  for (const name of paintedColors) style.removeProperty(name);
+  paintedColors = [];
+  for (const entry of THEME_COLORS) {
+    const value = colors[entry.key];
+    if (!value || !isHexColor(value)) continue;
+    for (const name of entry.vars) {
+      style.setProperty(name, value);
+      paintedColors.push(name);
+    }
+  }
+}
+
 /** Change les couleurs et le mode sans rien mémoriser (sert aussi à l'aperçu d'un thème en cours d'édition). */
-export function paintTheme(theme: Pick<ResolvedTheme, 'mode' | 'preset' | 'primary' | 'surface'>): void {
+export function paintTheme(theme: Pick<ResolvedTheme, 'mode' | 'preset' | 'primary' | 'surface'> & { colors?: ThemeColors; fonts?: ThemeFonts }): void {
+  paintColors(theme.colors ?? {});
+  themeFonts = { ...EMPTY_THEME_FONTS, ...theme.fonts };
+  paintFonts();
   document.documentElement.classList.toggle('app-dark', theme.mode === 'dark');
   document.documentElement.style.colorScheme = theme.mode;
   darkMode.value = theme.mode === 'dark';
@@ -112,13 +151,45 @@ export function cachedFonts(): FontSettings {
   }
 }
 
-/** Polices de l'interface : variables CSS lues par la feuille de style globale (vide = police par défaut). */
-export function applyFonts(fonts: FontSettings, persist = true): void {
+/** Polices choisies dans « Polices », et celles du thème actif qui les remplacent. */
+let userFonts: FontSettings = { ...DEFAULT_FONTS };
+let themeFonts: ThemeFonts = { ...EMPTY_THEME_FONTS };
+
+/** Variables CSS des polices, lues par la feuille de style globale (vide = police par défaut). */
+function paintFonts(): void {
   const style = document.documentElement.style;
   const set = (name: string, value: string) => (value ? style.setProperty(name, value) : style.removeProperty(name));
-  set('--fb-font', fonts.body);
-  set('--fb-font-heading', fonts.heading);
-  set('--fb-font-mono', fonts.mono);
-  set('--fb-font-size', fonts.size !== DEFAULT_FONTS.size ? `${fonts.size}px` : '');
-  if (persist) safeStorage(() => localStorage.setItem(STORAGE_FONTS, JSON.stringify(fonts)));
+  set('--fb-font', themeFonts.body || userFonts.body);
+  set('--fb-font-heading', themeFonts.heading || userFonts.heading);
+  set('--fb-font-mono', themeFonts.mono || userFonts.mono);
+  set('--fb-font-doc', themeFonts.doc || userFonts.doc);
+  set('--fb-font-size', userFonts.size !== DEFAULT_FONTS.size ? `${userFonts.size}px` : '');
+  set('--fb-doc-size', userFonts.docSize ? `${userFonts.docSize}px` : '');
+}
+
+/** Polices de l'interface et des notes (celles d'un thème personnalisé l'emportent). */
+export function applyFonts(fonts: FontSettings, persist = true): void {
+  userFonts = { ...DEFAULT_FONTS, ...fonts };
+  paintFonts();
+  if (persist) safeStorage(() => localStorage.setItem(STORAGE_FONTS, JSON.stringify(userFonts)));
+}
+
+// --- Largeur du texte des notes --------------------------------------------------------------------------------------
+
+export function cachedReading(): ReadingWidth {
+  try {
+    const value = localStorage.getItem(STORAGE_READING);
+    return (READING_WIDTHS as readonly string[]).includes(value ?? '') ? (value as ReadingWidth) : 'screen';
+  } catch {
+    return 'screen';
+  }
+}
+
+export const readingWidth = ref<ReadingWidth>('screen');
+
+/** `screen` : texte centré sur l'écran ; `column` : dans sa colonne ; `full` : toute la largeur, sans marges. */
+export function applyReading(value: ReadingWidth, persist = true): void {
+  readingWidth.value = value;
+  document.documentElement.dataset.reading = value;
+  if (persist) safeStorage(() => localStorage.setItem(STORAGE_READING, value));
 }

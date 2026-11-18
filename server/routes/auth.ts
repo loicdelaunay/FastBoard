@@ -1,24 +1,25 @@
 import express, { type Request, type Router } from 'express';
-import { LIMITS } from '../../shared/constants.ts';
+import { DEFAULT_NOTIFICATION_LEVEL, LIMITS } from '../../shared/constants.ts';
 import { LdapUnavailable } from '../auth/ldap.ts';
 import { signInWithLdap } from '../auth/ldapAccounts.ts';
 import { ldapConfig } from '../auth/ldapSettings.ts';
 import { hashPassword, verifyDummyPassword, verifyPassword } from '../auth/password.ts';
-import { createSession, destroySession, destroyUserSessions } from '../auth/sessions.ts';
+import { createSession, destroySession, destroyUserSessions, sessionSecondsLeft } from '../auth/sessions.ts';
 import { createApiToken, listApiTokens, revealApiToken, revokeApiToken, updateApiToken } from '../auth/tokens.ts';
 import type { AppContext } from '../context.ts';
 import { nowIso } from '../db/database.ts';
 import { serializeSessionCookie } from '../http/cookies.ts';
 import { badRequest, HttpError, notFound, unauthorized } from '../http/errors.ts';
 import { currentUser, sessionOnly, sessionToken } from '../http/middleware.ts';
-import { createTokenSchema, loginSchema, markReadSchema, notificationQuerySchema, passwordSchema, profileSchema, revealTokenSchema, searchQuerySchema, updateTokenSchema } from '../http/schemas.ts';
+import { createTokenSchema, loginSchema, markReadSchema, notificationQuerySchema, notificationSettingSchema, passwordSchema, profileSchema, revealTokenSchema, sharedThemeSchema, searchQuerySchema, updateTokenSchema } from '../http/schemas.ts';
 import { globalSearch, userSummary } from '../services/search.ts';
 import { appInfo, getBranding } from '../services/appSettings.ts';
-import { listNotifications, markRead } from '../services/notifications.ts';
+import { listNotifications, listNotificationSettings, markRead, setNotificationLevel } from '../services/notifications.ts';
 import { idParam, parse } from '../http/validate.ts';
-import { getAuthUser, requireGlobal, toMeDTO } from '../services/access.ts';
+import { getAuthUser, requireGlobal, requireProject, toMeDTO } from '../services/access.ts';
 import { clearAvatar, getAvatar, listDirectory, setAvatar, updateOwnProfile } from '../services/users.ts';
 import { listRoles } from '../services/roles.ts';
+import { listSharedThemes, publishSharedTheme, removeSharedTheme } from '../services/sharedThemes.ts';
 import { hasPermission } from '../../shared/permissions.ts';
 
 function detectImageMime(data: Buffer): string | null {
@@ -154,8 +155,14 @@ export function publicAuthRouter(ctx: AppContext): Router {
 export function accountRouter(ctx: AppContext): Router {
   const router = express.Router();
 
-  router.get('/me', (_req, res) => {
+  router.get('/me', (req, res) => {
     const user = currentUser(res);
+    // La session a pu être prolongée : le cookie suit, sinon le navigateur l'oublierait à sa date d'origine.
+    if (!user.token) {
+      const token = sessionToken(ctx, req);
+      const seconds = sessionSecondsLeft(ctx, token);
+      if (token && seconds) res.setHeader('Set-Cookie', serializeSessionCookie(ctx.config.cookieName, token, { maxAgeSeconds: seconds, secure: isSecure(req) }));
+    }
     res.json({ user: toMeDTO(user), token: user.token });
   });
 
@@ -193,6 +200,21 @@ export function accountRouter(ctx: AppContext): Router {
     updateOwnProfile(ctx, user.id, parse(profileSchema, req.body));
     const fresh = getAuthUser(ctx.db, user.id);
     res.json({ user: fresh ? toMeDTO(fresh) : null });
+  });
+
+  // --- Bibliothèque de thèmes partagés -------------------------------------------------------------------------------
+
+  router.get('/themes/shared', (_req, res) => {
+    res.json({ themes: listSharedThemes(ctx) });
+  });
+
+  router.post('/themes/shared', sessionOnly(), (req, res) => {
+    res.status(201).json({ theme: publishSharedTheme(ctx, currentUser(res), parse(sharedThemeSchema, req.body).theme) });
+  });
+
+  router.delete('/themes/shared/:id', sessionOnly(), (req, res) => {
+    removeSharedTheme(ctx, currentUser(res), String(req.params.id));
+    res.json({ ok: true });
   });
 
   router.post('/me/password', sessionOnly(), async (req, res) => {
@@ -252,6 +274,18 @@ export function accountRouter(ctx: AppContext): Router {
   router.post('/me/notifications/read', (req, res) => {
     const { ids } = parse(markReadSchema, req.body);
     res.json({ unread: markRead(ctx, currentUser(res).id, ids ?? null) });
+  });
+
+  router.get('/me/notification-settings', (_req, res) => {
+    res.json({ settings: listNotificationSettings(ctx.db, currentUser(res)), defaultLevel: DEFAULT_NOTIFICATION_LEVEL });
+  });
+
+  router.put('/me/notification-settings/:id', (req, res) => {
+    const user = currentUser(res);
+    const projectId = idParam(req.params.id);
+    requireProject(ctx, user, projectId);
+    const { level } = parse(notificationSettingSchema, req.body);
+    res.json({ setting: setNotificationLevel(ctx, user.id, projectId, level) });
   });
 
   router.get('/users/:id/summary', (req, res) => {

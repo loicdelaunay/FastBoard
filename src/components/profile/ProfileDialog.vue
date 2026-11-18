@@ -20,6 +20,8 @@ import ApiTokensPanel from '@/components/tokens/ApiTokensPanel.vue';
 import LanguageSwitch from '@/components/common/LanguageSwitch.vue';
 import ThemePicker from './ThemePicker.vue';
 import FontSettings from './FontSettings.vue';
+import NotificationSettings from './NotificationSettings.vue';
+import ReadingSettings from './ReadingSettings.vue';
 
 import { t } from '@/i18n';
 const auth = useAuthStore();
@@ -131,6 +133,7 @@ async function changePassword(): Promise<void> {
       <TabList>
         <Tab value="profile"><i class="pi pi-user"></i> {{ $t('Profil') }}</Tab>
         <Tab value="appearance"><i class="pi pi-palette"></i> {{ $t('Apparence') }}</Tab>
+        <Tab value="notifications"><i class="pi pi-bell"></i> {{ $t('Notifications') }}</Tab>
         <Tab value="security"><i class="pi pi-lock"></i> {{ $t('Sécurité') }}</Tab>
         <Tab value="tokens"><i class="pi pi-key"></i> {{ $t('Jetons d\'API') }}</Tab>
       </TabList>
@@ -177,14 +180,19 @@ async function changePassword(): Promise<void> {
         </TabPanel>
 
         <TabPanel value="appearance">
-          <p class="muted small intro">{{ $t('Thème, thèmes personnalisés et polices sont enregistrés sur votre compte et vous suivent sur tous vos appareils.') }}</p>
+          <p class="muted small intro">{{ $t('Thème, thèmes personnalisés, polices et lecture sont enregistrés sur votre compte et vous suivent sur tous vos appareils.') }}</p>
           <section class="language">
             <h4 class="language-title"><i class="pi pi-language"></i> {{ $t('Langue') }}</h4>
             <p class="muted small">{{ $t("La langue de l'interface est enregistrée sur votre compte.") }}</p>
             <LanguageSwitch />
           </section>
+          <ReadingSettings />
           <FontSettings />
           <ThemePicker @select="chooseTheme" />
+        </TabPanel>
+
+        <TabPanel value="notifications">
+          <NotificationSettings v-if="ui.profileOpen && ui.profileTab === 'notifications'" />
         </TabPanel>
 
         <TabPanel value="security">

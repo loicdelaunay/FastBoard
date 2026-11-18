@@ -82,9 +82,12 @@ function ticketOf(id: number) {
   cursor: default;
   text-decoration: line-through;
 }
-.mention .mini {
+/* La pastille et son avatar gardent la même taille : sinon l'avatar, plus haut que sa boîte, s'écrase en ovale. */
+.mention .mini,
+.mention .mini :deep(.p-avatar) {
   width: 1.15rem !important;
   height: 1.15rem !important;
+  min-width: 1.15rem;
   font-size: 0.55rem !important;
 }
 .mention i {

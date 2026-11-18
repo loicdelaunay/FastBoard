@@ -13,6 +13,7 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useFileDrop } from '@/composables/useFileDrop';
 import { useTicketActions } from '@/composables/useTicketActions';
 import { useAuthStore } from '@/stores/auth';
+import { useNotificationsStore } from '@/stores/notifications';
 import { useProjectStore } from '@/stores/project';
 import { formatDateTime } from '@/utils/format';
 import { notifyError } from '@/utils/notify';
@@ -78,6 +79,10 @@ const watching = computed(() => auth.user !== null && props.ticket.watcherIds.in
 const watchers = computed(() => props.ticket.watcherIds.flatMap((id) => project.usersById.get(id) ?? []));
 const watchBusy = ref(false);
 const watchHover = ref(false);
+/** Niveau « Mentions seulement » ou « Aucune » pour le projet : le suivi n'apporte rien tant qu'il ne change pas. */
+const notifications = useNotificationsStore();
+const projectLevel = computed(() => notifications.levelOf(props.ticket.projectId));
+const quietProject = computed(() => projectLevel.value === 'mentions' || projectLevel.value === 'none');
 
 async function toggleWatch(): Promise<void> {
   watchBusy.value = true;
@@ -206,6 +211,9 @@ function askDelete(): void {
           @click="toggleWatch"
         />
         <span v-if="watchers.length" class="muted small" :title="watchers.map((user) => user.name).join(', ')">{{ $t('{n} abonné|{n} abonnés', { n: watchers.length }) }}</span>
+        <span v-if="watching && quietProject" v-tooltip.top="$t('Vos notifications pour ce projet sont réglées ainsi : choisissez « Ma participation » ou « Tout » (cloche en haut du projet) pour être prévenu des changements des tickets suivis.')" class="muted small quiet" tabindex="0">
+          <i :class="projectLevel === 'none' ? 'pi pi-bell-slash' : 'pi pi-at'"></i> {{ projectLevel === 'none' ? $t('Notifications coupées') : $t('Mentions seulement') }}
+        </span>
       </div>
       <StaleBar :ticket="ticket" />
       <TicketFieldsGrid :values="values" :disabled="!editable" :initial-delivery-id="ticket.initialDeliveryId" @change="onFieldChange" />
@@ -318,8 +326,14 @@ function askDelete(): void {
 }
 .watch {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem;
+}
+.quiet {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 .side {
   display: flex;

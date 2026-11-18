@@ -108,16 +108,20 @@ describe('version 1.5', () => {
     const theme = { id: 'custom-abc123', label: 'Bureau', mode: 'dark', preset: 'lara', primary: '#ff6600', surface: '#334155' };
     const fonts = { body: "Georgia, 'Times New Roman', serif", heading: "'Ma Police', system-ui, sans-serif", mono: '', size: 16 };
 
+    // Les champs ajoutés ensuite (couleurs réglées, polices des notes, lecture) prennent leur valeur par défaut.
+    const withDefaults = { ...theme, colors: {}, fonts: { body: '', heading: '', mono: '', doc: '' } };
+    const fontsWithDefaults = { ...fonts, doc: '', docSize: 0 };
+
     it('enregistre des thèmes et des polices personnalisés sur le compte', async () => {
       const me = (await owner.get('/api/me')).body.user;
-      assert.deepEqual(me.appearance, { customThemes: [], fonts: { body: '', heading: '', mono: '', size: 15 } });
+      assert.deepEqual(me.appearance, { customThemes: [], fonts: { body: '', heading: '', mono: '', size: 15, doc: '', docSize: 0 }, reading: 'screen' });
       assert.equal((await owner.patch('/api/me', { theme: 'custom-abc123' })).status, 400, 'thème personnalisé inexistant');
 
       const saved = await owner.patch('/api/me', { appearance: { customThemes: [theme], fonts }, theme: theme.id });
       assert.equal(saved.status, 200);
       assert.equal(saved.body.user.theme, theme.id);
-      assert.deepEqual(saved.body.user.appearance.customThemes, [theme]);
-      assert.deepEqual(saved.body.user.appearance.fonts, fonts);
+      assert.deepEqual(saved.body.user.appearance.customThemes, [withDefaults]);
+      assert.deepEqual(saved.body.user.appearance.fonts, fontsWithDefaults);
 
       assert.equal((await owner.patch('/api/me', { appearance: { customThemes: [{ ...theme, primary: 'orange' }], fonts } })).status, 400, 'couleur #RRGGBB');
       assert.equal((await owner.patch('/api/me', { appearance: { customThemes: [], fonts: { ...fonts, body: 'x; } body { display:none' } } })).status, 400, 'police refusée');
@@ -126,7 +130,42 @@ describe('version 1.5', () => {
       // Supprimer le thème utilisé ramène au thème par défaut.
       const removed = await owner.patch('/api/me', { appearance: { customThemes: [], fonts } });
       assert.equal(removed.body.user.theme, 'aura-indigo-light');
-      assert.deepEqual(removed.body.user.appearance.fonts, fonts, 'les polices restent');
+      assert.deepEqual(removed.body.user.appearance.fonts, fontsWithDefaults, 'les polices restent');
+    });
+
+    it('règle chaque couleur d’un thème, ses polices, et la largeur de lecture', async () => {
+      const detailed = { ...theme, colors: { background: '#101010', mdH1: '#FF0000', mdLink: '#00aa00' }, fonts: { body: '', heading: 'Georgia, serif', mono: '', doc: "'Literata', serif" } };
+      const saved = await owner.patch('/api/me', { appearance: { customThemes: [detailed], fonts: { ...fonts, doc: 'Georgia, serif', docSize: 18 }, reading: 'full' }, theme: detailed.id });
+      assert.equal(saved.status, 200, JSON.stringify(saved.body));
+      const appearance = saved.body.user.appearance;
+      assert.deepEqual(appearance.customThemes[0].colors, { background: '#101010', mdH1: '#ff0000', mdLink: '#00aa00' });
+      assert.equal(appearance.customThemes[0].fonts.doc, "'Literata', serif");
+      assert.deepEqual([appearance.fonts.doc, appearance.fonts.docSize, appearance.reading], ['Georgia, serif', 18, 'full']);
+
+      const bad = (patch: object) => owner.patch('/api/me', { appearance: { customThemes: [{ ...detailed, ...patch }], fonts } });
+      assert.equal((await bad({ colors: { mdH1: 'red' } })).status, 400, 'couleur #RRGGBB');
+      assert.equal((await bad({ fonts: { ...detailed.fonts, doc: 'x; } * { display:none' } })).status, 400, 'police refusée');
+      assert.equal((await owner.patch('/api/me', { appearance: { customThemes: [], fonts, reading: 'large' } })).status, 400);
+      const unknown = await owner.patch('/api/me', { appearance: { customThemes: [{ ...detailed, colors: { inconnue: '#000000' } }], fonts } });
+      assert.deepEqual(unknown.body.user.appearance.customThemes[0].colors, {}, 'couleurs inconnues ignorées');
+    });
+
+    it('partage un thème dans la bibliothèque du site', async () => {
+      const roles = (await owner.get('/api/admin/roles')).body.roles as Array<{ id: number; key: string; scope: string }>;
+      const roleId = roles.find((role) => role.key === 'member' && role.scope === 'global')!.id;
+      await owner.post('/api/admin/users', { email: 'lise@t.fr', name: 'Lise', password: 'motdepasse1', roleId });
+      const member = app.client();
+      await member.login('lise@t.fr', 'motdepasse1');
+      const { id: _id, ...shared } = { ...withDefaults, colors: { mdH2: '#123456' } };
+      const published = await owner.post('/api/themes/shared', { theme: shared });
+      assert.equal(published.status, 201, JSON.stringify(published.body));
+      assert.equal(published.body.theme.theme.colors.mdH2, '#123456');
+      assert.equal(published.body.theme.authorName.length > 0, true);
+      assert.ok(((await member.get('/api/themes/shared')).body.themes as Array<{ id: string }>).some((entry) => entry.id === published.body.theme.id), 'visible de tous');
+      assert.equal((await member.request('DELETE', `/api/themes/shared/${published.body.theme.id}`)).status, 403, 'seul son auteur le retire');
+      assert.equal((await owner.post('/api/themes/shared', { theme: { ...shared, primary: 'bleu' } })).status, 400);
+      assert.equal((await owner.request('DELETE', `/api/themes/shared/${published.body.theme.id}`)).status, 200);
+      assert.equal((await owner.request('DELETE', `/api/themes/shared/${published.body.theme.id}`)).status, 404);
     });
   });
 });

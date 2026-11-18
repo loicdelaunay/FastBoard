@@ -53,7 +53,28 @@ export function resolveSession(ctx: AppContext, token: string | undefined): Auth
   const user = getAuthUser(ctx.db, session.user_id);
   if (!user || !user.isActive) return null;
   markSeen(ctx, user.id);
+  renewSession(ctx, token, session.expires_at);
   return user;
+}
+
+/** Une session prolongée il y a moins d'un jour ne l'est pas de nouveau : une écriture par jour au plus. */
+const RENEW_AFTER_MS = 86_400_000;
+
+/** Session glissante : utilisée, elle repart pour `sessionDays` jours ; seule une longue absence la fait expirer. */
+function renewSession(ctx: AppContext, token: string, expiresAt: string): void {
+  const lifetime = ctx.config.sessionDays * 86_400_000;
+  const now = Date.now();
+  if (Date.parse(expiresAt) - now > lifetime - RENEW_AFTER_MS) return;
+  ctx.db.run('UPDATE sessions SET expires_at = ? WHERE id = ?', new Date(now + lifetime).toISOString(), hashToken(token));
+}
+
+/** Secondes avant l'expiration d'une session (pour aligner la durée du cookie), ou `null` si elle n'existe plus. */
+export function sessionSecondsLeft(ctx: AppContext, token: string | undefined): number | null {
+  if (!token) return null;
+  const session = ctx.db.get<{ expires_at: string }>('SELECT expires_at FROM sessions WHERE id = ?', hashToken(token));
+  if (!session) return null;
+  const seconds = Math.floor((Date.parse(session.expires_at) - Date.now()) / 1000);
+  return seconds > 0 ? seconds : null;
 }
 
 export function destroySession(ctx: AppContext, token: string | undefined): void {

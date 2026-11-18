@@ -178,7 +178,24 @@ curl -s "$FASTBOARD/api/me/notifications?unread=true" -H "Authorization: Bearer 
 curl -s -X POST $FASTBOARD/api/me/notifications/read -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
 ```
 
-Le créateur, les assignés et les commentateurs suivent automatiquement un ticket ; une mention `@[Nom](user:12)` notifie la personne.
+Le créateur, les assignés, les commentateurs et les personnes mentionnées suivent automatiquement un ticket ; une mention `@[Nom](user:12)` notifie la personne.
+
+Ce qui est notifié dépend du **niveau** choisi par chaque personne pour chaque projet (`GET /me/notification-settings` liste les projets visibles et leur niveau) :
+
+```bash
+curl -s $FASTBOARD/api/me/notification-settings -H "Authorization: Bearer $TOKEN"
+curl -s -X PUT $FASTBOARD/api/me/notification-settings/3 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "level": "mentions" }'
+```
+
+| `level` | Notifié |
+| --- | --- |
+| `all` | toute l'activité des tickets du projet, suivis ou non, assignations et mentions |
+| `participating` (par défaut) | changements des tickets suivis, assignations et mentions |
+| `mentions` | seulement les mentions `@` |
+| `none` | rien, mentions comprises |
+
+Les mentions dans la documentation ne dépendent pas d'un projet : elles sont toujours notifiées.
 
 ### Lignes d'avancement
 
@@ -226,6 +243,8 @@ curl -s -X POST $FASTBOARD/api/documentation/nodes/5/comments -H "Authorization:
 curl -s -X PATCH $FASTBOARD/api/documentation/comments/3 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "resolved": true }'
 ```
 
+**Apparence.** `PATCH /me` enregistre aussi l’apparence du compte (`appearance`) : thèmes personnalisés (`colors` : couleurs `#RRGGBB` réglées une à une, comme `background`, `text`, `mdH1`, `mdLink` ou `mdCodeBg` ; `fonts` : polices propres au thème), polices (`doc` et `docSize` pour le texte des notes) et largeur du texte des notes (`reading` : `screen`, `column` ou `full`). `GET /themes/shared` liste les thèmes partagés du site ; `POST /themes/shared` en publie un (`{ theme }`), `DELETE /themes/shared/{id}` le retire (son auteur, ou `settings.manage`).
+
 **Modèles de notes.** Chaque espace a ses modèles, à part de l'arbre : `GET /documentation/spaces/{id}` les donne dans `templates` (l'arbre reste dans `nodes`). Un modèle se crée comme une note, avec `kind: "template"` et un nom sans dossier (ses noms ne gênent pas ceux des notes), puis se lit, s'écrit, se renomme et se supprime comme elle. Pour créer une note d'après un modèle, passez son identifiant dans `fromId` à la place de `content` : `{{title}}` (ou `{{titre}}`) devient le titre de la note, `{{date}}` et `{{time}}` (ou `{{heure}}`) la date et l'heure du serveur, `{{author}}` (ou `{{auteur}}`) votre nom ; un format se donne à la manière de Moment.js, comme `{{date:DD/MM/YYYY}}` ou `{{date:dddd D MMMM}}`. Les variables inconnues restent telles quelles. Avec `kind: "template"` et `fromId` d'une note, le modèle en reprend le texte. Les modèles ne sont ni dans l'export ZIP de l'espace, ni dans la recherche, ni sur son site web.
 
 ```bash
@@ -260,6 +279,8 @@ Un élément a un `id` (court, unique dans le tableau), un `type`, un ordre d'em
 Pour ajouter, remplacer ou retirer quelques éléments sans réécrire tout le tableau : `PATCH /boards/nodes/{id}/elements` avec `upsert` (éléments, remplacés s'ils ont le même `id`) et `remove` (identifiants ; les liens accrochés partent avec eux). Ce que d'autres dessinent en même temps est gardé.
 
 Les types : `shape` (formes `rect`, `rounded`, `ellipse`, `diamond`, `parallelogram`, `hexagon`, `cylinder`, `triangle`), `text`, `sticky` (post-it, avec `votes`), `frame` (section titrée), `mind` (nœud de carte mentale, `parent`), `path` (trait à main levée), `fast` (objet de FastBoard : `ref: { kind: "ticket" | "note" | "folder" | "space" | "board", id }`), `table` (`rows`, la première ligne étant l'en-tête), `chart` (`chart`: `bar`, `line`, `pie`, `doughnut`, `radar`, données dans `rows` ou dans le tableau `source`) et `connector`. Couleurs : `default`, `gray`, `red`, `orange`, `yellow`, `green`, `blue`, `purple`, `pink`. Un élément illisible est ignoré. Pour citer un tableau dans un ticket ou une note : `@[Titre](board:7)`.
+
+Groupes : un élément (lien compris) peut porter `group`, un identifiant libre d'au plus 40 caractères ; les éléments qui partagent le même `group` forment un groupe, que l'interface sélectionne, déplace, copie et aligne d'un bloc (un groupe d'un seul élément ne compte pas). Pour dégrouper, renvoyez les éléments sans `group`. Les nœuds de carte mentale (`mind`) ne se groupent pas : le champ y est ignoré.
 
 Icônes et images : un élément `icon` (`icon: "lucide:camera"` pour la bibliothèque intégrée, plus de 2 000 icônes Lucide ; `icon: "custom:12"` pour une icône ajoutée par un administrateur, voir `GET /boards/icons`), avec `color` et l'épaisseur `stroke` ; un élément `image` (`asset` : clé d'un fichier de l'espace). Les images et SVG d'un espace s'envoient avec `POST /boards/spaces/{id}/assets` (le corps est le fichier, son nom dans l'en-tête `X-File-Name`), se listent avec `GET /boards/spaces/{id}/assets` et se lisent sans compte à `/board-assets/{key}`.
 
