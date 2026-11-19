@@ -94,6 +94,12 @@ export const enV27: Record<string, string> = {
   'Contenu du thème (JSON)': 'Theme content (JSON)',
 
   // Journal des modifications
+  "Documentation : en écriture avec l’aperçu à côté, l’aperçu suit le curseur et le défilement de l’éditeur.":
+    "Documentation: when writing with the preview alongside, the preview follows the cursor and the scrolling of the editor.",
+  "Documentation : les couleurs d’un thème personnalisé (titres, liens, code, citations…) s’appliquent aussi en « Lecture et écriture » et dans le source.":
+    "Documentation: the colours of a custom theme (headings, links, code, quotes…) also apply in “Read and write” and in the source.",
+  "Documentation : sélectionner du texte ne surligne plus des bouts de mots partout dans la note ; seules les autres occurrences d’un mot entier sont marquées, discrètement, en « Écriture ».":
+    "Documentation: selecting text no longer highlights bits of words all over the note; only other occurrences of a whole word are marked, discreetly, in “Write”.",
   "Notifications : un agent qui crée ou commente des tickets avec votre jeton d’API ne vous y abonne plus ; les personnes assignées ou mentionnées les suivent toujours.":
     "Notifications: an agent that creates or comments on tickets with your API token no longer subscribes you to them; assigned or mentioned people still follow them.",
   "Notifications : le niveau « Mentions seulement » devient « Mentions et assignations » et prévient aussi quand on vous assigne un ticket.":

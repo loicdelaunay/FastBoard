@@ -52,7 +52,14 @@ const props = defineProps<{
   /** Syntaxe propre à Obsidian (réglage de l'espace). */
   obsidian?: boolean;
 }>();
-const emit = defineEmits<{ open: [node: DocNodeDTO]; comment: [quote: DocQuote]; 'focus-comment': [commentId: number]; 'top-line': [line: number] }>();
+const emit = defineEmits<{
+  open: [node: DocNodeDTO];
+  comment: [quote: DocQuote];
+  'focus-comment': [commentId: number];
+  'top-line': [line: number];
+  /** Ligne du curseur, et sa hauteur dans l'éditeur (0 en haut, 1 en bas) : l'aperçu se cale dessus. */
+  'cursor-line': [line: number, ratio: number];
+}>();
 
 const host = ref<HTMLElement | null>(null);
 const picker = ref<HTMLInputElement | null>(null);
@@ -505,6 +512,21 @@ function onScroll(): void {
   });
 }
 
+// Pour l'aperçu à côté : la ligne du curseur et sa hauteur à l'écran, une fois par image.
+let cursorFrame = 0;
+function reportCursor(): void {
+  if (cursorFrame) return;
+  cursorFrame = requestAnimationFrame(() => {
+    cursorFrame = 0;
+    if (!view) return;
+    const head = view.state.selection.main.head;
+    const coords = view.coordsAtPos(head);
+    const box = view.scrollDOM.getBoundingClientRect();
+    const ratio = coords && box.height ? (coords.top - box.top) / box.height : 0.35;
+    emit('cursor-line', view.state.doc.lineAt(head).number, Math.min(1, Math.max(0, ratio)));
+  });
+}
+
 const FONT_MONO = 'ui-monospace, SFMono-Regular, Consolas, monospace';
 
 onMounted(() => {
@@ -522,7 +544,9 @@ onMounted(() => {
         indentOnInput(),
         bracketMatching(),
         closeBrackets(),
-        highlightSelectionMatches(),
+        // Autres occurrences du texte choisi : seulement des mots entiers d'au moins 3 lettres, et pas en « Lecture et
+        // écriture », où les repères au milieu des mots gênent la lecture.
+        ...(props.live ? [] : [highlightSelectionMatches({ wholeWords: true, minSelectionLength: 3 })]),
         syntaxHighlighting(docHighlight),
         markdown({ base: markdownLanguage }),
         EditorView.lineWrapping,
@@ -543,6 +567,7 @@ onMounted(() => {
         editable.of(editableState(props.readonly)),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && pendingAnchor.value) requestAnimationFrame(takePendingAnchor);
+          if ((update.selectionSet || update.docChanged) && update.view.hasFocus) reportCursor();
         }),
         EditorView.domEventHandlers({
           paste(event, editor) {
@@ -578,6 +603,8 @@ onMounted(() => {
           '.cm-image-info img': { maxWidth: '16rem', maxHeight: '12rem', borderRadius: '6px', objectFit: 'contain', backgroundColor: 'var(--fb-panel-alt)' },
           '.cm-ySelectionInfo': { padding: '1px 4px', borderRadius: '4px', fontFamily: 'inherit', fontSize: '0.7rem', fontWeight: '600', opacity: '1' },
           '.cm-doc-comment': { borderRadius: '2px', backgroundColor: 'color-mix(in srgb, #f59e0b 28%, transparent)' },
+          // Autres occurrences du mot choisi : discrètes, dans la couleur du thème (le vert vif par défaut attire l'œil).
+          '.cm-selectionMatch': { borderRadius: '2px', backgroundColor: 'color-mix(in srgb, var(--fb-accent) 18%, transparent)' },
           ...(props.live
             ? {
                 '.cm-scroller': { fontFamily: "var(--fb-font-doc, var(--fb-font, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif))", fontSize: 'var(--fb-doc-size, 1rem)', lineHeight: '1.65' },
@@ -713,6 +740,7 @@ watch(
 
 onBeforeUnmount(() => {
   cancelAnimationFrame(scrollFrame);
+  cancelAnimationFrame(cursorFrame);
   view?.destroy();
   view = null;
 });

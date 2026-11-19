@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useConfirm } from 'primevue/useconfirm';
 import Button from 'primevue/button';
@@ -34,6 +34,7 @@ import { DocSession, type DocPresence } from '@/realtime/docSession';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
 import { downloadFrom } from '@/utils/files';
+import { markdownBlocks } from '@/utils/markdown';
 import { formatDateTime, formatRelative } from '@/utils/format';
 import { notify, notifyError } from '@/utils/notify';
 
@@ -265,9 +266,66 @@ function onPreviewScroll(): void {
 }
 
 function onEditorLine(line: number): void {
+  // Défilement de l'éditeur sans déplacer le curseur : l'aperçu suit le haut de l'éditeur.
+  if (Date.now() > cursorSyncedAt + 400) syncPreview(line, 0);
   if (Date.now() < followAfter) return;
   activeHeading.value = Math.max(0, headings.value.findLastIndex((heading) => heading.line <= line));
 }
+
+// --- Écriture avec l'aperçu à côté : l'aperçu suit le curseur de l'éditeur ---
+const splitView = computed(() => writing.value && !live.value && showPreview.value);
+let lastCursor: { line: number; ratio: number } | null = null;
+let cursorSyncedAt = 0;
+
+function onCursorLine(line: number, ratio: number): void {
+  lastCursor = { line, ratio };
+  cursorSyncedAt = Date.now();
+  syncPreview(line, ratio);
+}
+
+/**
+ * Amène dans l'aperçu le passage de la ligne `line` du source, à la même hauteur (`ratio`) que dans l'éditeur. Les blocs
+ * rendus (paragraphes, titres, listes…) servent de repères, dans l'ordre des blocs du source ; entre deux repères, la
+ * position est interpolée. Si le rendu ne correspond pas bloc à bloc, seuls les titres servent de repères.
+ */
+function syncPreview(line: number, ratio: number): void {
+  const pane = previewPane.value;
+  const root = pane?.querySelector<HTMLElement>('.doc-preview .markdown');
+  if (!splitView.value || !pane || !root) return;
+  const text = content.value;
+  const origin = pane.getBoundingClientRect().top - pane.scrollTop;
+  const yOf = (element: Element): number => element.getBoundingClientRect().top - origin;
+
+  const blocks = markdownBlocks(text, obsidian.value);
+  const elements = [...root.children];
+  let anchors: Array<{ line: number; y: number }> = [];
+  if (blocks.length && blocks.length === elements.length) {
+    let offset = 0;
+    let current = 1;
+    anchors = blocks.map((block, index) => {
+      for (; offset < block.from; offset += 1) if (text.charCodeAt(offset) === 10) current += 1;
+      return { line: current, y: yOf(elements[index]!) };
+    });
+  } else {
+    anchors = headings.value.flatMap((heading, index) => {
+      const element = renderedHeading(index);
+      return element ? [{ line: heading.line, y: yOf(element) }] : [];
+    });
+  }
+  const total = text.split('\n').length;
+  anchors = [{ line: 1, y: 0 }, ...anchors.filter((anchor) => anchor.line > 1), { line: total + 1, y: pane.scrollHeight }];
+  const index = Math.max(0, anchors.findLastIndex((anchor) => anchor.line <= line));
+  const from = anchors[index]!;
+  const to = anchors[Math.min(index + 1, anchors.length - 1)]!;
+  const y = to.line > from.line ? from.y + ((line - from.line) / (to.line - from.line)) * (to.y - from.y) : from.y;
+  pane.scrollTop = Math.max(0, y - ratio * pane.clientHeight);
+}
+
+// Le rendu change avec le texte : on recale l'aperçu sur le curseur une fois l'aperçu redessiné.
+watch(content, () => {
+  if (!lastCursor || !splitView.value) return;
+  void nextTick(() => requestAnimationFrame(() => lastCursor && syncPreview(lastCursor.line, lastCursor.ratio)));
+});
 
 function closeSession(): void {
   session.value?.close();
@@ -774,6 +832,7 @@ const recent = computed(() =>
                   @comment="startComment"
                   @focus-comment="focusComment"
                   @top-line="onEditorLine"
+                  @cursor-line="onCursorLine"
                 />
               </div>
               <div v-if="!writing || (showPreview && !live)" ref="previewPane" class="pane preview" @scroll.passive="onPreviewScroll">

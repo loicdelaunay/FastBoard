@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.6.1';
+export const APP_VERSION = '2.6.2';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,15 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.6.2',
+    date: '2026-11-19',
+    changes: [
+      { category: 'Amélioration', text: 'Documentation : en écriture avec l’aperçu à côté, l’aperçu suit le curseur et le défilement de l’éditeur.' },
+      { category: 'Correction', text: 'Documentation : les couleurs d’un thème personnalisé (titres, liens, code, citations…) s’appliquent aussi en « Lecture et écriture » et dans le source.' },
+      { category: 'Correction', text: 'Documentation : sélectionner du texte ne surligne plus des bouts de mots partout dans la note ; seules les autres occurrences d’un mot entier sont marquées, discrètement, en « Écriture ».' },
+    ],
+  },
   {
     version: '2.6.1',
     date: '2026-11-18',
