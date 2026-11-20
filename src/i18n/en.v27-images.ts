@@ -1,4 +1,4 @@
-/** Textes ajoutés en 2.6.3 : dossier des images collées dans les notes, par espace et dans l'administration. */
+/** Textes ajoutés en 2.6.3 : dossier des images collées dans les notes (par espace et dans l'administration), thème en « Lecture et écriture ». */
 export const enV27Images: Record<string, string> = {
   // Réglages d'un espace
   'Dossier des images collées': 'Pasted images folder',
@@ -20,4 +20,6 @@ export const enV27Images: Record<string, string> = {
     'Documentation: each space can choose, in its settings, the folder where images pasted or dropped into a note go.',
   'Administration : le dossier par défaut des images collées se règle dans Documentation, et s’appelle désormais « Pictures » au lieu de « images » ; les images déjà rangées ne bougent pas.':
     'Administration: the default folder for pasted images is set in Documentation, and is now called “Pictures” instead of “images”; images already stored stay where they are.',
+  'Documentation : en « Lecture et écriture », le gras, les citations et le code en ligne suivent le thème courant comme en lecture : couleur du gras dans une citation, barre et fond des citations sans italique, fond et police du code.':
+    'Documentation: in “Read and write”, bold, quotes and inline code follow the current theme as in reading: colour of bold inside a quote, bar and background of quotes without italics, background and font of code.',
 };

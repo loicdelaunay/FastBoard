@@ -394,6 +394,11 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
               lineClass(current.from, 'cm-lp-quote');
               position = current.to + 1;
             }
+            // Marges haute et basse du bloc, comme en lecture (pas pour une citation dans une citation).
+            if (node.node.parent?.name !== 'Blockquote') {
+              lineClass(from, 'cm-lp-quote-first');
+              lineClass(to, 'cm-lp-quote-last');
+            }
             return true;
           case 'QuoteMark':
             if (!onActiveLine(from)) hide(from, to + (doc.sliceString(to, to + 1) === ' ' ? 1 : 0));

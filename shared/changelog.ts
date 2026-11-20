@@ -31,6 +31,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     changes: [
       { category: 'Nouveauté', text: 'Documentation : chaque espace peut choisir, dans ses réglages, le dossier où vont les images collées ou glissées dans une note.' },
       { category: 'Amélioration', text: 'Administration : le dossier par défaut des images collées se règle dans Documentation, et s’appelle désormais « Pictures » au lieu de « images » ; les images déjà rangées ne bougent pas.' },
+      { category: 'Correction', text: 'Documentation : en « Lecture et écriture », le gras, les citations et le code en ligne suivent le thème courant comme en lecture : couleur du gras dans une citation, barre et fond des citations sans italique, fond et police du code.' },
     ],
   },
   {

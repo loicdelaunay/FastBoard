@@ -28,7 +28,7 @@ import { notifyError } from '@/utils/notify';
 import { matchesQuery, normalizeText } from '@/utils/search';
 import { taskLine, toggleTask } from './editor/commands';
 import { docComments, setDocComments } from './editor/comments';
-import { docHighlight } from './editor/highlight';
+import { docHighlight, docLiveHighlight } from './editor/highlight';
 import { editImageSource, liveInline } from './editor/liveInline';
 import { livePreview, refreshLive, textBeforePoint } from './editor/live';
 import { tableCellAt } from './editor/tableWidget';
@@ -547,7 +547,7 @@ onMounted(() => {
         // Autres occurrences du texte choisi : seulement des mots entiers d'au moins 3 lettres, et pas en « Lecture et
         // écriture », où les repères au milieu des mots gênent la lecture.
         ...(props.live ? [] : [highlightSelectionMatches({ wholeWords: true, minSelectionLength: 3 })]),
-        syntaxHighlighting(docHighlight),
+        syntaxHighlighting(props.live ? docLiveHighlight : docHighlight),
         markdown({ base: markdownLanguage }),
         EditorView.lineWrapping,
         placeholder(t('Écrivez en Markdown… @ pour mentionner, / pour insérer un élément.')),
@@ -629,10 +629,25 @@ onMounted(() => {
                 '.cm-lp-strong': { fontWeight: '700', color: 'var(--md-strong, currentColor)' },
                 '.cm-lp-em': { fontStyle: 'italic', color: 'var(--md-em, currentColor)' },
                 '.cm-lp-strike': { textDecoration: 'line-through' },
-                '.cm-lp-code': { fontFamily: FONT_MONO, fontSize: '0.88em', padding: '0.05em 0.25em', borderRadius: '4px', color: 'var(--md-code, currentColor)', backgroundColor: 'var(--md-code-bg, color-mix(in srgb, var(--fb-text) 9%, transparent))' },
+                // Gras, code et citations : mêmes couleurs, police et fond qu'en lecture (thème courant compris).
+                '.cm-lp-code': {
+                  fontFamily: `var(--fb-font-mono, ${FONT_MONO})`,
+                  fontSize: '0.85em',
+                  padding: '0.1em 0.35em',
+                  borderRadius: '5px',
+                  color: 'var(--md-code, currentColor)',
+                  backgroundColor: 'var(--md-code-bg, var(--fb-panel-alt))',
+                },
                 '.cm-lp-link': { color: 'var(--md-link, var(--fb-accent))', textDecoration: 'underline', textUnderlineOffset: '2px', cursor: 'pointer' },
                 '.cm-lp-syntax': { color: 'var(--fb-muted)' },
-                '.cm-lp-quote': { borderLeft: '3px solid var(--md-quote-bar, var(--fb-border))', paddingLeft: '0.85rem !important', color: 'var(--md-quote, var(--fb-muted))', backgroundColor: 'var(--md-quote-bg, transparent)' },
+                '.cm-lp-quote': {
+                  borderLeft: '3px solid var(--md-quote-bar, var(--fb-accent))',
+                  padding: '0 0.9rem !important',
+                  color: 'var(--md-quote, var(--fb-muted))',
+                  backgroundColor: 'var(--md-quote-bg, var(--fb-panel-alt))',
+                },
+                '.cm-lp-quote-first': { paddingTop: '0.25rem !important' },
+                '.cm-lp-quote-last': { paddingBottom: '0.25rem !important' },
                 '.cm-lp-bullet': { display: 'inline-block', minWidth: '0.9em', color: 'var(--md-marker, var(--fb-muted))', fontWeight: '700' },
                 '.cm-lp-ordinal': { color: 'var(--md-marker, var(--fb-muted))' },
                 '.cm-lp-task': { margin: '0 0.45em 0 0', verticalAlign: 'middle', cursor: 'pointer' },
