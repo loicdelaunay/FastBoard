@@ -362,8 +362,8 @@ describe('documentation', () => {
     const upload = (body: Buffer, name: string, folder = 'Guides') => bob.raw('POST', `/api/documentation/spaces/${spaceId}/images?folder=${folder}`, body, { 'Content-Type': 'application/octet-stream', 'X-File-Name': name });
     const stored = await upload(PNG, 'schéma.png');
     assert.equal(stored.status, 201, JSON.stringify(stored.json));
-    assert.equal(stored.json.node.path, 'Guides/images/schéma.png');
-    assert.equal((await upload(PNG, 'schéma.png')).json.node.path, 'Guides/images/schéma (2).png');
+    assert.equal(stored.json.node.path, 'Guides/Pictures/schéma.png', 'dossier « Pictures » par défaut');
+    assert.equal((await upload(PNG, 'schéma.png')).json.node.path, 'Guides/Pictures/schéma (2).png');
     assert.equal((await upload(Buffer.from('<svg onload="alert(1)"/>'), 'x.png')).status, 400, 'contenu vérifié');
     assert.equal((await upload(PNG, 'x.svg')).status, 400, 'extension vérifiée');
     assert.equal((await upload(PNG, 'x.png', '../..')).status, 400);
@@ -372,6 +372,51 @@ describe('documentation', () => {
     assert.equal(served.headers.get('content-type'), 'image/png');
     assert.equal(served.headers.get('x-content-type-options'), 'nosniff');
     assert.ok(Buffer.from(await served.arrayBuffer()).equals(PNG));
+  });
+
+  it('range les images collées dans le dossier de l’espace, sinon celui de l’administration', async (t) => {
+    const upload = (spaceId: number, folder = 'Guides') => bob.raw('POST', `/api/documentation/spaces/${spaceId}/images?folder=${folder}`, PNG, { 'Content-Type': 'image/png', 'X-File-Name': 'capture.png' });
+    const settings = (await admin.get('/api/admin/documentation')).body;
+    assert.equal(settings.imageFolder, 'Pictures');
+    assert.equal(settings.defaultImageFolder, 'Pictures');
+
+    const created = (await bob.post('/api/documentation/spaces', { name: 'Captures', imageFolder: ' Médias/Captures ' })).body.space;
+    assert.equal(created.imageFolder, 'Médias/Captures', 'nettoyé');
+    assert.equal(created.defaultImageFolder, 'Pictures');
+    assert.equal((await upload(created.id)).json.node.path, 'Guides/Médias/Captures/capture.png');
+    assert.equal((await upload(created.id, '')).json.node.path, 'Médias/Captures/capture.png', 'note à la racine');
+
+    for (const bad of ['../secret', '.cache', 'a/../b', 'fin.', 'a:b']) {
+      assert.equal((await bob.patch(`/api/documentation/spaces/${created.id}`, { imageFolder: bad })).status, 400, bad);
+    }
+    const plain = await newSpace('Sans dossier');
+    assert.equal((await bob.get(`/api/documentation/spaces/${plain}`)).body.space.imageFolder, null);
+
+    // L'administrateur change le dossier par défaut : seuls les espaces sans dossier à eux suivent.
+    assert.equal((await bob.request('PUT', '/api/admin/documentation', { imageFolder: 'Assets' })).status, 403);
+    assert.equal((await admin.request('PUT', '/api/admin/documentation', { imageFolder: '.cache' })).status, 400);
+    t.after(() => admin.request('PUT', '/api/admin/documentation', { enabled: true, imageFolder: 'Pictures' }));
+    const saved = await admin.request('PUT', '/api/admin/documentation', { imageFolder: 'Assets' });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(saved.body.imageFolder, 'Assets');
+    assert.equal(saved.body.enabled, true, 'la documentation reste activée');
+    assert.equal((await bob.get('/api/documentation/spaces')).status, 200);
+    assert.equal((await upload(plain)).json.node.path, 'Guides/Assets/capture.png');
+    assert.equal((await upload(created.id)).json.node.path, 'Guides/Médias/Captures/capture (2).png');
+    assert.equal((await bob.get(`/api/documentation/spaces/${plain}`)).body.space.defaultImageFolder, 'Assets');
+
+    // Vide ou null : l'espace reprend le dossier du site.
+    assert.equal((await bob.patch(`/api/documentation/spaces/${created.id}`, { imageFolder: '' })).body.space.imageFolder, null);
+    assert.equal((await upload(created.id)).json.node.path, 'Guides/Assets/capture.png');
+    assert.equal((await bob.patch(`/api/documentation/spaces/${created.id}`, { imageFolder: 'Img' })).body.space.imageFolder, 'Img');
+    assert.equal((await bob.patch(`/api/documentation/spaces/${created.id}`, { name: 'Captures 2' })).body.space.imageFolder, 'Img', 'inchangé si absent');
+    assert.equal((await bob.patch(`/api/documentation/spaces/${created.id}`, { imageFolder: null })).body.space.imageFolder, null);
+
+    // Désactiver puis réactiver garde le dossier choisi.
+    await admin.request('PUT', '/api/admin/documentation', { enabled: false });
+    await admin.request('PUT', '/api/admin/documentation', { enabled: true });
+    assert.equal((await admin.get('/api/admin/documentation')).body.imageFolder, 'Assets');
+    assert.equal((await admin.request('PUT', '/api/admin/documentation', { imageFolder: 'Pictures' })).body.imageFolder, 'Pictures');
   });
 
   describe('export et import', () => {
@@ -396,7 +441,7 @@ describe('documentation', () => {
       await bob.post(`/api/documentation/spaces/${spaceId}/nodes`, { path: 'Vide', kind: 'folder' });
       await bob.raw('POST', `/api/documentation/spaces/${spaceId}/images`, PNG, { 'Content-Type': 'image/png', 'X-File-Name': 'logo.png' });
       const files = await exportZip(spaceId);
-      assert.deepEqual(Object.keys(files).sort(), ['Dossier/', 'Dossier/Sous dossier/', 'Dossier/Sous dossier/note.md', 'Vide/', 'images/', 'images/logo.png'], 'rien de plus que l’arbre');
+      assert.deepEqual(Object.keys(files).sort(), ['Dossier/', 'Dossier/Sous dossier/', 'Dossier/Sous dossier/note.md', 'Pictures/', 'Pictures/logo.png', 'Vide/'], 'rien de plus que l’arbre');
       assert.equal(strFromU8(files['Dossier/Sous dossier/note.md']!), 'contenu');
     });
 

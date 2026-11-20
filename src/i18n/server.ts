@@ -62,6 +62,7 @@ const EXACT: Record<string, string> = {
   "Une image garde son extension.": "An image keeps its extension.",
   "Un dossier ne peut pas être déplacé dans lui-même.": "A folder cannot be moved into itself.",
   "Nom d’image invalide.": "Invalid image name.",
+  "Nom de dossier invalide.": "Invalid folder name.",
   "Image vide.": "Empty image.",
   "Image invalide (PNG, JPEG, WebP ou GIF).": "Invalid image (PNG, JPEG, WebP or GIF).",
   "Version introuvable.": "Version not found.",

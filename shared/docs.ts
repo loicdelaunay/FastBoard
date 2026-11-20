@@ -25,6 +25,10 @@ export interface DocSpaceDTO {
   memberCount: number;
   /** Syntaxe propre à Obsidian (callouts, surlignage, commentaires, étiquettes, notes de bas de page…). */
   obsidian: boolean;
+  /** Sous-dossier, à côté de la note, où vont les images collées ou glissées ; `null` : celui du site (`defaultImageFolder`). */
+  imageFolder: string | null;
+  /** Dossier des images réglé dans l'administration, utilisé quand l'espace n'a pas le sien. */
+  defaultImageFolder: string;
   /** Site web de l'espace, s'il est activé. */
   site: { slug: string; visibility: DocSiteVisibility } | null;
   createdAt: string;
@@ -218,7 +222,12 @@ export const DOC_LIMITS = {
   /** Textes exportés gardés sur le serveur pour fusionner au retour : par personne et par espace, et leur durée. */
   exportsKept: 20,
   exportDays: 90,
+  /** Nom du dossier des images collées, sous-dossiers compris. */
+  imageFolderMax: 200,
 };
+
+/** Dossier où vont les images collées ou glissées dans une note, à côté d'elle, tant que rien d'autre n'est réglé. */
+export const DOC_DEFAULT_IMAGE_FOLDER = 'Pictures';
 
 const MARKDOWN = /\.(md|markdown)$/i;
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
@@ -258,6 +267,11 @@ export function normalizeDocPath(raw: string): string | null {
     if (!segment || segment.startsWith('.') || segment.endsWith('.') || segment.length > DOC_LIMITS.segmentMax || /[\u0000-\u001f\u007f<>:"|?*]/.test(segment) || FORBIDDEN_NAME.test(segment)) return null;
   }
   return segments.join('/');
+}
+
+/** Nom de dossier des images, nettoyé (`Captures/2026`), ou `null` s'il n'est pas utilisable. */
+export function normalizeImageFolder(raw: string): string | null {
+  return raw.trim().length > DOC_LIMITS.imageFolderMax ? null : normalizeDocPath(raw);
 }
 
 /** Complète un nom de note par l'extension Markdown. */

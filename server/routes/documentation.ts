@@ -1,7 +1,7 @@
 import express, { type Response, type Router } from 'express';
 import { isInlineImage, sniffImageMime } from '../../shared/attachments.ts';
 import { FILE_NAME_HEADER } from '../../shared/constants.ts';
-import { docBaseName, DOC_LIMITS, docRoleAtLeast, type DocRole } from '../../shared/docs.ts';
+import { docBaseName, DOC_DEFAULT_IMAGE_FOLDER, DOC_LIMITS, docRoleAtLeast, type DocRole } from '../../shared/docs.ts';
 import { getSite, removeSite, saveSite } from '../docs/sites.ts';
 import type { AppContext } from '../context.ts';
 import { commentNode, createComment, deleteComment, listComments, resolveComment } from '../docs/comments.ts';
@@ -12,7 +12,7 @@ import {
   createSpace,
   deleteNode,
   deleteSpace,
-  docsEnabled,
+  docSettings,
   findNodeByPath,
   getSpace,
   listMembers,
@@ -35,7 +35,7 @@ import {
   restoreNode,
   searchNodes,
   setBookmark,
-  setDocsEnabled,
+  saveDocSettings,
   setMember,
   setMemo,
   storeImage,
@@ -127,19 +127,24 @@ export function documentationRouter(ctx: AppContext): Router {
     const stats = ctx.db.get<{ spaces: number; files: number; bytes: number | null }>(
       "SELECT (SELECT COUNT(*) FROM doc_spaces) AS spaces, COUNT(*) AS files, SUM(size) AS bytes FROM doc_nodes WHERE kind != 'folder' AND deleted_at IS NULL",
     );
-    res.json({ enabled: docsEnabled(ctx.db), spaces: stats?.spaces ?? 0, files: stats?.files ?? 0, bytes: stats?.bytes ?? 0, retentionDays: DOC_LIMITS.retentionDays });
+    res.json({ ...docSettings(ctx.db), defaultImageFolder: DOC_DEFAULT_IMAGE_FOLDER, spaces: stats?.spaces ?? 0, files: stats?.files ?? 0, bytes: stats?.bytes ?? 0, retentionDays: DOC_LIMITS.retentionDays });
   });
 
   router.put('/admin/documentation', sessionOnly(), (req, res) => {
     const user = currentUser(res);
     requireGlobal(user, 'docs.manage');
-    const { enabled } = parse(docSettingsSchema, req.body);
-    setDocsEnabled(ctx.db, enabled);
-    if (!enabled) ctx.docRooms.closeAllSpaces();
-    ctx.logger.info('admin', `Documentation ${enabled ? 'activée' : 'désactivée'}`, undefined, user.id, res.locals.requestId as string);
+    const patch = parse(docSettingsSchema, req.body);
+    const before = docSettings(ctx.db);
+    const settings = saveDocSettings(ctx.db, patch);
+    const requestId = res.locals.requestId as string;
+    if (settings.imageFolder !== before.imageFolder) ctx.logger.info('admin', `Dossier des images collées : ${settings.imageFolder}`, undefined, user.id, requestId);
     const app = appInfo(ctx.db);
-    ctx.hub.broadcast({ t: 'app', app });
-    res.json({ enabled, app });
+    if (patch.enabled !== undefined) {
+      if (!settings.enabled) ctx.docRooms.closeAllSpaces();
+      ctx.logger.info('admin', `Documentation ${settings.enabled ? 'activée' : 'désactivée'}`, undefined, user.id, requestId);
+      ctx.hub.broadcast({ t: 'app', app });
+    }
+    res.json({ ...settings, app });
   });
 
   // --- Espaces -------------------------------------------------------------------------------------------------------

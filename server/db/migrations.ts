@@ -760,6 +760,11 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE INDEX idx_notification_settings_project ON notification_settings (project_id, level);
     `);
   },
+  // 27 — Documentation : dossier propre à un espace pour les images collées dans une note (NULL : celui réglé dans
+  // l'administration, « Pictures » par défaut).
+  (db) => {
+    db.exec('ALTER TABLE doc_spaces ADD COLUMN image_folder TEXT;');
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

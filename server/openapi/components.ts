@@ -186,6 +186,8 @@ export const componentSchemas: Record<string, Schema> = {
     fileCount: int(),
     memberCount: int(),
     obsidian: bool('Syntaxe propre à Obsidian activée.'),
+    imageFolder: nullable(str('Sous-dossier, à côté de la note, où vont les images collées ; `null` : celui du site (`defaultImageFolder`).')),
+    defaultImageFolder: str('Dossier des images réglé dans l’administration (`Pictures` par défaut).'),
     site: nullable(obj({ slug: str('Adresse du site : `/wiki/{slug}`.'), visibility: str('', { enum: ['members', 'people', 'public'] }) })),
     createdAt: dateTime(),
     updatedAt: dateTime(),

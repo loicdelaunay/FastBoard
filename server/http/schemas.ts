@@ -8,7 +8,7 @@ import { BOARD_ICON_LIMITS, BOARD_LIMITS, BOARD_SHARE_AUDIENCES, BOARD_SHARE_LIM
 import { LIMITS, NOTIFICATION_LEVELS, TICKET_STATUSES } from '../../shared/constants.ts';
 import { isISODate } from '../../shared/dates.ts';
 import { DOC_COMMENT_LIMITS } from '../../shared/docComments.ts';
-import { DOC_LIMITS, DOC_ROLES, DOC_SITE_VISIBILITIES } from '../../shared/docs.ts';
+import { DOC_LIMITS, DOC_ROLES, DOC_SITE_VISIBILITIES, normalizeImageFolder } from '../../shared/docs.ts';
 import { LDAP_LIMITS, LDAP_PROFILES, LDAP_SECURITY, LDAP_USER_TOKEN } from '../../shared/ldap.ts';
 import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
@@ -526,12 +526,26 @@ export const ldapTestSchema = z.object({
   password: z.string().max(200).default('').describe('Mot de passe de ce compte (facultatif, jamais enregistré).'),
 });
 
-export const docSettingsSchema = z.object({ enabled: z.boolean() });
+/** Dossier des images collées dans une note, relatif à elle (`Pictures`, `Captures/2026`) : nettoyé, sans remontée ni dossier caché. */
+const imageFolderName = z
+  .string()
+  .max(DOC_LIMITS.imageFolderMax)
+  .refine((value) => normalizeImageFolder(value) !== null, 'Nom de dossier invalide.')
+  .transform((value) => normalizeImageFolder(value)!);
+
+export const docSettingsSchema = z.object({
+  enabled: z.boolean().optional().describe('Documentation visible sur le site.'),
+  imageFolder: imageFolderName.optional().describe('Sous-dossier, à côté de la note, où vont les images collées ou glissées, pour les espaces qui n’ont pas le leur (`Pictures` par défaut).'),
+});
 
 export const docSpaceSchema = z.object({
   name: z.string().trim().min(1, 'Donnez un nom à l’espace.').max(DOC_LIMITS.nameMax),
   description: z.string().trim().max(DOC_LIMITS.descriptionMax).default(''),
   obsidian: z.boolean().optional().describe('Syntaxe propre à Obsidian : callouts, `==surlignage==`, `%%commentaires%%`, `#étiquettes`, notes de bas de page, propriétés… (vrai par défaut).'),
+  imageFolder: z
+    .union([z.literal('').transform(() => null), z.null(), imageFolderName])
+    .optional()
+    .describe('Sous-dossier, à côté de la note, où vont les images collées ou glissées dans cet espace ; `null` ou vide : celui réglé dans l’administration.'),
 });
 export const docSpaceUpdateSchema = docSpaceSchema.partial();
 

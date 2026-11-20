@@ -336,8 +336,8 @@ export const api = {
   adminRevokeToken: (tokenId: number) => http<{ ok: true }>('DELETE', `/admin/tokens/${tokenId}`),
   adminUpdateToken: (tokenId: number, patch: { displayName?: string | null; expiresInDays?: number | null }) =>
     http<{ token: ApiTokenDTO }>('PATCH', `/admin/tokens/${tokenId}`, { body: patch }),
-  adminDocs: () => http<{ enabled: boolean; spaces: number; files: number; bytes: number; retentionDays: number }>('GET', '/admin/documentation'),
-  adminSaveDocs: (enabled: boolean) => http<{ enabled: boolean; app: AppInfoDTO }>('PUT', '/admin/documentation', { body: { enabled } }),
+  adminDocs: () => http<{ enabled: boolean; imageFolder: string; defaultImageFolder: string; spaces: number; files: number; bytes: number; retentionDays: number }>('GET', '/admin/documentation'),
+  adminSaveDocs: (input: { enabled?: boolean; imageFolder?: string }) => http<{ enabled: boolean; imageFolder: string; app: AppInfoDTO }>('PUT', '/admin/documentation', { body: input }),
 
   ticket: (ticketId: number) => http<{ ticket: TicketDTO }>('GET', `/tickets/${ticketId}`),
   // Tableaux blancs
@@ -378,9 +378,9 @@ export const api = {
   boardPreviewUrl: (nodeId: number, width = 640, dark = false) => `/api/boards/nodes/${nodeId}/preview?width=${width}${dark ? '&theme=dark' : ''}`,
 
   docSpaces: () => http<{ spaces: DocSpaceDTO[] }>('GET', '/documentation/spaces'),
-  docCreateSpace: (input: { name: string; description: string; obsidian?: boolean }) => http<{ space: DocSpaceDTO }>('POST', '/documentation/spaces', { body: input }),
+  docCreateSpace: (input: { name: string; description: string; obsidian?: boolean; imageFolder?: string | null }) => http<{ space: DocSpaceDTO }>('POST', '/documentation/spaces', { body: input }),
   docSpace: (spaceId: number) => http<{ space: DocSpaceDTO; nodes: DocNodeDTO[]; templates: DocNodeDTO[]; members: DocMemberDTO[] }>('GET', `/documentation/spaces/${spaceId}`),
-  docUpdateSpace: (spaceId: number, input: { name?: string; description?: string; obsidian?: boolean }) => http<{ space: DocSpaceDTO }>('PATCH', `/documentation/spaces/${spaceId}`, { body: input }),
+  docUpdateSpace: (spaceId: number, input: { name?: string; description?: string; obsidian?: boolean; imageFolder?: string | null }) => http<{ space: DocSpaceDTO }>('PATCH', `/documentation/spaces/${spaceId}`, { body: input }),
   docDeleteSpace: (spaceId: number) => http<{ ok: true }>('DELETE', `/documentation/spaces/${spaceId}`),
   docAddMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('POST', `/documentation/spaces/${spaceId}/members`, { body: { userId, role } }),
   docSetMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('PATCH', `/documentation/spaces/${spaceId}/members/${userId}`, { body: { role } }),

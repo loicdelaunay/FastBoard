@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { extractDocLinks } from '../../shared/docLinks.ts';
-import { docBaseName, docFileKind, docRoleAtLeast, docTitle, DOC_LIMITS, normalizeDocPath, withMarkdownExtension } from '../../shared/docs.ts';
+import { docBaseName, docFileKind, docRoleAtLeast, docTitle, DOC_DEFAULT_IMAGE_FOLDER, DOC_LIMITS, normalizeDocPath, normalizeImageFolder, withMarkdownExtension } from '../../shared/docs.ts';
 import { applyDocTemplate } from '../../shared/docTemplates.ts';
 import type { DocBookmarkDTO, DocMemberDTO, DocNodeDTO, DocNodeInfoDTO, DocNodeKind, DocRole, DocSearchHitDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, DocVersionOrigin } from '../../shared/docs.ts';
 import { hasPermission } from '../../shared/permissions.ts';
@@ -20,6 +20,7 @@ interface SpaceRow {
   name: string;
   description: string;
   obsidian: number;
+  image_folder: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -53,12 +54,28 @@ const TRASH = '.trash';
 /** Dossier des modèles de notes : un nom d'espace ne peut pas commencer par un point, il n'y entre donc rien d'autre. */
 const TEMPLATES = '.templates';
 
-export function docsEnabled(db: Db): boolean {
-  return readSetting<{ enabled?: boolean }>(db, 'docs')?.enabled === true;
+interface DocSettings {
+  enabled: boolean;
+  /** Dossier des images collées dans une note, pour les espaces qui n'ont pas le leur. */
+  imageFolder: string;
 }
 
-export function setDocsEnabled(db: Db, enabled: boolean): void {
-  writeSetting(db, 'docs', { enabled });
+export function docSettings(db: Db): DocSettings {
+  const stored = readSetting<{ enabled?: boolean; imageFolder?: unknown }>(db, 'docs');
+  const imageFolder = typeof stored?.imageFolder === 'string' ? normalizeImageFolder(stored.imageFolder) : null;
+  return { enabled: stored?.enabled === true, imageFolder: imageFolder ?? DOC_DEFAULT_IMAGE_FOLDER };
+}
+
+export function docsEnabled(db: Db): boolean {
+  return docSettings(db).enabled;
+}
+
+/** Enregistre les réglages donnés ; les autres restent tels quels. */
+export function saveDocSettings(db: Db, patch: Partial<DocSettings>): DocSettings {
+  const current = docSettings(db);
+  const next: DocSettings = { enabled: patch.enabled ?? current.enabled, imageFolder: patch.imageFolder ?? current.imageFolder };
+  writeSetting(db, 'docs', next);
+  return next;
 }
 
 export function requireDocsEnabled(db: Db): void {
@@ -175,6 +192,7 @@ export function listSpaces(ctx: AppContext, user: AuthUser): DocSpaceDTO[] {
       ORDER BY s.updated_at DESC`,
     user.id,
   );
+  const defaultImageFolder = docSettings(ctx.db).imageFolder;
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -183,6 +201,8 @@ export function listSpaces(ctx: AppContext, user: AuthUser): DocSpaceDTO[] {
     fileCount: row.files,
     memberCount: row.members,
     obsidian: row.obsidian === 1,
+    imageFolder: row.image_folder,
+    defaultImageFolder,
     site: row.site_slug && row.site_visibility ? { slug: row.site_slug, visibility: row.site_visibility } : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -195,11 +215,28 @@ export function getSpace(ctx: AppContext, user: AuthUser, spaceId: number): DocS
   return space;
 }
 
-export function createSpace(ctx: AppContext, user: AuthUser, input: { name: string; description: string; obsidian?: boolean }): DocSpaceDTO {
+interface SpaceInput {
+  name: string;
+  description: string;
+  obsidian?: boolean;
+  /** Dossier des images collées, déjà nettoyé ; `null` : celui du site. */
+  imageFolder?: string | null;
+}
+
+export function createSpace(ctx: AppContext, user: AuthUser, input: SpaceInput): DocSpaceDTO {
   const now = nowIso();
   let spaceId = 0;
   ctx.db.transaction(() => {
-    spaceId = ctx.db.run('INSERT INTO doc_spaces (name, description, obsidian, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)', input.name, input.description, input.obsidian === false ? 0 : 1, user.id, now, now).lastInsertRowid;
+    spaceId = ctx.db.run(
+      'INSERT INTO doc_spaces (name, description, obsidian, image_folder, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      input.name,
+      input.description,
+      input.obsidian === false ? 0 : 1,
+      input.imageFolder ?? null,
+      user.id,
+      now,
+      now,
+    ).lastInsertRowid;
     ctx.db.run("INSERT INTO doc_members (space_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)", spaceId, user.id, now);
   });
   fs.mkdirSync(spaceDir(ctx, spaceId), { recursive: true });
@@ -207,10 +244,19 @@ export function createSpace(ctx: AppContext, user: AuthUser, input: { name: stri
   return getSpace(ctx, user, spaceId);
 }
 
-export function updateSpace(ctx: AppContext, user: AuthUser, spaceId: number, patch: { name?: string; description?: string; obsidian?: boolean }): DocSpaceDTO {
+export function updateSpace(ctx: AppContext, user: AuthUser, spaceId: number, patch: Partial<SpaceInput>): DocSpaceDTO {
   const row = ctx.db.get<SpaceRow>('SELECT * FROM doc_spaces WHERE id = ?', spaceId)!;
   const obsidian = patch.obsidian === undefined ? row.obsidian : patch.obsidian ? 1 : 0;
-  ctx.db.run('UPDATE doc_spaces SET name = ?, description = ?, obsidian = ?, updated_at = ? WHERE id = ?', patch.name ?? row.name, patch.description ?? row.description, obsidian, nowIso(), spaceId);
+  const imageFolder = patch.imageFolder === undefined ? row.image_folder : patch.imageFolder;
+  ctx.db.run(
+    'UPDATE doc_spaces SET name = ?, description = ?, obsidian = ?, image_folder = ?, updated_at = ? WHERE id = ?',
+    patch.name ?? row.name,
+    patch.description ?? row.description,
+    obsidian,
+    imageFolder,
+    nowIso(),
+    spaceId,
+  );
   if (obsidian !== row.obsidian) ctx.docRooms.refreshSpace(spaceId);
   return getSpace(ctx, user, spaceId);
 }
@@ -509,13 +555,19 @@ export function purgeDocs(ctx: AppContext, now = Date.now()): void {
 
 // --- Images ----------------------------------------------------------------------------------------------------------
 
-/** Range une image dans le dossier `images` à côté de la note ; retourne son chemin. */
+/** Sous-dossier des images collées dans les notes d'un espace : le sien, sinon celui du site. */
+export function spaceImageFolder(db: Db, spaceId: number): string {
+  const own = db.get<{ image_folder: string | null }>('SELECT image_folder FROM doc_spaces WHERE id = ?', spaceId)?.image_folder;
+  return (own ? normalizeImageFolder(own) : null) ?? docSettings(db).imageFolder;
+}
+
+/** Range une image dans le dossier des images de l'espace, à côté de la note ; retourne son chemin. */
 export function storeImage(ctx: AppContext, actor: Actor, spaceId: number, folder: string, name: string, data: Uint8Array): DocNodeDTO {
   const { db } = ctx;
   const safeFolder = folder ? normalizeDocPath(folder) : '';
   const base = normalizeDocPath(docBaseName(name));
   if (safeFolder === null || !base || docFileKind(base) !== 'image') throw badRequest('Nom d’image invalide.');
-  const wanted = [safeFolder, 'images', base].filter(Boolean).join('/');
+  const wanted = [safeFolder, spaceImageFolder(db, spaceId), base].filter(Boolean).join('/');
   assertRoom(db, spaceId);
   const relative = freePath(db, spaceId, wanted);
   let nodeId = 0;
