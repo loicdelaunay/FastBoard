@@ -1,4 +1,4 @@
-/** Textes ajoutés en 2.6.3 : dossier des images collées dans les notes (par espace et dans l'administration), thème en « Lecture et écriture ». */
+/** Textes ajoutés en 2.6.3 (dossier des images collées dans les notes, par espace et dans l'administration) et 2.6.4 (thème en « Lecture et écriture »). */
 export const enV27Images: Record<string, string> = {
   // Réglages d'un espace
   'Dossier des images collées': 'Pasted images folder',
