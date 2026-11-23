@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { BOARD_COLORS, SHAPE_KINDS, type BoardColor, type ShapeKind } from '@shared/boards';
+import { BOARD_COLORS, SHAPE_KINDS, type BoardColor, type MockupKind, type ShapeKind } from '@shared/boards';
+import { MOCKUP_GROUPS, MOCKUP_LABELS } from '@shared/boardMockup';
 import { t } from '@/i18n';
-import { COLOR_LABELS, MODE_TOOLS, MODES, SHAPE_LABELS, shapeIcon, type BoardMode, type BoardTool } from './editor/tools';
+import { COLOR_LABELS, MOCKUP_ICONS, MODE_TOOLS, MODES, SHAPE_LABELS, shapeIcon, type BoardMode, type BoardTool } from './editor/tools';
 
 /** Barre latérale du tableau : le mode (diagramme, post-it, carte mentale, dessin), puis ses outils et leurs réglages. */
 const props = defineProps<{ editable: boolean }>();
@@ -10,6 +11,7 @@ const emit = defineEmits<{ import: []; fast: []; quick: [tab: 'all' | 'icons'] }
 const mode = defineModel<BoardMode>('mode', { required: true });
 const tool = defineModel<BoardTool>('tool', { required: true });
 const shape = defineModel<ShapeKind>('shape', { required: true });
+const mockup = defineModel<MockupKind>('mockup', { required: true });
 const stickyColor = defineModel<BoardColor>('stickyColor', { required: true });
 const penColor = defineModel<BoardColor>('penColor', { required: true });
 
@@ -47,6 +49,7 @@ const tip = (label: string, key?: string): string => (key ? `${t(label)} (${key.
         <button v-tooltip.right="tip(entry.label, entry.key)" type="button" class="tool" :class="{ active: tool === entry.tool }" :aria-pressed="tool === entry.tool" :aria-label="$t(entry.label)" @click="choose(entry.tool)">
           <!-- eslint-disable-next-line vue/no-v-html -- icône SVG construite ici, sans texte saisi. -->
           <span v-if="entry.icon === 'shape'" class="shape-icon" v-html="shapeIcon(shape)"></span>
+          <i v-else-if="entry.icon === 'mockup'" :class="MOCKUP_ICONS[mockup]"></i>
           <i v-else :class="entry.icon"></i>
         </button>
         <div v-if="tool === entry.tool && entry.tool === 'shape'" class="flyout shapes">
@@ -54,6 +57,16 @@ const tip = (label: string, key?: string): string => (key ? `${t(label)} (${key.
             <!-- eslint-disable-next-line vue/no-v-html -- icône SVG construite ici. -->
             <span class="shape-icon" v-html="shapeIcon(kind)"></span>
           </button>
+        </div>
+        <div v-if="tool === entry.tool && entry.tool === 'mockup'" class="flyout mockups">
+          <div v-for="group in MOCKUP_GROUPS" :key="group.label" class="mockup-group">
+            <span class="mockup-group-title">{{ $t(group.label) }}</span>
+            <div class="mockup-grid">
+              <button v-for="kind in group.kinds" :key="kind" v-tooltip.top="$t(MOCKUP_LABELS[kind])" type="button" class="flyout-item" :class="{ active: mockup === kind }" :aria-label="$t(MOCKUP_LABELS[kind])" @click="mockup = kind">
+                <i :class="MOCKUP_ICONS[kind]"></i>
+              </button>
+            </div>
+          </div>
         </div>
         <div v-if="tool === entry.tool && entry.tool === 'sticky'" class="flyout colors">
           <button v-for="color in BOARD_COLORS.filter((value) => value !== 'default')" :key="color" v-tooltip.top="$t(COLOR_LABELS[color])" type="button" class="swatch sticky" :class="[`s-${color}`, { active: stickyColor === color }]" :aria-label="$t(COLOR_LABELS[color])" @click="stickyColor = color"></button>
@@ -148,6 +161,30 @@ const tip = (label: string, key?: string): string => (key ? `${t(label)} (${key.
   background: var(--fb-panel);
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
   transform: translateY(-50%);
+}
+.flyout.mockups {
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.45rem;
+}
+.mockup-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.mockup-group-title {
+  padding: 0 0.2rem;
+  color: var(--fb-muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.mockup-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 2rem);
+  gap: 0.15rem;
 }
 .flyout-item {
   display: grid;

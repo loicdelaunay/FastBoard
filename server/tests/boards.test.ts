@@ -3,7 +3,7 @@ import { after, before, describe, it } from 'node:test';
 import * as Y from 'yjs';
 import { connectorGeometry, layoutMind, shapePath } from '../../shared/boardGeometry.ts';
 import { boardPreviewSvg } from '../../shared/boardPreview.ts';
-import type { BoardElement, BoardNodeDTO, ConnectorElement, MindElement, ShapeElement } from '../../shared/boards.ts';
+import { MOCKUP_KINDS, type BoardElement, type BoardNodeDTO, type ConnectorElement, type MindElement, type MockupElement, type ShapeElement } from '../../shared/boards.ts';
 import { base64ToBytes, bytesToBase64 } from '../../shared/docs.ts';
 import type { ServerMessage } from '../../shared/realtime.ts';
 import { sanitizeElements } from '../boards/elements.ts';
@@ -83,7 +83,39 @@ describe('géométrie des tableaux blancs', () => {
     assert.ok(svg.startsWith('<svg'));
     assert.ok(!svg.includes('<script'));
     assert.match(svg, /&#60;script&#62;/);
-    assert.match(svg, /marker-end="url\(#arrow\)"/);
+    assert.match(svg, /<polygon class="arrow" points=/);
+  });
+
+  it('nettoie et dessine les composants de maquette', () => {
+    const [button, wrong, escaped] = sanitizeElements([
+      { id: 'b', type: 'mockup', z: 1, x: 0, y: 0, w: 120, h: 40, kind: 'button', text: 'Valider', color: 'blue', variant: 'outline', checked: true, value: 250, size: 'l' },
+      { id: 'w', type: 'mockup', z: 2, x: 0, y: 60, w: 120, h: 40, kind: 'fusée', variant: 'néon', value: 'beaucoup' },
+      { id: 'e', type: 'mockup', z: 3, x: 0, y: 120, w: 300, h: 56, kind: 'tabs', text: 'Un\n<script>alert(1)</script>', color: 'red', value: 2 },
+    ]) as MockupElement[];
+    assert.deepEqual(
+      { kind: button!.kind, variant: button!.variant, checked: button!.checked, value: button!.value, size: button!.size },
+      { kind: 'button', variant: 'outline', checked: true, value: 100, size: 'l' },
+    );
+    assert.deepEqual({ kind: wrong!.kind, variant: wrong!.variant, value: wrong!.value, text: wrong!.text }, { kind: 'button', variant: 'primary', value: 50, text: '' });
+    for (const kind of MOCKUP_KINDS) {
+      const svg = boardPreviewSvg([{ ...escaped!, kind }]);
+      assert.ok(!svg.includes('<script'), kind);
+      assert.ok(!svg.includes('NaN'), kind);
+    }
+  });
+
+  it('garde l’épaisseur d’un lien et dessine la grosse flèche', () => {
+    const [heavy, plain, wrong] = sanitizeElements([
+      { ...link('h', 'a', 'b'), weight: 'block', arrowStart: true },
+      { ...link('p', 'a', 'b'), weight: 'm' },
+      { ...link('w', 'a', 'b'), weight: 'énorme' } as unknown as ConnectorElement,
+    ]) as ConnectorElement[];
+    assert.equal(heavy!.weight, 'block');
+    assert.ok(!('weight' in plain!), 'l’épaisseur habituelle n’est pas écrite');
+    assert.ok(!('weight' in wrong!));
+    const svg = boardPreviewSvg([shape('a', 0, 0), shape('b', 300, 0), heavy!]);
+    // Deux pointes, chacune dessinée deux fois (contour puis remplissage).
+    assert.equal(svg.match(/<polygon/g)?.length, 4);
   });
 });
 

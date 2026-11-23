@@ -4,13 +4,14 @@ import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
 import InputText from 'primevue/inputtext';
 import { useConfirm } from 'primevue/useconfirm';
-import { boardAssetUrl, boardIconUrl, SHAPE_KINDS, type BoardAssetDTO, type BoardNodeDTO } from '@shared/boards';
+import { boardAssetUrl, boardIconUrl, MOCKUP_KINDS, SHAPE_KINDS, type BoardAssetDTO, type BoardNodeDTO } from '@shared/boards';
+import { MOCKUP_LABELS } from '@shared/boardMockup';
 import { api } from '@/api';
 import { t } from '@/i18n';
 import { darkMode } from '@/theme/themeManager';
 import { notifyError } from '@/utils/notify';
 import { customIcons, iconLibrary, libraryMarkup, loadCustomIcons, loadIconLibrary } from './editor/icons';
-import { SHAPE_LABELS, shapeIcon, type BoardTool, type QuickPick } from './editor/tools';
+import { MOCKUP_ICONS, SHAPE_LABELS, shapeIcon, type BoardTool, type QuickPick } from './editor/tools';
 
 /**
  * Ajout rapide : une recherche sur tout ce qui se pose sur un tableau (formes, textes, post-it, sections, cartes
@@ -85,6 +86,14 @@ const ELEMENTS = computed<Array<Entry & { words: string }>>(() => {
     tool('chart', 'Graphique', 'pi pi-chart-bar', 'chart diagramme barres courbe camembert'),
     tool('fast', 'Fast Element…', 'pi pi-bolt', 'ticket note dossier documentation tableau'),
     { key: 'mermaid', pick: { kind: 'mermaid' }, label: t('Importer du Mermaid…'), icon: 'pi pi-file-import', words: 'mermaid diagramme import' },
+    ...MOCKUP_KINDS.map((kind) => ({
+      key: `w:${kind}`,
+      pick: { kind: 'element' as const, tool: 'mockup' as const, mockup: kind },
+      label: t(MOCKUP_LABELS[kind]),
+      hint: t('Maquette'),
+      icon: MOCKUP_ICONS[kind],
+      words: `maquette mockup wireframe ui ${kind}`,
+    })),
   ];
 });
 

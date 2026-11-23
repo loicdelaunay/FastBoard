@@ -35,6 +35,7 @@ function describe(element: BoardElement): Record<string, unknown> {
   if (element.type === 'mind') placed.parent = element.parent;
   if (element.type === 'fast') placed.ref = element.ref;
   if (element.type === 'icon') placed.icon = element.icon;
+  if (element.type === 'mockup') placed.kind = element.kind;
   if (element.type === 'sticky' && element.votes.length) placed.votes = element.votes.length;
   if (element.tpl) placed.template = element.tpl.id;
   return placed;

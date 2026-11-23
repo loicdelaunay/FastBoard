@@ -1,9 +1,9 @@
 import { shapePath } from '@shared/boardGeometry';
-import type { BoardAssetDTO, BoardColor, FastRefKind, ShapeKind } from '@shared/boards';
+import type { BoardAssetDTO, BoardColor, FastRefKind, MockupKind, ShapeKind } from '@shared/boards';
 
 /** Modes et outils de la barre latérale des tableaux blancs. */
 
-export type BoardMode = 'diagram' | 'sticky' | 'mind' | 'draw';
+export type BoardMode = 'diagram' | 'sticky' | 'mind' | 'draw' | 'mockup';
 
 /** Action de la barre de sélection ou du menu contextuel. */
 export type SelectionAction =
@@ -30,7 +30,7 @@ export type SelectionAction =
 
 /** Ce que l'on ajoute depuis l'ajout rapide (clic droit, barre latérale, touche /). */
 export type QuickPick =
-  | { kind: 'element'; tool: BoardTool; shape?: ShapeKind }
+  | { kind: 'element'; tool: BoardTool; shape?: ShapeKind; mockup?: MockupKind }
   | { kind: 'icon'; icon: string }
   | { kind: 'image'; asset: BoardAssetDTO }
   | { kind: 'template'; id: number; name: string }
@@ -55,6 +55,7 @@ export type BoardTool =
   | 'table'
   | 'chart'
   | 'mind'
+  | 'mockup'
   | 'vote'
   | 'pen'
   | 'highlighter'
@@ -75,6 +76,7 @@ export const MODES: Array<{ mode: BoardMode; label: string; icon: string }> = [
   { mode: 'sticky', label: 'Post-it', icon: 'pi pi-clone' },
   { mode: 'mind', label: 'Carte mentale', icon: 'pi pi-share-alt' },
   { mode: 'draw', label: 'Dessin libre', icon: 'pi pi-pencil' },
+  { mode: 'mockup', label: 'Maquette', icon: 'pi pi-desktop' },
 ];
 
 const SELECT: ToolDef = { tool: 'select', label: 'Sélection', icon: 'pi pi-arrow-up-left', key: 'v', edit: false };
@@ -115,6 +117,48 @@ export const MODE_TOOLS: Record<BoardMode, ToolDef[]> = {
     { tool: 'highlighter', label: 'Surligneur', icon: 'pi pi-palette', key: 'l', edit: true },
     { tool: 'eraser', label: 'Gomme', icon: 'pi pi-eraser', key: 'x', edit: true },
   ],
+  mockup: [
+    SELECT,
+    HAND,
+    { tool: 'mockup', label: 'Composant de maquette', icon: 'mockup', key: 'w', edit: true },
+    { tool: 'text', label: 'Texte', icon: 'pi pi-language', key: 't', edit: true },
+    { tool: 'shape', label: 'Forme', icon: 'shape', key: 'r', edit: true },
+    { tool: 'connector', label: 'Lien', icon: 'pi pi-arrow-right', key: 'c', edit: true },
+    { tool: 'frame', label: 'Section', icon: 'pi pi-th-large', key: 'f', edit: true },
+    { tool: 'sticky', label: 'Post-it', icon: 'pi pi-stop', key: 's', edit: true },
+  ],
+};
+
+/** Icône de chaque composant de maquette. */
+export const MOCKUP_ICONS: Record<MockupKind, string> = {
+  browser: 'pi pi-window-maximize',
+  mobile: 'pi pi-mobile',
+  navbar: 'pi pi-bars',
+  tabs: 'pi pi-objects-column',
+  breadcrumb: 'pi pi-angle-double-right',
+  heading: 'pi pi-hashtag',
+  paragraph: 'pi pi-align-left',
+  link: 'pi pi-link',
+  button: 'pi pi-stop',
+  input: 'pi pi-pen-to-square',
+  search: 'pi pi-search',
+  select: 'pi pi-chevron-circle-down',
+  checkbox: 'pi pi-check-square',
+  radio: 'pi pi-circle-on',
+  toggle: 'pi pi-power-off',
+  slider: 'pi pi-sliders-h',
+  progress: 'pi pi-percentage',
+  rating: 'pi pi-star',
+  badge: 'pi pi-tag',
+  alert: 'pi pi-info-circle',
+  avatar: 'pi pi-user',
+  image: 'pi pi-image',
+  video: 'pi pi-video',
+  list: 'pi pi-list',
+  card: 'pi pi-id-card',
+  modal: 'pi pi-window-minimize',
+  pagination: 'pi pi-ellipsis-h',
+  divider: 'pi pi-minus',
 };
 
 export const SHAPE_LABELS: Record<ShapeKind, string> = {

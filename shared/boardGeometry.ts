@@ -1,4 +1,4 @@
-import type { BoardElement, ConnectorElement, ConnectorEnd, MindElement, PlacedElement, ShapeKind, Side } from './boards.ts';
+import type { BoardElement, ConnectorElement, ConnectorEnd, ConnectorWeight, MindElement, PlacedElement, ShapeKind, Side } from './boards.ts';
 import { isPlaced } from './boards.ts';
 
 /** Géométrie des tableaux blancs, commune à l'éditeur et à l'aperçu rendu par le serveur. */
@@ -164,6 +164,69 @@ export function connectorGeometry(connector: ConnectorElement, index: ElementInd
     endAngle: Math.atan2(end.y - last.y, end.x - last.x),
     startAngle: Math.atan2(start.y - points[1]!.y, start.x - points[1]!.x),
   };
+}
+
+/** Épaisseur du trait et taille des pointes (longueur, demi-largeur), en unités du tableau. */
+export const CONNECTOR_WEIGHT_SPECS: Record<ConnectorWeight, { line: number; head: number; half: number; outline: number }> = {
+  s: { line: 1.2, head: 9, half: 4, outline: 0 },
+  m: { line: 1.8, head: 13, half: 5.5, outline: 0 },
+  l: { line: 3.5, head: 18, half: 8, outline: 0 },
+  xl: { line: 6, head: 26, half: 12, outline: 0 },
+  block: { line: 16, head: 30, half: 20, outline: 2 },
+};
+
+export interface ConnectorStroke {
+  /** Tracé raccourci aux pointes, pour que le trait épais ne dépasse pas de leur sommet. */
+  d: string;
+  /** Pointes (triangles), en liste de points SVG. */
+  heads: string[];
+  line: number;
+  outline: number;
+}
+
+/** Ce qu'on dessine d'un lien : le trait et ses pointes, selon son épaisseur. */
+export function connectorStroke(connector: ConnectorElement, geometry: ConnectorGeometry): ConnectorStroke {
+  const spec = CONNECTOR_WEIGHT_SPECS[connector.weight ?? 'm'];
+  const trim = spec.head * (spec.outline ? 0.92 : 0.75);
+  const heads: string[] = [];
+  const head = (tip: Point, angle: number): string => {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const base = { x: tip.x - cos * spec.head, y: tip.y - sin * spec.head };
+    return [tip, { x: base.x - sin * spec.half, y: base.y + cos * spec.half }, { x: base.x + sin * spec.half, y: base.y - cos * spec.half }].map((point) => `${round(point.x)},${round(point.y)}`).join(' ');
+  };
+  if (connector.arrowEnd) heads.push(head(geometry.end, geometry.endAngle));
+  if (connector.arrowStart) heads.push(head(geometry.start, geometry.startAngle));
+  return { d: trimmedPath(geometry, connector.arrowStart ? trim : 0, connector.arrowEnd ? trim : 0), heads, line: spec.line, outline: spec.outline };
+}
+
+/** Le tracé d'un lien, raccourci de `startTrim` au départ et de `endTrim` à l'arrivée. */
+function trimmedPath(geometry: ConnectorGeometry, startTrim: number, endTrim: number): string {
+  if (!startTrim && !endTrim) return geometry.d;
+  const point = (p: Point): string => `${round(p.x)},${round(p.y)}`;
+  const points = geometry.points.map((p) => ({ ...p }));
+  const curve = geometry.d.includes('C');
+  if (curve) {
+    const [start, c1, c2, end] = points as [Point, Point, Point, Point];
+    const room = Math.hypot(end.x - start.x, end.y - start.y) / 2.5;
+    const a = Math.min(startTrim, room);
+    const b = Math.min(endTrim, room);
+    const s = { x: start.x - Math.cos(geometry.startAngle) * a, y: start.y - Math.sin(geometry.startAngle) * a };
+    const e = { x: end.x - Math.cos(geometry.endAngle) * b, y: end.y - Math.sin(geometry.endAngle) * b };
+    return `M${point(s)} C${point(c1)} ${point(c2)} ${point(e)}`;
+  }
+  const pull = (from: Point, toward: Point, distance: number): void => {
+    const length = Math.hypot(toward.x - from.x, toward.y - from.y);
+    const t = length ? Math.min(distance, length - 0.5) / length : 0;
+    if (t <= 0) return;
+    from.x += (toward.x - from.x) * t;
+    from.y += (toward.y - from.y) * t;
+  };
+  if (points.length >= 2) {
+    if (startTrim) pull(points[0]!, points[1]!, startTrim);
+    if (endTrim) pull(points[points.length - 1]!, points[points.length - 2]!, endTrim);
+  }
+  return points.map((p, position) => `${position ? 'L' : 'M'}${point(p)}`).join(' ');
 }
 
 function unit(a: Point, b: Point): Point {

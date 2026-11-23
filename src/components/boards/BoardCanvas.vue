@@ -5,8 +5,9 @@ import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import type { MenuItem } from 'primevue/menuitem';
-import { anchor, boundsOf, connectorGeometry, intersects, mindLink, mindRoot, shapePath, sideToward, textBox, type Point, type Rect } from '@shared/boardGeometry';
+import { anchor, boundsOf, connectorGeometry, connectorStroke, intersects, mindLink, mindRoot, shapePath, sideToward, textBox, type Point, type Rect } from '@shared/boardGeometry';
 import { exportMermaid, mermaidToElements } from '@shared/boardMermaid';
+import { MOCKUP_SPECS, mockupSvg } from '@shared/boardMockup';
 import {
   boardAssetUrl,
   boardIconUrl,
@@ -24,6 +25,8 @@ import {
   type ConnectorElement,
   type FastElement,
   type MindElement,
+  type MockupElement,
+  type MockupKind,
   type PathElement,
   type PlacedElement,
   type ShapeElement,
@@ -88,7 +91,7 @@ const MODE_KEY = 'fb.boards.mode';
 const storedMode = (): BoardMode => {
   try {
     const value = localStorage.getItem(MODE_KEY);
-    return value === 'sticky' || value === 'mind' || value === 'draw' ? value : 'diagram';
+    return value === 'sticky' || value === 'mind' || value === 'draw' || value === 'mockup' ? value : 'diagram';
   } catch {
     return 'diagram';
   }
@@ -96,6 +99,7 @@ const storedMode = (): BoardMode => {
 const mode = ref<BoardMode>(storedMode());
 const tool = ref<BoardTool>('select');
 const shapeKind = ref<ShapeKind>('rounded');
+const mockupKind = ref<MockupKind>('button');
 const stickyColor = ref<BoardColor>('yellow');
 const penColor = ref<BoardColor>('default');
 const editable = computed(() => props.canEdit && props.session.canWrite.value);
@@ -353,6 +357,19 @@ const mindDropLinks = computed(() => {
   });
 });
 const geometry = (connector: ConnectorElement) => connectorGeometry(connector, index.value);
+const strokeOf = (connector: ConnectorElement) => connectorStroke(connector, geometry(connector));
+/** Dessin d'un composant de maquette, aux couleurs du thème (variables CSS). */
+const mockupMarkup = (element: MockupElement): string =>
+  mockupSvg(element, {
+    ink: 'var(--board-default-text)',
+    muted: 'var(--board-gray-stroke)',
+    line: 'var(--board-gray-stroke)',
+    surface: 'var(--board-default-fill)',
+    soft: 'var(--board-gray-fill)',
+    accent: `var(--board-${element.color}-stroke)`,
+    accentSoft: `var(--board-${element.color}-fill)`,
+    onAccent: '#ffffff',
+  });
 const pathPoints = (element: PathElement): string => {
   const points: string[] = [];
   for (let position = 0; position + 1 < element.points.length; position += 2) points.push(`${element.x + element.points[position]!},${element.y + element.points[position + 1]!}`);
@@ -462,6 +479,26 @@ function createAt(kind: BoardTool, rect: Rect, dragged: boolean): BoardElement |
       const { w, h } = mindSize({ text: '', parent: null });
       return { id, type: 'mind', z, ...at(w, h), text: '', color: 'blue', parent: null, direction: 'right' };
     }
+    case 'mockup': {
+      const kind = mockupKind.value;
+      const spec = MOCKUP_SPECS[kind];
+      // Un écran (navigateur, téléphone) se pose derrière ce qui existe, comme une section : il peut entourer une maquette.
+      const back = kind === 'browser' || kind === 'mobile';
+      return {
+        id,
+        type: 'mockup',
+        z: back ? Math.min(0, ...elements.value.map((element) => element.z)) - 1 : z,
+        ...at(spec.w, spec.h),
+        kind,
+        // Texte de départ traduit, sauf ce qui n'est pas du français (l'heure d'un téléphone, un nombre de pages).
+        text: /[a-zà-ÿ]/i.test(spec.text) ? t(spec.text) : spec.text,
+        color: kind === 'button' || kind === 'badge' || kind === 'alert' ? 'blue' : 'default',
+        variant: 'primary',
+        checked: spec.checked ?? false,
+        value: spec.value ?? 50,
+        size: 'm',
+      };
+    }
     default:
       return null;
   }
@@ -490,6 +527,11 @@ type Gesture =
   | { kind: 'erase'; ids: Set<string> };
 
 let gesture: Gesture | null = null;
+/**
+ * Un geste est en cours : la version réactive de `gesture`, pour ce qui s'affiche selon lui (les bulles de liaison).
+ * Sans elle, une forme déplacée gardait ses bulles cachées jusqu'au changement d'outil.
+ */
+const busy = ref(false);
 let frame = 0;
 let pendingMove: (() => void) | null = null;
 const marquee = ref<Rect | null>(null);
@@ -612,6 +654,11 @@ function startMove(world: Point): void {
 }
 
 function onPointerDown(event: PointerEvent): void {
+  startGesture(event);
+  busy.value = gesture !== null;
+}
+
+function startGesture(event: PointerEvent): void {
   const target = event.target as Element;
   if (target.closest('.board-ui, .edit-overlay, .board-table.editing')) return;
   root.value?.focus({ preventScroll: true });
@@ -727,18 +774,21 @@ function nearHovered(world: Point): boolean {
   return world.x >= element.x - margin && world.x <= element.x + element.w + margin && world.y >= element.y - margin && world.y <= element.y + element.h + margin;
 }
 
+/** L'élément sous le pointeur devient l'élément survolé, celui dont on montre les bulles de liaison. */
+function updateHover(target: Element | null, world: Point): void {
+  if (tool.value !== 'select' && tool.value !== 'connector') return;
+  let id = target?.closest<SVGElement>('[data-id]')?.dataset.id ?? null;
+  // Les bulles de liaison sont un peu à l'extérieur de la forme : elle reste survolée tant que le pointeur en est proche.
+  if (!id && hoverId.value && nearHovered(world)) id = hoverId.value;
+  if (id !== hoverId.value && !target?.closest('[data-dot]')) hoverId.value = id;
+}
+
 function onPointerMove(event: PointerEvent): void {
   const world = toWorld(event.clientX, event.clientY);
   lastPointer = world;
   sharePointer(world);
   if (!gesture) {
-    if (tool.value === 'select' || tool.value === 'connector') {
-      const element = (event.target as Element).closest<SVGElement>('[data-id]');
-      let id = element?.dataset.id ?? null;
-      // Les bulles de liaison sont un peu à l'extérieur de la forme : elle reste survolée tant que le pointeur en est proche.
-      if (!id && hoverId.value && nearHovered(world)) id = hoverId.value;
-      if (id !== hoverId.value && !(event.target as Element).closest('[data-dot]')) hoverId.value = id;
-    }
+    updateHover(event.target as Element, world);
     return;
   }
   switch (gesture.kind) {
@@ -862,6 +912,7 @@ function onPointerMove(event: PointerEvent): void {
 function onPointerUp(event: PointerEvent): void {
   const current = gesture;
   gesture = null;
+  busy.value = false;
   if (root.value?.hasPointerCapture(event.pointerId)) root.value.releasePointerCapture(event.pointerId);
   if (frame) {
     cancelAnimationFrame(frame);
@@ -1017,7 +1068,13 @@ function onWheel(event: WheelEvent): void {
     view.x -= event.shiftKey ? event.deltaY : event.deltaX;
     view.y -= event.shiftKey ? 0 : event.deltaY;
   }
+  // Le tableau a bougé sous le pointeur immobile : l'élément survolé (et ses bulles de liaison) suit, une fois redessiné.
+  if (gesture) return;
+  const { clientX, clientY } = event;
+  cancelAnimationFrame(wheelHover);
+  wheelHover = requestAnimationFrame(() => updateHover(document.elementFromPoint(clientX, clientY), toWorld(clientX, clientY)));
 }
+let wheelHover = 0;
 
 function onDoubleClick(event: MouseEvent): void {
   if ((event.target as Element).closest('.board-ui, .edit-overlay')) return;
@@ -1045,12 +1102,13 @@ function onDoubleClick(event: MouseEvent): void {
       return;
     }
     if (element.type === 'fast' || element.type === 'path') return;
+    if (element.type === 'mockup' && !MOCKUP_SPECS[element.kind].edit) return;
     void startEdit(element.id, element.type === 'frame' ? 'title' : element.type === 'connector' ? 'label' : 'text');
     return;
   }
   // Double-clic dans le vide : l'élément de base du mode, prêt à écrire.
   const world = toWorld(event.clientX, event.clientY);
-  const kind: BoardTool = mode.value === 'sticky' ? 'sticky' : mode.value === 'mind' ? 'mind' : mode.value === 'draw' ? 'text' : 'shape';
+  const kind: BoardTool = mode.value === 'sticky' ? 'sticky' : mode.value === 'mind' ? 'mind' : mode.value === 'draw' ? 'text' : mode.value === 'mockup' ? 'mockup' : 'shape';
   const created = createAt(kind, { x: world.x, y: world.y, w: 0, h: 0 }, false);
   if (created) place(created);
 }
@@ -1438,11 +1496,14 @@ function onKeyUp(event: KeyboardEvent): void {
 
 // --- Actions de la barre de sélection et du menu -----------------------------------------------------------------------
 
+/** Réglages facultatifs, absents des éléments qui ont la valeur habituelle. */
+const OPTIONAL_FIELDS: Partial<Record<BoardElement['type'], string[]>> = { connector: ['weight'] };
+
 function patchSelection(patch: Record<string, unknown>, filter?: (element: BoardElement) => boolean): void {
   const patches = new Map<string, Record<string, unknown>>();
   for (const element of selected.value) {
     if (filter && !filter(element)) continue;
-    const own = Object.fromEntries(Object.entries(patch).filter(([key]) => key in element));
+    const own = Object.fromEntries(Object.entries(patch).filter(([key]) => key in element || OPTIONAL_FIELDS[element.type]?.includes(key)));
     if (Object.keys(own).length) patches.set(element.id, own);
   }
   model.stopCapturing();
@@ -1865,6 +1926,7 @@ async function addQuick(pick: QuickPick): Promise<void> {
         return;
       }
       if (pick.shape) shapeKind.value = pick.shape;
+      if (pick.mockup) mockupKind.value = pick.mockup;
       const element = createAt(pick.tool, { x: at.x, y: at.y, w: 0, h: 0 }, false);
       if (element) place(element);
       return;
@@ -2111,6 +2173,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   observer?.disconnect();
+  barObserver?.disconnect();
+  cancelAnimationFrame(wheelHover);
   document.removeEventListener('paste', onPaste);
   props.session.awareness.off('change', readPeers);
   window.clearTimeout(viewTimer);
@@ -2136,7 +2200,7 @@ const dotPoint = (element: PlacedElement, side: Side): Point => {
 };
 const hovered = computed(() => {
   const element = hoverId.value ? index.value.get(hoverId.value) : undefined;
-  return element && connectable(element) && editable.value && (tool.value === 'select' || tool.value === 'connector') && !gesture && !element.locked ? (element as PlacedElement) : null;
+  return element && connectable(element) && editable.value && (tool.value === 'select' || tool.value === 'connector') && !busy.value && !element.locked ? (element as PlacedElement) : null;
 });
 /**
  * Cadres en pointillés des groupes : sélectionné avec d'autres éléments (seul, le cadre de la sélection est le sien),
@@ -2155,13 +2219,21 @@ const groupBoxes = computed(() => {
 const myVote = (element: StickyElement): boolean => auth.user !== null && element.votes.includes(auth.user.id);
 const selectionBar = ref<InstanceType<typeof BoardSelectionBar> | null>(null);
 const barWidth = ref(360);
+const barHeight = ref(44);
+/** La barre change de taille avec la sélection (réglages propres à chaque élément) : on la mesure à chaque fois. */
+let barObserver: ResizeObserver | null = null;
 watch(
-  () => `${selected.value.map((element) => element.type).join()}:${grouping.value.canGroup}:${grouping.value.canUngroup}`,
-  async () => {
-    await nextTick();
-    const element = selectionBar.value?.$el as HTMLElement | undefined;
-    if (element?.offsetWidth) barWidth.value = element.offsetWidth;
+  () => selectionBar.value?.$el as HTMLElement | undefined,
+  (element) => {
+    barObserver?.disconnect();
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    barObserver = new ResizeObserver(() => {
+      if (element.offsetWidth) barWidth.value = element.offsetWidth;
+      if (element.offsetHeight) barHeight.value = element.offsetHeight;
+    });
+    barObserver.observe(element);
   },
+  { flush: 'post' },
 );
 /** Au-dessus de la sélection, sans passer sous la barre d'outils ni sortir du tableau. */
 const toolbarScreen = computed(() => {
@@ -2170,7 +2242,8 @@ const toolbarScreen = computed(() => {
   const top = toScreen({ x: bounds.x + bounds.w / 2, y: bounds.y });
   const half = barWidth.value / 2;
   const below = toScreen({ x: 0, y: bounds.y + bounds.h }).y + 12;
-  return { x: Math.max(80 + half, Math.min(top.x, size.width - half - 8)), y: top.y - 60 >= 8 ? top.y - 60 : Math.min(below, size.height - 56) };
+  const gap = barHeight.value + 16;
+  return { x: Math.max(80 + half, Math.min(top.x, size.width - half - 8)), y: top.y - gap >= 8 ? top.y - gap : Math.min(below, size.height - barHeight.value - 12) };
 });
 const editStyle = computed(() => {
   const rect = editRect.value;
@@ -2215,8 +2288,9 @@ defineExpose({ fit, openImport });
         <pattern id="board-dots" :width="gridPattern.step" :height="gridPattern.step" patternUnits="userSpaceOnUse" :x="gridPattern.x" :y="gridPattern.y">
           <circle :cx="1" :cy="1" r="1" class="dot" />
         </pattern>
-        <marker v-for="color in ['default', 'gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink']" :id="`arrow-${color}`" :key="color" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
-          <path d="M0,1 L10,5 L0,9 z" :class="`arrow c-${color}`" />
+        <!-- Pointe du lien en cours de tracé (les liens posés dessinent les leurs, à leur épaisseur). -->
+        <marker id="arrow-default" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0,1 L10,5 L0,9 z" class="arrow c-default" />
         </marker>
       </defs>
       <rect class="canvas" :width="size.width" :height="size.height" fill="url(#board-dots)" />
@@ -2239,7 +2313,19 @@ defineExpose({ fit, openImport });
         <template v-for="element in others" :key="element.id">
           <g v-if="element.type === 'connector'" :data-id="element.id" class="el connector" :class="[`c-${element.color}`, { selected: outlined.has(element.id), dashed: element.dashed }]">
             <path class="hit" :d="geometry(element).d" />
-            <path class="line" :d="geometry(element).d" :marker-end="element.arrowEnd ? `url(#arrow-${element.color})` : undefined" :marker-start="element.arrowStart ? `url(#arrow-${element.color})` : undefined" />
+            <template v-for="stroke in [strokeOf(element)]" :key="0">
+              <template v-if="stroke.outline">
+                <!-- Grosse flèche : un contour (trait large et pointes cerclées), rempli par-dessus. -->
+                <path class="block-outline" :d="stroke.d" :stroke-width="stroke.line + stroke.outline * 2" />
+                <polygon v-for="(head, at) in stroke.heads" :key="`o${at}`" class="block-outline head" :points="head" :stroke-width="stroke.outline * 2" />
+                <path class="block-fill" :d="stroke.d" :stroke-width="stroke.line" />
+                <polygon v-for="(head, at) in stroke.heads" :key="`f${at}`" class="block-fill head" :points="head" />
+              </template>
+              <template v-else>
+                <path class="line" :class="{ scaled: stroke.line > 2 }" :d="stroke.d" :style="{ strokeWidth: stroke.line, strokeDasharray: element.dashed && stroke.line > 2 ? `${stroke.line * 2.2} ${stroke.line * 1.8}` : undefined }" />
+                <polygon v-for="(head, at) in stroke.heads" :key="at" class="arrow-head" :points="head" />
+              </template>
+            </template>
             <foreignObject v-if="element.label && editingId !== element.id" :x="geometry(element).mid.x - 90" :y="geometry(element).mid.y - 14" width="180" height="28">
               <div class="connector-label"><span>{{ element.label }}</span></div>
             </foreignObject>
@@ -2308,6 +2394,12 @@ defineExpose({ fit, openImport });
             <foreignObject v-else :x="element.x" :y="element.y" :width="element.w" :height="element.h">
               <div class="icon-mask" :style="{ maskImage: `url(${customIconUrl(element)})`, WebkitMaskImage: `url(${customIconUrl(element)})`, backgroundColor: iconStroke(element) }"></div>
             </foreignObject>
+          </g>
+
+          <g v-else-if="element.type === 'mockup'" :data-id="element.id" class="el mockup" :class="{ selected: outlined.has(element.id), hover: hoverId === element.id }" :transform="`translate(${element.x},${element.y})`">
+            <rect class="mockup-hit" :width="element.w" :height="element.h" />
+            <!-- eslint-disable-next-line vue/no-v-html -- dessin construit par mockupSvg, textes échappés. -->
+            <g v-if="editingId !== element.id || !MOCKUP_SPECS[element.kind].edit" class="mockup-body" v-html="mockupMarkup(element)"></g>
           </g>
 
           <g v-else-if="element.type === 'image'" :data-id="element.id" class="el image" :class="{ selected: outlined.has(element.id) }">
@@ -2407,10 +2499,10 @@ defineExpose({ fit, openImport });
       <div ref="editBox" class="edit-text" contenteditable="plaintext-only" spellcheck="true" @keydown="onEditKey" @blur="commitEdit" @pointerdown.stop></div>
     </div>
 
-    <BoardToolbar v-model:mode="mode" v-model:tool="tool" v-model:shape="shapeKind" v-model:sticky-color="stickyColor" v-model:pen-color="penColor" class="board-ui" :editable="editable" @import="openImport" @fast="pickerOpen = true" @quick="(tab) => openQuick(null, tab)" />
+    <BoardToolbar v-model:mode="mode" v-model:tool="tool" v-model:shape="shapeKind" v-model:mockup="mockupKind" v-model:sticky-color="stickyColor" v-model:pen-color="penColor" class="board-ui" :editable="editable" @import="openImport" @fast="pickerOpen = true" @quick="(tab) => openQuick(null, tab)" />
 
     <BoardSelectionBar
-      v-if="toolbarScreen && selected.length && !gesture"
+      v-if="toolbarScreen && selected.length && !busy"
       ref="selectionBar"
       class="board-ui"
       :style="{ left: `${toolbarScreen.x}px`, top: `${toolbarScreen.y}px` }"
@@ -2470,7 +2562,7 @@ defineExpose({ fit, openImport });
 
     <div v-if="!session.synced.value" class="loading board-ui"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
     <div v-else-if="!elements.length && editable" class="empty-hint">
-      <p>{{ mode === 'sticky' ? $t('Double-cliquez pour poser un post-it.') : mode === 'mind' ? $t('Double-cliquez pour commencer une carte mentale, puis Tab pour un enfant et Entrée pour un frère.') : mode === 'draw' ? $t('Choisissez le crayon pour dessiner à main levée.') : $t('Double-cliquez pour créer une forme, tirez ses points bleus pour la relier.') }}</p>
+      <p>{{ mode === 'sticky' ? $t('Double-cliquez pour poser un post-it.') : mode === 'mind' ? $t('Double-cliquez pour commencer une carte mentale, puis Tab pour un enfant et Entrée pour un frère.') : mode === 'draw' ? $t('Choisissez le crayon pour dessiner à main levée.') : mode === 'mockup' ? $t('Choisissez un composant (W) puis cliquez pour le poser : écrans, boutons, champs, onglets…') : $t('Double-cliquez pour créer une forme, tirez ses points bleus pour la relier.') }}</p>
       <p class="muted small">{{ $t('Collez un diagramme Mermaid pour l’importer.') }}</p>
     </div>
 
@@ -2674,8 +2766,38 @@ defineExpose({ fit, openImport });
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
+.connector .line.scaled {
+  vector-effect: none;
+}
 .connector.dashed .line {
   stroke-dasharray: 6 5;
+}
+.arrow-head {
+  fill: var(--el-stroke);
+}
+.connector.selected .arrow-head {
+  fill: var(--board-select);
+}
+.block-outline {
+  fill: var(--el-stroke);
+  stroke: var(--el-stroke);
+  stroke-linejoin: round;
+}
+path.block-outline,
+path.block-fill {
+  fill: none;
+}
+.block-fill {
+  fill: var(--el-fill);
+  stroke: var(--el-fill);
+  stroke-linejoin: round;
+}
+polygon.block-fill {
+  stroke: none;
+}
+.connector.selected .block-outline {
+  fill: var(--board-select);
+  stroke: var(--board-select);
 }
 .connector .hit,
 .path .hit {
@@ -2897,6 +3019,22 @@ defineExpose({ fit, openImport });
 .image-back {
   fill: transparent;
 }
+.mockup-hit {
+  fill: transparent;
+}
+.mockup.selected .mockup-hit,
+.mockup.hover .mockup-hit {
+  stroke: var(--board-select);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+}
+.mockup.selected .mockup-hit {
+  stroke-dasharray: none;
+}
+.mockup-body {
+  pointer-events: none;
+}
 .image.selected .image-back {
   fill: var(--board-select);
   fill-opacity: 0.06;
@@ -3020,6 +3158,16 @@ defineExpose({ fit, openImport });
 }
 .edit-el-text {
   align-items: flex-start;
+}
+.edit-el-mockup {
+  align-items: flex-start;
+  border: 1px dashed var(--board-select);
+  border-radius: 6px;
+  background: var(--board-default-fill);
+}
+.edit-el-mockup .edit-text {
+  padding: 6px 10px;
+  font-size: 14px;
 }
 .edit-el-text .edit-text {
   padding: 2px 4px;

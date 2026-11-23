@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { BOARD_COLORS, CHART_KINDS, CONNECTOR_ROUTES, FILL_STYLES, ICON_STROKES, SHAPE_KINDS, TEXT_SIZES, type BoardColor, type BoardElement, type ChartKind } from '@shared/boards';
+import { BOARD_COLORS, CHART_KINDS, CONNECTOR_ROUTES, CONNECTOR_WEIGHTS, MOCKUP_KINDS, MOCKUP_VARIANTS, FILL_STYLES, ICON_STROKES, SHAPE_KINDS, TEXT_SIZES, type BoardColor, type BoardElement, type ChartKind, type ConnectorWeight, type MockupVariant } from '@shared/boards';
 import type { InstanceState } from './editor/templates';
-import { COLOR_LABELS, SHAPE_LABELS, shapeIcon, type SelectionAction } from './editor/tools';
+import { MOCKUP_LABELS, MOCKUP_SPECS } from '@shared/boardMockup';
+import { COLOR_LABELS, MOCKUP_ICONS, SHAPE_LABELS, shapeIcon, type SelectionAction } from './editor/tools';
 
 /** Barre de mise en forme au-dessus de la sélection : forme, couleur, remplissage, texte, liens, tableaux, ordre. */
 const props = defineProps<{
@@ -18,7 +19,8 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ patch: [patch: Record<string, unknown>]; action: [action: SelectionAction] }>();
 
-const open = ref<'shape' | 'color' | 'chart' | null>(null);
+type Menu = 'shape' | 'color' | 'chart' | 'weight' | 'mockup';
+const open = ref<Menu | null>(null);
 const types = computed(() => new Set(props.elements.map((element) => element.type)));
 const has = (...kinds: BoardElement['type'][]) => kinds.some((kind) => types.value.has(kind));
 const first = computed(() => props.elements[0]);
@@ -33,6 +35,21 @@ const exportable = computed(() => has('shape', 'sticky', 'mind', 'text', 'fast')
 
 const ROUTE_ICONS = { straight: 'pi pi-minus', elbow: 'pi pi-arrow-down-right', curve: 'pi pi-replay' } as const;
 const ROUTE_LABELS = { straight: 'Droit', elbow: 'Coudé', curve: 'Courbe' } as const;
+const WEIGHT_LABELS: Record<ConnectorWeight, string> = { s: 'Trait fin', m: 'Trait normal', l: 'Trait épais', xl: 'Trait très épais', block: 'Grosse flèche' };
+/** Aperçu d'une épaisseur de lien : un trait et sa pointe, ou la grosse flèche cerclée. */
+function weightIcon(weight: ConnectorWeight): string {
+  if (weight === 'block') return '<svg viewBox="0 0 28 14" width="28" height="14"><path d="M2,7 L7,2 V5 H21 V2 L26,7 L21,12 V9 H7 V12 Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+  const line = { s: 1, m: 1.6, l: 2.6, xl: 4 }[weight];
+  const head = { s: 3, m: 3.6, l: 4.4, xl: 5.4 }[weight];
+  return `<svg viewBox="0 0 28 14" width="28" height="14"><path d="M2,7 H${24 - head * 1.2}" stroke="currentColor" stroke-width="${line}"/><path d="M26,7 L${26 - head * 1.8},${7 - head} L${26 - head * 1.8},${7 + head} Z" fill="currentColor"/></svg>`;
+}
+const VARIANT_LABELS: Record<MockupVariant, string> = { primary: 'Plein', secondary: 'Teinté', outline: 'Contour', ghost: 'Sans fond' };
+/** Composants de maquette choisis, et les réglages qu'ils partagent (ceux du premier). */
+const mockups = computed(() => props.elements.filter((element) => element.type === 'mockup'));
+const mockupSpec = computed(() => {
+  const first = mockups.value[0];
+  return first ? MOCKUP_SPECS[first.kind] : null;
+});
 const FILL_LABELS = { solid: 'Plein', outline: 'Contour', none: 'Sans fond' } as const;
 const CHART_LABELS: Record<ChartKind, string> = { bar: 'Barres', line: 'Courbes', pie: 'Camembert', doughnut: 'Anneau', radar: 'Radar' };
 const TEMPLATE_STATES: Record<InstanceState, { label: string; hint: string }> = {
@@ -50,7 +67,7 @@ function patch(value: Record<string, unknown>): void {
   open.value = null;
 }
 
-function toggle(menu: 'shape' | 'color' | 'chart'): void {
+function toggle(menu: Menu): void {
   open.value = open.value === menu ? null : menu;
 }
 </script>
@@ -72,7 +89,19 @@ function toggle(menu: 'shape' | 'color' | 'chart'): void {
         </div>
       </div>
 
-      <div v-if="has('shape', 'sticky', 'text', 'frame', 'mind', 'connector', 'path', 'table', 'icon')" class="group">
+      <div v-if="has('mockup')" class="group">
+        <button v-tooltip.top="$t('Composant')" type="button" class="item" :aria-label="$t('Composant')" @click="toggle('mockup')">
+          <i :class="MOCKUP_ICONS[mockups[0]!.kind]"></i>
+          <i class="pi pi-angle-down caret"></i>
+        </button>
+        <div v-if="open === 'mockup'" class="menu grid mockup-menu">
+          <button v-for="kind in MOCKUP_KINDS" :key="kind" v-tooltip.top="$t(MOCKUP_LABELS[kind])" type="button" class="item" :class="{ active: mockups[0]?.kind === kind }" :aria-label="$t(MOCKUP_LABELS[kind])" @click="patch({ kind })">
+            <i :class="MOCKUP_ICONS[kind]"></i>
+          </button>
+        </div>
+      </div>
+
+      <div v-if="has('shape', 'sticky', 'text', 'frame', 'mind', 'connector', 'path', 'table', 'icon', 'mockup')" class="group">
         <button v-tooltip.top="$t('Couleur')" type="button" class="item" :aria-label="$t('Couleur')" @click="toggle('color')">
           <span class="swatch" :class="`s-${color}`"></span>
           <i class="pi pi-angle-down caret"></i>
@@ -94,14 +123,41 @@ function toggle(menu: 'shape' | 'color' | 'chart'): void {
         </button>
       </div>
 
-      <div v-if="has('shape', 'text')" class="group segmented">
+      <div v-if="mockupSpec?.variant" class="group segmented">
+        <button v-for="variant in MOCKUP_VARIANTS" :key="variant" v-tooltip.top="$t(VARIANT_LABELS[variant])" type="button" class="item" :class="{ active: mockups[0]?.variant === variant }" :aria-label="$t(VARIANT_LABELS[variant])" @click="patch({ variant })">
+          <span class="fill-icon" :class="`v-${variant}`"></span>
+        </button>
+      </div>
+
+      <div v-if="mockupSpec?.check" class="group">
+        <button v-tooltip.top="$t('Coché')" type="button" class="item" :class="{ active: mockups[0]?.checked }" :aria-label="$t('Coché')" :aria-pressed="mockups[0]?.checked" @click="patch({ checked: !mockups[0]?.checked })">
+          <i class="pi pi-check-square"></i>
+        </button>
+      </div>
+
+      <div v-if="mockupSpec?.range" class="group range">
+        <label class="range-label">
+          <span>{{ $t(mockupSpec.range.label) }}</span>
+          <input
+            type="range"
+            :min="mockupSpec.range.min"
+            :max="mockupSpec.range.max"
+            :value="mockups[0]?.value"
+            :aria-label="$t(mockupSpec.range.label)"
+            @change="patch({ value: Number(($event.target as HTMLInputElement).value) })"
+          />
+          <span class="range-value">{{ mockups[0]?.value }}</span>
+        </label>
+      </div>
+
+      <div v-if="has('shape', 'text', 'mockup')" class="group segmented">
         <button
           v-for="size in TEXT_SIZES"
           :key="size"
           v-tooltip.top="$t('Taille du texte')"
           type="button"
           class="item text-size"
-          :class="{ active: (firstOf('shape') ?? firstOf('text'))?.size === size }"
+          :class="{ active: (firstOf('shape') ?? firstOf('text') ?? firstOf('mockup'))?.size === size }"
           :aria-label="$t('Taille du texte')"
           @click="patch({ size })"
         >
@@ -131,6 +187,20 @@ function toggle(menu: 'shape' | 'color' | 'chart'): void {
           <button v-tooltip.top="$t('Pointe à l’arrivée')" type="button" class="item" :class="{ active: firstOf('connector')?.arrowEnd }" :aria-label="$t('Pointe à l’arrivée')" @click="patch({ arrowEnd: !firstOf('connector')?.arrowEnd })">
             <i class="pi pi-arrow-right"></i>
           </button>
+        </div>
+        <div class="group">
+          <button v-tooltip.top="$t('Épaisseur du lien')" type="button" class="item wide" :aria-label="$t('Épaisseur du lien')" @click="toggle('weight')">
+            <!-- eslint-disable-next-line vue/no-v-html -- icône SVG construite ici. -->
+            <span class="weight-icon" v-html="weightIcon(firstOf('connector')?.weight ?? 'm')"></span>
+            <i class="pi pi-angle-down caret"></i>
+          </button>
+          <div v-if="open === 'weight'" class="menu column">
+            <button v-for="weight in CONNECTOR_WEIGHTS" :key="weight" type="button" class="item wide weight-item" :class="{ active: (firstOf('connector')?.weight ?? 'm') === weight }" @click="patch({ weight })">
+              <!-- eslint-disable-next-line vue/no-v-html -- icône SVG construite ici. -->
+              <span class="weight-icon" v-html="weightIcon(weight)"></span>
+              {{ $t(WEIGHT_LABELS[weight]) }}
+            </button>
+          </div>
         </div>
       </template>
 
@@ -229,6 +299,8 @@ function toggle(menu: 'shape' | 'color' | 'chart'): void {
   z-index: 6;
   display: flex;
   flex-wrap: wrap;
+  /* Sa largeur propre, pas la place restante à droite de son point d'ancrage (sinon elle passe sur deux lignes). */
+  width: max-content;
   max-width: calc(100% - 96px);
   align-items: center;
   gap: 0.15rem;
@@ -323,6 +395,15 @@ function toggle(menu: 'shape' | 'color' | 'chart'): void {
   flex-direction: column;
   align-items: stretch;
 }
+.weight-icon {
+  display: inline-flex;
+  align-items: center;
+}
+.weight-item {
+  justify-content: flex-start;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
 .swatch {
   display: inline-block;
   width: 1.15rem;
@@ -353,6 +434,46 @@ function toggle(menu: 'shape' | 'color' | 'chart'): void {
 .fill-icon.f-none {
   border-style: dashed;
   opacity: 0.6;
+}
+.fill-icon.v-primary {
+  background: currentColor;
+}
+.fill-icon.v-secondary {
+  border-color: transparent;
+  background: color-mix(in srgb, currentColor 30%, transparent);
+}
+.fill-icon.v-ghost {
+  border-color: transparent;
+  background: none;
+  text-decoration: underline;
+  position: relative;
+}
+.fill-icon.v-ghost::after {
+  position: absolute;
+  inset: auto 0.1rem 0.2rem;
+  height: 1.5px;
+  background: currentColor;
+  content: '';
+}
+.mockup-menu {
+  grid-template-columns: repeat(7, 2rem);
+}
+.range-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.3rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+.range-label input {
+  width: 6rem;
+  accent-color: var(--fb-accent);
+}
+.range-value {
+  min-width: 1.6rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 .s-default {
   --sw-fill: var(--board-default-fill);

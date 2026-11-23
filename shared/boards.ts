@@ -241,6 +241,57 @@ export interface ImageElement extends Placed {
   name: string;
 }
 
+/** Composants de maquette (wireframe), façon Whimsical. */
+export const MOCKUP_KINDS = [
+  'browser',
+  'mobile',
+  'navbar',
+  'tabs',
+  'breadcrumb',
+  'heading',
+  'paragraph',
+  'link',
+  'button',
+  'input',
+  'search',
+  'select',
+  'checkbox',
+  'radio',
+  'toggle',
+  'slider',
+  'progress',
+  'rating',
+  'badge',
+  'alert',
+  'avatar',
+  'image',
+  'video',
+  'list',
+  'card',
+  'modal',
+  'pagination',
+  'divider',
+] as const;
+export type MockupKind = (typeof MOCKUP_KINDS)[number];
+/** Style d'un bouton ou d'une pastille : plein, teinté, contour, sans fond. */
+export const MOCKUP_VARIANTS = ['primary', 'secondary', 'outline', 'ghost'] as const;
+export type MockupVariant = (typeof MOCKUP_VARIANTS)[number];
+
+/**
+ * Élément de maquette. `text` porte son contenu, une ligne par entrée pour les listes (onglets, menu, fil d'Ariane…) ;
+ * `value` sa valeur (pourcentage d'un curseur, onglet ou page choisis, nombre d'étoiles) ; `checked` l'état coché.
+ */
+export interface MockupElement extends Placed {
+  type: 'mockup';
+  kind: MockupKind;
+  text: string;
+  color: BoardColor;
+  variant: MockupVariant;
+  checked: boolean;
+  value: number;
+  size: TextSize;
+}
+
 export interface TableElement extends Placed {
   type: 'table';
   /** `rows[0]` : l'en-tête. */
@@ -271,6 +322,9 @@ export interface ConnectorEnd {
 
 export const CONNECTOR_ROUTES = ['straight', 'elbow', 'curve'] as const;
 export type ConnectorRoute = (typeof CONNECTOR_ROUTES)[number];
+/** Épaisseur d'un lien et de ses pointes ; `block` : grosse flèche pleine et cerclée, façon Google Drawings. */
+export const CONNECTOR_WEIGHTS = ['s', 'm', 'l', 'xl', 'block'] as const;
+export type ConnectorWeight = (typeof CONNECTOR_WEIGHTS)[number];
 
 export interface ConnectorElement {
   id: string;
@@ -284,12 +338,14 @@ export interface ConnectorElement {
   arrowStart: boolean;
   arrowEnd: boolean;
   color: BoardColor;
+  /** Absente : `m`, l'épaisseur habituelle. */
+  weight?: ConnectorWeight;
   locked?: boolean;
   tpl?: TemplateLink;
   group?: string;
 }
 
-export type PlacedElement = ShapeElement | TextElement | StickyElement | FrameElement | MindElement | PathElement | FastElement | TableElement | ChartElement | IconElement | ImageElement;
+export type PlacedElement = ShapeElement | TextElement | StickyElement | FrameElement | MindElement | PathElement | FastElement | TableElement | ChartElement | IconElement | ImageElement | MockupElement;
 export type BoardElement = PlacedElement | ConnectorElement;
 export type BoardElementType = BoardElement['type'];
 
@@ -317,6 +373,7 @@ export function elementText(element: BoardElement): string {
     case 'text':
     case 'sticky':
     case 'mind':
+    case 'mockup':
       return element.text;
     case 'frame':
       return element.title;

@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.10.0';
+export const APP_VERSION = '2.11.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,17 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.11.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Tableaux blancs : nouveau mode « Maquette » pour prototyper des écrans comme dans Whimsical : fenêtre de navigateur, téléphone, barre de navigation, onglets, boutons, champs, cases à cocher, interrupteurs, curseurs, cartes, fenêtres de dialogue… Chaque composant a ses réglages : style, état coché, valeur, taille du texte et couleur.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : l’épaisseur d’un lien se choisit, du trait fin à la grosse flèche pleine et cerclée (simple ou double), comme dans Google Drawings.' },
+      { category: 'Correction', text: 'Tableaux blancs : les points bleus de liaison réapparaissent après un déplacement ou un zoom à la molette, sans devoir rappuyer sur C.' },
+      { category: 'Correction', text: 'Tableaux blancs : la barre de mise en forme ne passe plus sur deux lignes par-dessus l’élément choisi.' },
+      { category: 'Correction', text: 'Tableaux blancs : la touche / ouvre l’ajout rapide sans ouvrir aussi la recherche générale.' },
+    ],
+  },
   {
     version: '2.10.0',
     date: '2026-11-23',

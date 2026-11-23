@@ -133,7 +133,8 @@ function onKeydown(event: KeyboardEvent): void {
 function onGlobalKey(event: KeyboardEvent): void {
   const target = event.target as HTMLElement | null;
   const typing = target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
-  if (((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') || (event.key === '/' && !typing)) {
+  // « / » déjà pris par la page (l'ajout rapide d'un tableau blanc) : elle garde la main.
+  if (((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') || (event.key === '/' && !typing && !event.defaultPrevented)) {
     event.preventDefault();
     ui.searchOpen = true;
   }

@@ -1,4 +1,5 @@
-import { boundsOf, connectorGeometry, mindLink, shapePath, textBox, type Rect } from './boardGeometry.ts';
+import { mockupSvg } from './boardMockup.ts';
+import { boundsOf, connectorGeometry, connectorStroke, mindLink, shapePath, textBox, type Rect } from './boardGeometry.ts';
 import { iconMarkup, libraryIcon } from './boardIcons.ts';
 import { TEXT_SIZE_PX, type BoardColor, type BoardElement, type MindElement } from './boards.ts';
 
@@ -178,12 +179,36 @@ export function boardPreviewSvg(elements: readonly BoardElement[], options: { ma
         parts.push(`<rect x="${n(element.x)}" y="${n(element.y)}" width="${n(element.w)}" height="${n(element.h)}" rx="6" fill="${s.surface}" stroke="${s.grid}"/>`);
         parts.push(textBlock(element.name, element, 12, s.muted));
         break;
+      case 'mockup': {
+        const paint = {
+          ink: palette.default.text,
+          muted: palette.gray.stroke,
+          line: palette.gray.stroke,
+          surface: palette.default.fill,
+          soft: palette.gray.fill,
+          accent: palette[element.color].stroke,
+          accentSoft: palette[element.color].fill,
+          onAccent: '#ffffff',
+        };
+        parts.push(`<g transform="translate(${n(element.x)},${n(element.y)})">${mockupSvg(element, paint)}</g>`);
+        break;
+      }
       case 'connector': {
         const geometry = connectorGeometry(element, index);
         const stroke = palette[element.color].stroke;
-        parts.push(
-          `<path d="${geometry.d}" fill="none" stroke="${stroke}" stroke-width="1.8"${element.dashed ? ' stroke-dasharray="6 5"' : ''}${element.arrowEnd ? ' marker-end="url(#arrow)"' : ''}${element.arrowStart ? ' marker-start="url(#arrow)"' : ''}/>`,
-        );
+        const drawn = connectorStroke(element, geometry);
+        if (drawn.outline) {
+          // Grosse flèche : contour, puis remplissage par-dessus.
+          const fill = palette[element.color].fill;
+          parts.push(`<path d="${drawn.d}" fill="none" stroke="${stroke}" stroke-width="${n(drawn.line + drawn.outline * 2)}" stroke-linejoin="round"/>`);
+          for (const head of drawn.heads) parts.push(`<polygon points="${head}" fill="${stroke}" stroke="${stroke}" stroke-width="${n(drawn.outline * 2)}" stroke-linejoin="round"/>`);
+          parts.push(`<path d="${drawn.d}" fill="none" stroke="${fill}" stroke-width="${n(drawn.line)}" stroke-linejoin="round"/>`);
+          for (const head of drawn.heads) parts.push(`<polygon points="${head}" fill="${fill}"/>`);
+        } else {
+          const dash = element.dashed ? ` stroke-dasharray="${drawn.line > 2 ? `${n(drawn.line * 2.2)} ${n(drawn.line * 1.8)}` : '6 5'}"` : '';
+          parts.push(`<path d="${drawn.d}" fill="none" stroke="${stroke}" stroke-width="${n(drawn.line)}" stroke-linejoin="round"${dash}/>`);
+          for (const head of drawn.heads) parts.push(`<polygon class="arrow" points="${head}" fill="${stroke}"/>`);
+        }
         if (element.label) {
           const width = Math.min(200, element.label.length * 7 + 12);
           parts.push(`<rect x="${n(geometry.mid.x - width / 2)}" y="${n(geometry.mid.y - 10)}" width="${n(width)}" height="20" rx="4" fill="${s.label}"/>`);
@@ -196,7 +221,6 @@ export function boardPreviewSvg(elements: readonly BoardElement[], options: { ma
 
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${n(view.x)} ${n(view.y)} ${n(view.w)} ${n(view.h)}" width="${n(width)}" height="${n(height)}" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">`,
-    `<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${s.arrow}"/></marker></defs>`,
     `<rect x="${n(view.x)}" y="${n(view.y)}" width="${n(view.w)}" height="${n(view.h)}" fill="${s.canvas}"/>`,
     ...parts,
     '</svg>',

@@ -4,14 +4,18 @@ import {
   BOARD_LIMITS,
   CHART_KINDS,
   CONNECTOR_ROUTES,
+  CONNECTOR_WEIGHTS,
   FILL_STYLES,
   GROUP_ID_MAX,
+  MOCKUP_KINDS,
+  MOCKUP_VARIANTS,
   SHAPE_KINDS,
   TEXT_SIZES,
   withGroup,
   type BoardColor,
   type BoardElement,
   type ConnectorEnd,
+  type ConnectorWeight,
   type FastRefKind,
   type Side,
   type TemplateLink,
@@ -95,6 +99,7 @@ export function sanitizeElement(value: unknown): BoardElement | null {
       arrowStart: raw.arrowStart === true,
       arrowEnd: raw.arrowEnd !== false,
       color: color(raw.color),
+      ...(raw.weight !== 'm' && CONNECTOR_WEIGHTS.includes(raw.weight as ConnectorWeight) ? { weight: raw.weight as ConnectorWeight } : {}),
       ...flags,
     };
   }
@@ -132,6 +137,18 @@ export function sanitizeElement(value: unknown): BoardElement | null {
       if (!ASSET_KEY.test(asset)) return null;
       return { ...box, type: 'image', asset, name: text(raw.name, 200) };
     }
+    case 'mockup':
+      return {
+        ...box,
+        type: 'mockup',
+        kind: pick(raw.kind, MOCKUP_KINDS, 'button'),
+        text: text(raw.text, 2000),
+        color: color(raw.color),
+        variant: pick(raw.variant, MOCKUP_VARIANTS, 'primary'),
+        checked: raw.checked === true,
+        value: Math.round(num(raw.value, 50, 0, 100)),
+        size: pick(raw.size, TEXT_SIZES, 'm'),
+      };
     case 'chart':
       return {
         ...box,
