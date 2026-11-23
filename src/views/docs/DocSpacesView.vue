@@ -119,7 +119,8 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
             <i class="pi pi-book icon"></i>
             <strong class="truncate">{{ space.name }}</strong>
             <i v-if="space.site" v-tooltip.top="SITE_LABELS[space.site.visibility]" class="pi pi-globe site" :class="space.site.visibility" :aria-label="SITE_LABELS[space.site.visibility]"></i>
-            <Tag :value="$t(DOC_ROLE_LABELS[space.role])" severity="secondary" />
+<Tag v-if="space.adminAccess" v-tooltip.top="$t('Vous n’êtes pas propriétaire de cet espace : vous y entrez grâce à vos droits d’administration.')" :value="$t('Accès avec droit admin')" icon="pi pi-shield" severity="warn" />
+            <Tag v-else :value="$t(DOC_ROLE_LABELS[space.role])" severity="secondary" />
           </div>
           <p class="muted small description">{{ space.description || $t('Aucune description.') }}</p>
           <p class="muted small meta">

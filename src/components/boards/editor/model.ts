@@ -1,7 +1,7 @@
 import { computed, shallowRef } from 'vue';
 import * as Y from 'yjs';
 import { contains, layoutMind, mindRoot } from '@shared/boardGeometry';
-import { elementGroup, isPlaced, newElementId, TEXT_SIZE_PX, withGroup, type BoardElement, type MindElement, type PlacedElement } from '@shared/boards';
+import { elementGroup, isPlaced, newElementId, shiftConnector, TEXT_SIZE_PX, withGroup, type BoardElement, type MindElement, type PlacedElement } from '@shared/boards';
 import type { BoardSession } from '@/realtime/boardSession';
 
 /** Origine des écritures faites ici : seules elles s'annulent avec Ctrl Z. */
@@ -97,7 +97,11 @@ export class BoardModel {
     this.transact(() => {
       for (const [id, patch] of patches) {
         const current = this.session.elements.get(id);
-        if (current) this.session.elements.set(id, { ...current, ...patch } as BoardElement);
+        if (!current) continue;
+        // Une valeur `undefined` retire un réglage facultatif (épaisseur, animation…).
+        const next: Record<string, unknown> = { ...current, ...patch };
+        for (const key of Object.keys(next)) if (next[key] === undefined) delete next[key];
+        this.session.elements.set(id, next as unknown as BoardElement);
       }
     });
   }
@@ -190,8 +194,9 @@ export class BoardModel {
     const copies = source.map(relink).map(ownGroup).map((element): BoardElement => {
       const id = ids.get(element.id)!;
       if (element.type === 'connector') {
-        const end = (side: typeof element.from) => ({ ...side, id: side.id ? (ids.get(side.id) ?? null) : null, x: side.x + offset.x, y: side.y + offset.y });
-        return { ...element, id, z: z++, from: end(element.from), to: end(element.to) };
+        const shifted = shiftConnector(element, offset.x, offset.y);
+        const end = (side: typeof element.from) => ({ ...side, id: side.id ? (ids.get(side.id) ?? null) : null });
+        return { ...element, ...shifted, id, z: z++, from: end(shifted.from), to: end(shifted.to) };
       }
       const moved = { ...element, id, z: z++, x: element.x + offset.x, y: element.y + offset.y };
       if (moved.type === 'mind') return { ...moved, parent: moved.parent ? (ids.get(moved.parent) ?? null) : null };

@@ -3,6 +3,8 @@ import {
   BOARD_COLORS,
   BOARD_LIMITS,
   CHART_KINDS,
+  CONNECTOR_ANIMATIONS,
+  CONNECTOR_JUMPS,
   CONNECTOR_ROUTES,
   CONNECTOR_WEIGHTS,
   FILL_STYLES,
@@ -11,10 +13,13 @@ import {
   MOCKUP_VARIANTS,
   SHAPE_KINDS,
   TEXT_SIZES,
+  WAYPOINTS_MAX,
   withGroup,
   type BoardColor,
   type BoardElement,
+  type ConnectorAnimation,
   type ConnectorEnd,
+  type ConnectorJump,
   type ConnectorWeight,
   type FastRefKind,
   type Side,
@@ -54,7 +59,18 @@ function end(value: unknown): ConnectorEnd {
     side: SIDES.includes(raw.side as Side) ? (raw.side as Side) : null,
     x: num(raw.x, 0),
     y: num(raw.y, 0),
+    ...(typeof raw.t === 'number' && Number.isFinite(raw.t) && raw.t !== 0.5 ? { t: num(raw.t, 0.5, 0, 1) } : {}),
   };
+}
+
+/** Points de passage d'un lien (absents s'il n'y en a pas). */
+function waypoints(value: unknown): { waypoints?: Array<{ x: number; y: number }> } {
+  if (!Array.isArray(value)) return {};
+  const points = value
+    .filter((point): point is Raw => Boolean(point) && typeof point === 'object')
+    .slice(0, WAYPOINTS_MAX)
+    .map((point) => ({ x: num(point.x, 0), y: num(point.y, 0) }));
+  return points.length ? { waypoints: points } : {};
 }
 
 const shortId = (value: unknown): string => (typeof value === 'string' ? value.slice(0, 40) : '');
@@ -100,6 +116,16 @@ export function sanitizeElement(value: unknown): BoardElement | null {
       arrowEnd: raw.arrowEnd !== false,
       color: color(raw.color),
       ...(raw.weight !== 'm' && CONNECTOR_WEIGHTS.includes(raw.weight as ConnectorWeight) ? { weight: raw.weight as ConnectorWeight } : {}),
+      ...waypoints(raw.waypoints),
+      ...(CONNECTOR_JUMPS.includes(raw.jump as ConnectorJump) ? { jump: raw.jump as ConnectorJump } : {}),
+      ...(CONNECTOR_ANIMATIONS.includes(raw.animation as ConnectorAnimation)
+        ? {
+            animation: raw.animation as ConnectorAnimation,
+            ...(raw.animationReverse === true ? { animationReverse: true } : {}),
+            ...(BOARD_COLORS.includes(raw.animationColor as BoardColor) ? { animationColor: raw.animationColor as BoardColor } : {}),
+            ...(raw.animationSpeed === 'slow' || raw.animationSpeed === 'fast' ? { animationSpeed: raw.animationSpeed } : {}),
+          }
+        : {}),
       ...flags,
     };
   }

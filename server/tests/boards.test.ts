@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import * as Y from 'yjs';
-import { connectorGeometry, layoutMind, shapePath } from '../../shared/boardGeometry.ts';
+import { attachAt, connectorGeometry, connectorStroke, crossingsOf, layoutMind, shapePath, shiftSegment } from '../../shared/boardGeometry.ts';
 import { boardPreviewSvg } from '../../shared/boardPreview.ts';
-import { MOCKUP_KINDS, type BoardElement, type BoardNodeDTO, type ConnectorElement, type MindElement, type MockupElement, type ShapeElement } from '../../shared/boards.ts';
+import { MOCKUP_KINDS, shiftConnector, type BoardElement, type BoardNodeDTO, type ConnectorElement, type MindElement, type MockupElement, type ShapeElement } from '../../shared/boards.ts';
 import { base64ToBytes, bytesToBase64 } from '../../shared/docs.ts';
 import type { ServerMessage } from '../../shared/realtime.ts';
 import { sanitizeElements } from '../boards/elements.ts';
@@ -47,6 +47,58 @@ describe('géométrie des tableaux blancs', () => {
     const elbow = connectorGeometry({ ...link('l', 'a', 'b'), to: { id: 'b', side: 'top', x: 0, y: 0 } }, index);
     assert.ok(elbow.points.every((point, position) => position === 0 || point.x === elbow.points[position - 1]!.x || point.y === elbow.points[position - 1]!.y), 'que des angles droits');
     assert.match(shapePath('diamond', 100, 60), /^M50,0 L100,30/);
+  });
+
+  it('accroche précisément, passe par les points de passage et décale un segment', () => {
+    const index = new Map<string, BoardElement>([
+      ['a', shape('a', 0, 0)],
+      ['b', shape('b', 400, 200)],
+    ]);
+    // Près du bord haut, à un quart de la largeur : côté et position ; au cœur de la forme : automatique.
+    assert.deepEqual(attachAt(shape('x', 0, 0), { x: 40, y: 2 }), { side: 'top', t: 0.25 });
+    assert.deepEqual(attachAt(shape('x', 0, 0), { x: 82, y: 1 }), { side: 'top', t: 0.5 }, 'aimanté au milieu');
+    assert.equal(attachAt(shape('x', 0, 0), { x: 80, y: 40 }), null);
+    const precise = connectorGeometry({ ...link('l', 'a', 'b'), from: { id: 'a', side: 'bottom', x: 0, y: 0, t: 0.25 } }, index);
+    assert.deepEqual(precise.start, { x: 40, y: 80 });
+
+    const via = connectorGeometry({ ...link('l', 'a', 'b'), route: 'straight', waypoints: [{ x: 300, y: -100 }] }, index);
+    assert.deepEqual(via.line[1], { x: 300, y: -100 });
+    const curve = connectorGeometry({ ...link('l', 'a', 'b'), route: 'curve', waypoints: [{ x: 300, y: -100 }] }, index);
+    assert.equal(curve.curves?.length, 2, 'une courbe par tronçon');
+    assert.deepEqual(curve.curves![0]![3], { x: 300, y: -100 }, 'la courbe passe par le point');
+
+    const elbow = connectorGeometry({ ...link('l', 'a', 'b'), from: { id: 'a', side: 'right', x: 0, y: 0 }, to: { id: 'b', side: 'left', x: 0, y: 0 } }, index);
+    const middle = elbow.line.findIndex((point, position) => position > 0 && position < elbow.line.length - 2 && point.x === elbow.line[position + 1]!.x && !elbow.fixed.includes(position));
+    const moved = shiftSegment(elbow, middle, 60);
+    assert.ok(moved.length >= 2 && moved.every((point) => point.x === elbow.line[middle]!.x + 60), 'le segment vertical glisse de 60');
+    const rerouted = connectorGeometry({ ...link('l', 'a', 'b'), from: { id: 'a', side: 'right', x: 0, y: 0 }, to: { id: 'b', side: 'left', x: 0, y: 0 }, waypoints: moved }, index);
+    assert.ok(rerouted.line.every((point, position) => position === 0 || point.x === rerouted.line[position - 1]!.x || point.y === rerouted.line[position - 1]!.y), 'toujours à angles droits');
+  });
+
+  it('dessine les sauts aux croisements et garde les réglages des liens', () => {
+    const horizontal = [{ x: 0, y: 50 }, { x: 200, y: 50 }];
+    const vertical = [{ x: 100, y: 0 }, { x: 100, y: 100 }];
+    const found = crossingsOf(horizontal, [vertical]);
+    assert.deepEqual(found.get(0), [100]);
+    const index = new Map<string, BoardElement>([
+      ['a', shape('a', 0, 0)],
+      ['b', shape('b', 400, 0)],
+    ]);
+    const geometry = connectorGeometry({ ...link('l', 'a', 'b'), route: 'straight' }, index);
+    const crossing = crossingsOf(geometry.line, [[{ x: 280, y: -100 }, { x: 280, y: 200 }]]);
+    assert.match(connectorStroke({ ...link('l', 'a', 'b'), route: 'straight', jump: 'arc' }, geometry, crossing).d, / A[\d.]+,[\d.]+ 0 0 1 /);
+    assert.match(connectorStroke({ ...link('l', 'a', 'b'), route: 'straight', jump: 'gap' }, geometry, crossing).d, / M/);
+
+    const [kept, cleaned] = sanitizeElements([
+      { ...link('k', 'a', 'b'), from: { id: 'a', side: 'top', x: 0, y: 0, t: 0.3 }, waypoints: [{ x: 1, y: 2 }], jump: 'gap', animation: 'dots', animationReverse: true, animationColor: 'red', animationSpeed: 'fast' },
+      { ...link('c', 'a', 'b'), waypoints: 'non', jump: 'boing', animation: 'feu', animationReverse: true },
+    ] as unknown as BoardElement[]) as ConnectorElement[];
+    assert.deepEqual(
+      { t: kept!.from.t, waypoints: kept!.waypoints, jump: kept!.jump, animation: kept!.animation, reverse: kept!.animationReverse, color: kept!.animationColor, speed: kept!.animationSpeed },
+      { t: 0.3, waypoints: [{ x: 1, y: 2 }], jump: 'gap', animation: 'dots', reverse: true, color: 'red', speed: 'fast' },
+    );
+    for (const key of ['waypoints', 'jump', 'animation', 'animationReverse']) assert.ok(!(key in cleaned!), key);
+    assert.deepEqual(shiftConnector(kept!, 10, 5).waypoints, [{ x: 11, y: 7 }]);
   });
 
   it('range les enfants d’une carte mentale à droite de leur parent, sans chevauchement', () => {
@@ -461,5 +513,9 @@ describe('tableaux blancs', () => {
     assert.equal((await vera.get(`/api/boards/nodes/${board.id}`)).status, 404);
     assert.equal((await bob.del(`/api/boards/spaces/${spaceId}/members/${ids.bob}`)).status, 409, 'il reste un propriétaire');
     assert.equal((await admin.get(`/api/boards/nodes/${board.id}`)).status, 200, 'boards.manage voit tout');
+    // L'administrateur entre par ses droits : l'espace le dit, pas au propriétaire.
+    const seen = (await admin.get(`/api/boards/spaces/${spaceId}`)).body as { space: { role: string; adminAccess: boolean } };
+    assert.deepEqual([seen.space.role, seen.space.adminAccess], ['owner', true]);
+    assert.equal(((await bob.get(`/api/boards/spaces/${spaceId}`)).body as { space: { adminAccess: boolean } }).space.adminAccess, false);
   });
 });

@@ -1,4 +1,4 @@
-import type { BoardElement, ConnectorElement, ConnectorEnd, ConnectorWeight, MindElement, PlacedElement, ShapeKind, Side } from './boards.ts';
+import type { BoardElement, ConnectorElement, ConnectorEnd, ConnectorJump, ConnectorWeight, MindElement, PlacedElement, ShapeKind, Side } from './boards.ts';
 import { isPlaced } from './boards.ts';
 
 /** Géométrie des tableaux blancs, commune à l'éditeur et à l'aperçu rendu par le serveur. */
@@ -68,18 +68,53 @@ export function textBox(shape: ShapeKind, w: number, h: number): Rect {
 
 export const center = (rect: Rect): Point => ({ x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 });
 
-/** Point d'accroche au milieu d'un côté. */
-export function anchor(rect: Rect, side: Side): Point {
+/** Point d'accroche sur un côté : au milieu, ou à la position `t` (de 0, en haut ou à gauche, à 1). */
+export function anchor(rect: Rect, side: Side, t = 0.5): Point {
   switch (side) {
     case 'top':
-      return { x: rect.x + rect.w / 2, y: rect.y };
+      return { x: rect.x + rect.w * t, y: rect.y };
     case 'right':
-      return { x: rect.x + rect.w, y: rect.y + rect.h / 2 };
+      return { x: rect.x + rect.w, y: rect.y + rect.h * t };
     case 'bottom':
-      return { x: rect.x + rect.w / 2, y: rect.y + rect.h };
+      return { x: rect.x + rect.w * t, y: rect.y + rect.h };
     case 'left':
-      return { x: rect.x, y: rect.y + rect.h / 2 };
+      return { x: rect.x, y: rect.y + rect.h * t };
   }
+}
+
+/** Accroche sur le contour réel d'une ellipse ou d'un losange (sinon, sur le cadre). */
+export function anchorOf(element: PlacedElement, side: Side, t = 0.5): Point {
+  const point = anchor(element, side, t);
+  if (element.type !== 'shape' || (element.shape !== 'ellipse' && element.shape !== 'diamond') || t === 0.5) return point;
+  const c = center(element);
+  const dx = point.x - c.x;
+  const dy = point.y - c.y;
+  const a = element.w / 2 || 1;
+  const b = element.h / 2 || 1;
+  const k = element.shape === 'ellipse' ? 1 / Math.sqrt((dx / a) ** 2 + (dy / b) ** 2 || 1) : 1 / (Math.abs(dx) / a + Math.abs(dy) / b || 1);
+  return { x: c.x + dx * k, y: c.y + dy * k };
+}
+
+/**
+ * Accroche précise sous le pointeur, comme dans Whimsical : près d'un bord, le côté et la position le long de ce côté
+ * (aimantée au milieu) ; au cœur de la forme, `null` (le lien choisit seul son côté).
+ */
+export function attachAt(rect: Rect, point: Point, snap = 10): { side: Side; t: number } | null {
+  const u = (point.x - rect.x) / Math.max(rect.w, 1);
+  const v = (point.y - rect.y) / Math.max(rect.h, 1);
+  if (u > 0.25 && u < 0.75 && v > 0.25 && v < 0.75) return null;
+  const distances: Array<[Side, number]> = [
+    ['top', Math.abs(point.y - rect.y)],
+    ['bottom', Math.abs(point.y - (rect.y + rect.h))],
+    ['left', Math.abs(point.x - rect.x)],
+    ['right', Math.abs(point.x - (rect.x + rect.w))],
+  ];
+  const side = distances.sort((a, b) => a[1] - b[1])[0]![0];
+  const along = side === 'top' || side === 'bottom' ? u : v;
+  const length = side === 'top' || side === 'bottom' ? rect.w : rect.h;
+  let t = Math.min(0.98, Math.max(0.02, along));
+  if (Math.abs(t - 0.5) * length < snap) t = 0.5;
+  return { side, t: Math.round(t * 1000) / 1000 };
 }
 
 const NORMALS: Record<Side, Point> = { top: { x: 0, y: -1 }, right: { x: 1, y: 0 }, bottom: { x: 0, y: 1 }, left: { x: -1, y: 0 } };
@@ -105,7 +140,7 @@ export function endPoint(end: ConnectorEnd, other: Point, index: ElementIndex): 
   const element = placedOf(index, end.id);
   if (!element) return { point: { x: end.x, y: end.y }, side: null };
   const side = end.side ?? sideToward(element, other);
-  return { point: anchor(element, side), side };
+  return { point: anchorOf(element, side, end.side ? (end.t ?? 0.5) : 0.5), side };
 }
 
 /** Centre visé par l'autre extrémité (pour choisir le côté le plus proche). */
@@ -116,7 +151,14 @@ function aim(end: ConnectorEnd, index: ElementIndex): Point {
 
 export interface ConnectorGeometry {
   d: string;
+  /** Points qui englobent le tracé (sommets, et points de contrôle des courbes). */
   points: Point[];
+  /** Le tracé en ligne brisée (une courbe est échantillonnée) : croisements, milieu, longueur. */
+  line: Point[];
+  /** Courbes de Bézier du tracé, pour un lien courbe. */
+  curves: Array<[Point, Point, Point, Point]> | null;
+  /** Points fixés par les formes (départ, arrivée et leur sortie) : rangs dans `line`, pour un lien droit ou coudé. */
+  fixed: number[];
   /** Milieu du tracé (étiquette). */
   mid: Point;
   start: Point;
@@ -127,43 +169,211 @@ export interface ConnectorGeometry {
 }
 
 const STUB = 24;
+const isHorizontal = (side: Side): boolean => side === 'left' || side === 'right';
 
-/** Tracé d'un lien : droit, coudé (angles droits) ou courbe. */
+/** Tracé d'un lien : droit, coudé (angles droits) ou courbe, passant par ses points de passage. */
 export function connectorGeometry(connector: ConnectorElement, index: ElementIndex): ConnectorGeometry {
-  const fromAim = aim(connector.from, index);
-  const toAim = aim(connector.to, index);
-  const from = endPoint(connector.from, toAim, index);
-  const to = endPoint(connector.to, fromAim, index);
+  const via = connector.waypoints ?? [];
+  const fromAim = via[0] ?? aim(connector.to, index);
+  const toAim = via[via.length - 1] ?? aim(connector.from, index);
+  const from = endPoint(connector.from, fromAim, index);
+  const to = endPoint(connector.to, toAim, index);
   const start = from.point;
   const end = to.point;
   if (connector.route === 'curve') {
-    const distance = Math.max(40, Math.hypot(end.x - start.x, end.y - start.y) / 2.5);
-    const n1 = from.side ? NORMALS[from.side] : unit(start, end);
-    const n2 = to.side ? NORMALS[to.side] : unit(end, start);
-    const c1 = { x: start.x + n1.x * distance, y: start.y + n1.y * distance };
-    const c2 = { x: end.x + n2.x * distance, y: end.y + n2.y * distance };
-    const mid = cubicPoint(start, c1, c2, end, 0.5);
+    const stops = [start, ...via, end];
+    const tangents = stops.map((point, position): Point => {
+      if (position === 0) {
+        const length = Math.hypot(stops[1]!.x - point.x, stops[1]!.y - point.y);
+        const n = from.side ? NORMALS[from.side] : unit(point, stops[1]!);
+        // Sans point de passage, le même tracé qu'avant : une poignée à 1/2,5 de la distance (40 au moins).
+        const reach = via.length ? length * 1.2 : Math.max(40, length / 2.5) * 3;
+        return { x: n.x * reach, y: n.y * reach };
+      }
+      if (position === stops.length - 1) {
+        const previous = stops[position - 1]!;
+        const length = Math.hypot(point.x - previous.x, point.y - previous.y);
+        const n = to.side ? NORMALS[to.side] : unit(point, previous);
+        const reach = via.length ? length * 1.2 : Math.max(40, length / 2.5) * 3;
+        return { x: -n.x * reach, y: -n.y * reach };
+      }
+      const previous = stops[position - 1]!;
+      const next = stops[position + 1]!;
+      return { x: (next.x - previous.x) / 2, y: (next.y - previous.y) / 2 };
+    });
+    const curves = stops.slice(1).map((point, position): [Point, Point, Point, Point] => {
+      const a = stops[position]!;
+      const ta = tangents[position]!;
+      const tb = tangents[position + 1]!;
+      return [a, { x: a.x + ta.x / 3, y: a.y + ta.y / 3 }, { x: point.x - tb.x / 3, y: point.y - tb.y / 3 }, point];
+    });
+    const line = sampleCurves(curves);
+    const first = curves[0]!;
+    const last = curves[curves.length - 1]!;
     return {
-      d: `M${round(start.x)},${round(start.y)} C${round(c1.x)},${round(c1.y)} ${round(c2.x)},${round(c2.y)} ${round(end.x)},${round(end.y)}`,
-      points: [start, c1, c2, end],
-      mid,
+      d: curvesPath(curves),
+      points: curves.flatMap((curve, position) => (position ? curve.slice(1) : curve)),
+      line,
+      curves,
+      fixed: [0, line.length - 1],
+      mid: curves.length === 1 ? cubicPoint(first[0], first[1], first[2], first[3], 0.5) : polylineMid(line),
       start,
       end,
-      endAngle: Math.atan2(end.y - c2.y, end.x - c2.x),
-      startAngle: Math.atan2(start.y - c1.y, start.x - c1.x),
+      endAngle: Math.atan2(end.y - last[2].y, end.x - last[2].x),
+      startAngle: Math.atan2(start.y - first[1].y, start.x - first[1].x),
     };
   }
-  const points = connector.route === 'elbow' ? elbow(start, from.side, end, to.side) : [start, end];
+  const points = connector.route === 'elbow' ? (via.length ? elbowThrough(start, from.side, via, end, to.side) : elbow(start, from.side, end, to.side)) : [start, ...via, end];
+  const fixed = [0, points.length - 1];
+  if (connector.route === 'elbow') {
+    if (from.side && points.length > 2) fixed.push(1);
+    if (to.side && points.length > 2) fixed.push(points.length - 2);
+  }
   const last = points[points.length - 2]!;
   return {
     d: points.map((point, position) => `${position ? 'L' : 'M'}${round(point.x)},${round(point.y)}`).join(' '),
     points,
+    line: points,
+    curves: null,
+    fixed: [...new Set(fixed)].sort((a, b) => a - b),
     mid: polylineMid(points),
     start,
     end,
     endAngle: Math.atan2(end.y - last.y, end.x - last.x),
     startAngle: Math.atan2(start.y - points[1]!.y, start.x - points[1]!.x),
   };
+}
+
+const curvesPath = (curves: ReadonlyArray<readonly [Point, Point, Point, Point]>): string =>
+  curves
+    .map(([a, b, c, d], position) => `${position ? '' : `M${round(a.x)},${round(a.y)} `}C${round(b.x)},${round(b.y)} ${round(c.x)},${round(c.y)} ${round(d.x)},${round(d.y)}`)
+    .join(' ');
+
+function sampleCurves(curves: ReadonlyArray<readonly [Point, Point, Point, Point]>): Point[] {
+  const line: Point[] = [curves[0]![0]];
+  for (const [a, b, c, d] of curves) for (let step = 1; step <= 16; step += 1) line.push(cubicPoint(a, b, c, d, step / 16));
+  return line;
+}
+
+/** Itinéraire à angles droits qui passe par des points choisis : un coude là où deux points ne sont pas alignés. */
+function elbowThrough(start: Point, startSide: Side | null, via: ReadonlyArray<Point>, end: Point, endSide: Side | null): Point[] {
+  const s1 = startSide ? { x: start.x + NORMALS[startSide].x * STUB, y: start.y + NORMALS[startSide].y * STUB } : null;
+  const e1 = endSide ? { x: end.x + NORMALS[endSide].x * STUB, y: end.y + NORMALS[endSide].y * STUB } : null;
+  const route: Point[] = [start];
+  if (s1) route.push(s1);
+  let horizontal: boolean | null = startSide ? isHorizontal(startSide) : null;
+  const goTo = (target: Point, arriveHorizontal: boolean | null): void => {
+    const from = route[route.length - 1]!;
+    const aligned = Math.abs(target.x - from.x) < 0.5 || Math.abs(target.y - from.y) < 0.5;
+    if (!aligned) {
+      // Arrivée imposée (sortie de la forme d'arrivée), sinon on tourne par rapport au segment précédent.
+      const vertical = arriveHorizontal === null ? horizontal === true : !arriveHorizontal;
+      route.push(vertical ? { x: from.x, y: target.y } : { x: target.x, y: from.y });
+    }
+    const previous = route[route.length - 1]!;
+    horizontal = Math.abs(target.y - previous.y) < 0.5;
+    route.push(target);
+  };
+  for (const point of via) goTo(point, null);
+  if (e1) goTo(e1, !isHorizontal(endSide!));
+  goTo(end, null);
+  return simplify(route);
+}
+
+/** Retire les points en double et ceux alignés entre leurs voisins. */
+function simplify(points: Point[]): Point[] {
+  const distinct = points.filter((point, position) => {
+    const previous = points[position - 1];
+    return !previous || Math.abs(previous.x - point.x) > 0.5 || Math.abs(previous.y - point.y) > 0.5;
+  });
+  return distinct.filter((point, position) => {
+    if (position === 0 || position === distinct.length - 1) return true;
+    const a = distinct[position - 1]!;
+    const b = distinct[position + 1]!;
+    return Math.abs((point.x - a.x) * (b.y - a.y) - (point.y - a.y) * (b.x - a.x)) > 0.5;
+  });
+}
+
+/**
+ * Décale un segment d'un lien coudé (comme dans Whimsical) : renvoie les nouveaux points de passage. Un bout fixé par
+ * une forme reste en place et un coude le relie au segment déplacé.
+ */
+export function shiftSegment(geometry: ConnectorGeometry, segment: number, offset: number): Array<{ x: number; y: number }> {
+  const line = geometry.line;
+  const a = line[segment]!;
+  const b = line[segment + 1]!;
+  const horizontal = Math.abs(a.y - b.y) < 0.5;
+  const move = (point: Point): Point => (horizontal ? { x: point.x, y: point.y + offset } : { x: point.x + offset, y: point.y });
+  const fixed = new Set(geometry.fixed);
+  const shifted = [...line.slice(0, segment), ...(fixed.has(segment) ? [a, move(a)] : [move(a)]), ...(fixed.has(segment + 1) ? [move(b), b] : [move(b)]), ...line.slice(segment + 2)];
+  // Les points fixés (départ, arrivée et leurs sorties) se recalculent : seuls restent les points libres.
+  const headFixed = geometry.fixed.filter((position) => position <= segment).length;
+  const tailFixed = geometry.fixed.filter((position) => position > segment + 1).length;
+  const free = shifted.slice(headFixed, shifted.length - tailFixed);
+  return simplify([line[0]!, ...free, line[line.length - 1]!])
+    .slice(1, -1)
+    .map((point) => ({ x: round(point.x), y: round(point.y) }));
+}
+
+/** Point de passage ajouté sur un segment (lien droit ou courbe) : son rang dans la liste des points de passage. */
+export function waypointRank(connector: ConnectorElement, geometry: ConnectorGeometry, point: Point): number {
+  const stops = [geometry.start, ...(connector.waypoints ?? []), geometry.end];
+  let best = 0;
+  let bestDistance = Infinity;
+  for (let position = 0; position + 1 < stops.length; position += 1) {
+    const distance = distanceToSegment(point, stops[position]!, stops[position + 1]!);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = position;
+    }
+  }
+  return best;
+}
+
+function distanceToSegment(point: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = dx * dx + dy * dy;
+  const t = length ? Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length)) : 0;
+  return Math.hypot(point.x - (a.x + dx * t), point.y - (a.y + dy * t));
+}
+
+/** Longueur d'une ligne brisée. */
+export function lineLength(line: ReadonlyArray<Point>): number {
+  let total = 0;
+  for (let position = 1; position < line.length; position += 1) total += Math.hypot(line[position]!.x - line[position - 1]!.x, line[position]!.y - line[position - 1]!.y);
+  return total;
+}
+
+/** Croisements d'un tracé avec d'autres : pour chaque segment, les distances depuis son début. */
+export function crossingsOf(line: ReadonlyArray<Point>, others: ReadonlyArray<ReadonlyArray<Point>>): Map<number, number[]> {
+  const found = new Map<number, number[]>();
+  for (let position = 0; position + 1 < line.length; position += 1) {
+    const a = line[position]!;
+    const b = line[position + 1]!;
+    for (const other of others) {
+      for (let index = 0; index + 1 < other.length; index += 1) {
+        const hit = segmentIntersection(a, b, other[index]!, other[index + 1]!);
+        if (hit === null) continue;
+        const list = found.get(position) ?? [];
+        list.push(hit * Math.hypot(b.x - a.x, b.y - a.y));
+        found.set(position, list);
+      }
+    }
+  }
+  for (const list of found.values()) list.sort((x, y) => x - y);
+  return found;
+}
+
+/** Position (0 à 1 sur ab) du croisement franc de ab et cd, ou `null`. */
+function segmentIntersection(a: Point, b: Point, c: Point, d: Point): number | null {
+  const r = { x: b.x - a.x, y: b.y - a.y };
+  const s = { x: d.x - c.x, y: d.y - c.y };
+  const denominator = r.x * s.y - r.y * s.x;
+  if (Math.abs(denominator) < 1e-9) return null;
+  const t = ((c.x - a.x) * s.y - (c.y - a.y) * s.x) / denominator;
+  const u = ((c.x - a.x) * r.y - (c.y - a.y) * r.x) / denominator;
+  return t > 0.001 && t < 0.999 && u > 0.001 && u < 0.999 ? t : null;
 }
 
 /** Épaisseur du trait et taille des pointes (longueur, demi-largeur), en unités du tableau. */
@@ -176,7 +386,7 @@ export const CONNECTOR_WEIGHT_SPECS: Record<ConnectorWeight, { line: number; hea
 };
 
 export interface ConnectorStroke {
-  /** Tracé raccourci aux pointes, pour que le trait épais ne dépasse pas de leur sommet. */
+  /** Tracé raccourci aux pointes, pour que le trait épais ne dépasse pas de leur sommet ; avec ses sauts. */
   d: string;
   /** Pointes (triangles), en liste de points SVG. */
   heads: string[];
@@ -184,8 +394,11 @@ export interface ConnectorStroke {
   outline: number;
 }
 
-/** Ce qu'on dessine d'un lien : le trait et ses pointes, selon son épaisseur. */
-export function connectorStroke(connector: ConnectorElement, geometry: ConnectorGeometry): ConnectorStroke {
+/**
+ * Ce qu'on dessine d'un lien : le trait et ses pointes, selon son épaisseur ; `crossings` (voir `crossingsOf`) place
+ * les sauts d'un lien droit ou coudé qui en demande.
+ */
+export function connectorStroke(connector: ConnectorElement, geometry: ConnectorGeometry, crossings?: Map<number, number[]>): ConnectorStroke {
   const spec = CONNECTOR_WEIGHT_SPECS[connector.weight ?? 'm'];
   const trim = spec.head * (spec.outline ? 0.92 : 0.75);
   const heads: string[] = [];
@@ -197,36 +410,65 @@ export function connectorStroke(connector: ConnectorElement, geometry: Connector
   };
   if (connector.arrowEnd) heads.push(head(geometry.end, geometry.endAngle));
   if (connector.arrowStart) heads.push(head(geometry.start, geometry.startAngle));
-  return { d: trimmedPath(geometry, connector.arrowStart ? trim : 0, connector.arrowEnd ? trim : 0), heads, line: spec.line, outline: spec.outline };
+  const startTrim = connector.arrowStart ? trim : 0;
+  const endTrim = connector.arrowEnd ? trim : 0;
+  const jumps = connector.jump && crossings?.size && !geometry.curves ? { style: connector.jump, crossings, radius: Math.max(6, spec.line * 1.8 + 4) } : null;
+  return { d: trimmedPath(geometry, startTrim, endTrim, jumps), heads, line: spec.line, outline: spec.outline };
 }
 
-/** Le tracé d'un lien, raccourci de `startTrim` au départ et de `endTrim` à l'arrivée. */
-function trimmedPath(geometry: ConnectorGeometry, startTrim: number, endTrim: number): string {
-  if (!startTrim && !endTrim) return geometry.d;
+/** Le tracé d'un lien, raccourci de `startTrim` au départ et de `endTrim` à l'arrivée, avec ses sauts. */
+function trimmedPath(geometry: ConnectorGeometry, startTrim: number, endTrim: number, jumps: { style: ConnectorJump; crossings: Map<number, number[]>; radius: number } | null): string {
+  if (!startTrim && !endTrim && !jumps) return geometry.d;
   const point = (p: Point): string => `${round(p.x)},${round(p.y)}`;
-  const points = geometry.points.map((p) => ({ ...p }));
-  const curve = geometry.d.includes('C');
-  if (curve) {
-    const [start, c1, c2, end] = points as [Point, Point, Point, Point];
-    const room = Math.hypot(end.x - start.x, end.y - start.y) / 2.5;
-    const a = Math.min(startTrim, room);
-    const b = Math.min(endTrim, room);
-    const s = { x: start.x - Math.cos(geometry.startAngle) * a, y: start.y - Math.sin(geometry.startAngle) * a };
-    const e = { x: end.x - Math.cos(geometry.endAngle) * b, y: end.y - Math.sin(geometry.endAngle) * b };
-    return `M${point(s)} C${point(c1)} ${point(c2)} ${point(e)}`;
+  if (geometry.curves) {
+    const curves = geometry.curves.map((curve) => curve.map((p) => ({ ...p })) as [Point, Point, Point, Point]);
+    const first = curves[0]!;
+    const last = curves[curves.length - 1]!;
+    const a = Math.min(startTrim, Math.hypot(first[3].x - first[0].x, first[3].y - first[0].y) / 2.5);
+    const b = Math.min(endTrim, Math.hypot(last[3].x - last[0].x, last[3].y - last[0].y) / 2.5);
+    first[0] = { x: first[0].x - Math.cos(geometry.startAngle) * a, y: first[0].y - Math.sin(geometry.startAngle) * a };
+    last[3] = { x: last[3].x - Math.cos(geometry.endAngle) * b, y: last[3].y - Math.sin(geometry.endAngle) * b };
+    return curvesPath(curves);
   }
-  const pull = (from: Point, toward: Point, distance: number): void => {
+  const points = geometry.line.map((p) => ({ ...p }));
+  const pull = (from: Point, toward: Point, distance: number): number => {
     const length = Math.hypot(toward.x - from.x, toward.y - from.y);
     const t = length ? Math.min(distance, length - 0.5) / length : 0;
-    if (t <= 0) return;
+    if (t <= 0) return 0;
     from.x += (toward.x - from.x) * t;
     from.y += (toward.y - from.y) * t;
+    return t * length;
   };
+  let pulledStart = 0;
   if (points.length >= 2) {
-    if (startTrim) pull(points[0]!, points[1]!, startTrim);
+    if (startTrim) pulledStart = pull(points[0]!, points[1]!, startTrim);
     if (endTrim) pull(points[points.length - 1]!, points[points.length - 2]!, endTrim);
   }
-  return points.map((p, position) => `${position ? 'L' : 'M'}${point(p)}`).join(' ');
+  if (!jumps) return points.map((p, position) => `${position ? 'L' : 'M'}${point(p)}`).join(' ');
+  const r = jumps.radius;
+  let d = `M${point(points[0]!)}`;
+  for (let position = 0; position + 1 < points.length; position += 1) {
+    const a = points[position]!;
+    const b = points[position + 1]!;
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    const dir = length ? { x: (b.x - a.x) / length, y: (b.y - a.y) / length } : { x: 1, y: 0 };
+    // Bosse vers le haut sur un segment horizontal, vers la droite sur un segment vertical.
+    const up = Math.abs(dir.x) > 0.01 ? (dir.x > 0 ? { x: dir.y, y: -dir.x } : { x: -dir.y, y: dir.x }) : { x: 1, y: 0 };
+    const sweep = up.x * dir.y - up.y * dir.x > 0 ? 1 : 0;
+    let cursor = -Infinity;
+    for (const raw of jumps.crossings.get(position) ?? []) {
+      const at = raw - (position === 0 ? pulledStart : 0);
+      if (at - r < Math.max(cursor, 0) + 1 || at + r > length - 1) continue;
+      const before = { x: a.x + dir.x * (at - r), y: a.y + dir.y * (at - r) };
+      const after = { x: a.x + dir.x * (at + r), y: a.y + dir.y * (at + r) };
+      if (jumps.style === 'arc') d += ` L${point(before)} A${round(r)},${round(r)} 0 0 ${sweep} ${point(after)}`;
+      else if (jumps.style === 'gap') d += ` L${point(before)} M${point(after)}`;
+      else d += ` L${point(before)} L${point({ x: a.x + dir.x * at + up.x * r * 1.2, y: a.y + dir.y * at + up.y * r * 1.2 })} L${point(after)}`;
+      cursor = at + r;
+    }
+    d += ` L${point(b)}`;
+  }
+  return d;
 }
 
 function unit(a: Point, b: Point): Point {

@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.11.0';
+export const APP_VERSION = '2.12.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,17 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.12.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Tableaux blancs : « Exporter… » (menu ⋯ et clic droit) enregistre tout le tableau ou la sélection en PNG, WebP, SVG ou PDF, à l’échelle choisie et avec ou sans fond, ou copie l’image, comme dans Whimsical.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : import de diagrammes draw.io (fichier .drawio ou XML, compressé ou non, ou XML collé), depuis le clic droit « Importer » ou le bouton d’import : formes, textes, conteneurs, couleurs et liens sont repris.' },
+      { category: 'Nouveauté', text: 'Liens : accroche précise n’importe où le long d’un côté, points de passage à ajouter, déplacer ou retirer (double-clic), segments d’un lien coudé à décaler pour qu’il passe ailleurs, et sauts aux croisements (arc, coupure ou pointe).' },
+      { category: 'Nouveauté', text: 'Liens animés : tirets qui défilent, points qui circulent, pulsation ou comète, vers l’arrivée ou vers le départ, avec la vitesse et la couleur de son choix.' },
+      { category: 'Amélioration', text: 'Espaces de documentation et de tableaux blancs : une pastille « Accès avec droit admin » signale un espace où l’on n’entre que par ses droits d’administration.' },
+    ],
+  },
   {
     version: '2.11.0',
     date: '2026-11-23',

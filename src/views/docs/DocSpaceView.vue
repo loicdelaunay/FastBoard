@@ -7,6 +7,7 @@ import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Menu from 'primevue/menu';
+import Tag from 'primevue/tag';
 import Select from 'primevue/select';
 import type { MenuItem } from 'primevue/menuitem';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
@@ -857,6 +858,9 @@ const recent = computed(() =>
         @memo="showInfo($event, 'memo')"
         @collapse="treeHidden = true"
       />
+      <div v-if="store.space.adminAccess" class="admin-access">
+        <Tag v-if="store.space.adminAccess" v-tooltip.top="$t('Vous n’êtes pas propriétaire de cet espace : vous y entrez grâce à vos droits d’administration.')" :value="$t('Accès avec droit admin')" icon="pi pi-shield" severity="warn" />
+      </div>
       <footer class="space-foot">
         <button v-tooltip.top="$t('Changer d’espace')" type="button" class="space-switch" aria-haspopup="true" @click="openSwitcher">
           <i class="pi pi-sort-alt muted"></i>
@@ -1125,6 +1129,11 @@ const recent = computed(() =>
 .tree {
   flex: 1;
   min-height: 0;
+}
+.admin-access {
+  display: flex;
+  justify-content: center;
+  padding: 0.35rem 0.5rem 0;
 }
 .space-foot {
   display: flex;

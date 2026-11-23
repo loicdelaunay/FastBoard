@@ -5,8 +5,9 @@ import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import type { MenuItem } from 'primevue/menuitem';
-import { anchor, boundsOf, connectorGeometry, connectorStroke, intersects, mindLink, mindRoot, shapePath, sideToward, textBox, type Point, type Rect } from '@shared/boardGeometry';
+import { anchor, anchorOf, attachAt, boundsOf, connectorGeometry, connectorStroke, crossingsOf, lineLength, shiftSegment, waypointRank, intersects, mindLink, mindRoot, shapePath, sideToward, textBox, type ConnectorGeometry, type Point, type Rect } from '@shared/boardGeometry';
 import { exportMermaid, mermaidToElements } from '@shared/boardMermaid';
+import { looksLikeDrawio } from '@shared/boardDrawio';
 import { MOCKUP_SPECS, mockupSvg } from '@shared/boardMockup';
 import {
   boardAssetUrl,
@@ -14,7 +15,9 @@ import {
   elementGroup,
   isPlaced,
   newElementId,
+  shiftConnector,
   withGroup,
+  type AnimationSpeed,
   type BoardAssetDTO,
   type BoardColor,
   type BoardElement,
@@ -43,6 +46,8 @@ import { useAuthStore } from '@/stores/auth';
 import { notify, notifyError } from '@/utils/notify';
 import BoardChart from './BoardChart.vue';
 import BoardChartDialog from './BoardChartDialog.vue';
+import BoardDrawioDialog from './BoardDrawioDialog.vue';
+import BoardExportDialog from './BoardExportDialog.vue';
 import BoardFastCard from './BoardFastCard.vue';
 import BoardFastPicker from './BoardFastPicker.vue';
 import BoardMermaidDialog from './BoardMermaidDialog.vue';
@@ -51,6 +56,7 @@ import BoardSelectionBar from './BoardSelectionBar.vue';
 import BoardTable from './BoardTable.vue';
 import BoardToolbar from './BoardToolbar.vue';
 import { BoardModel, measureText, mindSize, textPx } from './editor/model';
+import { buildExportSvg, download, exportFileName, rasterize, toPdf, type ExportFormat } from './editor/exportImage';
 import { iconLibrary, libraryMarkup, loadIconLibrary } from './editor/icons';
 import { fingerprint, frameOf, instancesOf, instantiate, templateKey, templateSource, unlinked, type InstanceState } from './editor/templates';
 import { MIND_COLORS, MODE_TOOLS, type BoardMode, type BoardTool, type FastPick, type QuickPick, type SelectionAction } from './editor/tools';
@@ -356,8 +362,59 @@ const mindDropLinks = computed(() => {
     return node ? [{ id, d: mindLink(target, node) }] : [];
   });
 });
-const geometry = (connector: ConnectorElement) => connectorGeometry(connector, index.value);
-const strokeOf = (connector: ConnectorElement) => connectorStroke(connector, geometry(connector));
+/** Tracés des liens, calculés une fois par changement du tableau. */
+const geometries = computed(() => {
+  const map = new Map<string, ConnectorGeometry>();
+  for (const element of elements.value) if (element.type === 'connector') map.set(element.id, connectorGeometry(element, index.value));
+  return map;
+});
+const geometry = (connector: ConnectorElement): ConnectorGeometry => geometries.value.get(connector.id) ?? connectorGeometry(connector, index.value);
+/** Croisements des liens qui sautent par-dessus ceux placés dessous (draw.io : « line jumps »). */
+const crossings = computed(() => {
+  const connectors = elements.value.filter((element): element is ConnectorElement => element.type === 'connector');
+  const map = new Map<string, Map<number, number[]>>();
+  for (const connector of connectors) {
+    if (!connector.jump) continue;
+    const below = connectors.filter((other) => other.id !== connector.id && other.z < connector.z).map((other) => geometry(other).line);
+    if (below.length) map.set(connector.id, crossingsOf(geometry(connector).line, below));
+  }
+  return map;
+});
+const strokeOf = (connector: ConnectorElement) => connectorStroke(connector, geometry(connector), crossings.value.get(connector.id));
+const ANIMATION_PACE: Record<AnimationSpeed, number> = { slow: 50, normal: 110, fast: 240 };
+/** Durée d'un tour d'animation, selon la vitesse et la longueur du lien. */
+function animationTiming(connector: ConnectorElement): { duration: number; dash: number } {
+  const pace = ANIMATION_PACE[connector.animationSpeed ?? 'normal'];
+  const length = lineLength(geometry(connector).line);
+  const width = connectorStroke(connector, geometry(connector)).line;
+  return { duration: Math.min(14, Math.max(0.6, length / pace)), dash: Math.max(6, width * 3) };
+}
+/** Poignées de segment du lien choisi : décaler un segment (coudé) ou y ajouter un point de passage (droit, courbe). */
+const segmentHandles = computed(() => {
+  const connector = single.value;
+  if (connector?.type !== 'connector' || connector.locked || !editable.value) return [];
+  const shape = geometry(connector);
+  const minimum = 28 / view.zoom;
+  if (connector.route === 'elbow') {
+    const fixed = new Set(shape.fixed);
+    return shape.line.slice(1).flatMap((b, position) => {
+      const a = shape.line[position]!;
+      if ((fixed.has(position) && fixed.has(position + 1)) || Math.hypot(b.x - a.x, b.y - a.y) < minimum) return [];
+      return [{ index: position, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, mode: 'shift' as const, horizontal: Math.abs(a.y - b.y) < 0.5 }];
+    });
+  }
+  const stops = [shape.start, ...(connector.waypoints ?? []), shape.end];
+  return stops.slice(1).flatMap((b, position) => {
+    const a = stops[position]!;
+    if (Math.hypot(b.x - a.x, b.y - a.y) < minimum) return [];
+    const curve = shape.curves?.[position];
+    const middle = curve ? cubicMiddle(curve) : { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    return [{ index: position, ...middle, mode: 'add' as const, horizontal: false }];
+  });
+});
+const cubicMiddle = ([a, b, c, d]: readonly [Point, Point, Point, Point]): Point => ({ x: (a.x + 3 * b.x + 3 * c.x + d.x) / 8, y: (a.y + 3 * b.y + 3 * c.y + d.y) / 8 });
+/** Accroche précise visée pendant qu'on tire un lien ou son extrémité. */
+const attachMark = ref<Point | null>(null);
 /** Dessin d'un composant de maquette, aux couleurs du thème (variables CSS). */
 const mockupMarkup = (element: MockupElement): string =>
   mockupSvg(element, {
@@ -517,11 +574,13 @@ function place(element: BoardElement, edit = true): void {
 
 type Gesture =
   | { kind: 'pan'; startX: number; startY: number; viewX: number; viewY: number }
-  | { kind: 'move'; start: Point; originals: Map<string, Point>; free: Map<string, { from: Point; to: Point }>; moved: boolean; mindRoots: Set<string>; mindNodes: string[] }
+  | { kind: 'move'; start: Point; originals: Map<string, Point>; free: Map<string, ConnectorElement>; moved: boolean; mindRoots: Set<string>; mindNodes: string[] }
   | { kind: 'resize'; id: string; handle: string; start: Point; original: Rect }
   | { kind: 'marquee'; start: Point; base: Set<string> }
   | { kind: 'connect'; from: { id: string | null; side: Side | null; point: Point } }
   | { kind: 'end'; id: string; which: 'from' | 'to' }
+  | { kind: 'waypoint'; id: string; index: number }
+  | { kind: 'segment'; id: string; index: number; start: Point; geometry: ConnectorGeometry; horizontal: boolean }
   | { kind: 'create'; tool: BoardTool; start: Point }
   | { kind: 'draw'; points: Point[] }
   | { kind: 'erase'; ids: Set<string> };
@@ -631,7 +690,7 @@ function mindDropTarget(current: Extract<Gesture, { kind: 'move' }>, event: Poin
 
 function startMove(world: Point): void {
   const originals = new Map<string, Point>();
-  const free = new Map<string, { from: Point; to: Point }>();
+  const free = new Map<string, ConnectorElement>();
   const mindRoots = new Set<string>();
   // Un ou plusieurs nœuds glissent avec leur branche ; posés sur un autre nœud, ils en deviennent les enfants.
   const movers = mindMovers();
@@ -639,7 +698,7 @@ function startMove(world: Point): void {
   for (const element of selected.value) {
     if (element.locked) continue;
     if (element.type === 'connector') {
-      free.set(element.id, { from: { x: element.from.x, y: element.from.y }, to: { x: element.to.x, y: element.to.y } });
+      free.set(element.id, element);
       continue;
     }
     if (element.type === 'mind') {
@@ -650,6 +709,10 @@ function startMove(world: Point): void {
     if (element.type === 'frame') for (const inner of model.insideFrame(element)) if (!inner.locked) originals.set(inner.id, { x: inner.x, y: inner.y });
   }
   for (const node of movers) for (const inner of mindBranch(node.id)) if (!originals.has(inner.id)) originals.set(inner.id, { x: inner.x, y: inner.y });
+  // Un lien dont les deux formes bougent emporte ses points de passage.
+  for (const element of elements.value) {
+    if (element.type === 'connector' && element.waypoints?.length && !free.has(element.id) && element.from.id && element.to.id && originals.has(element.from.id) && originals.has(element.to.id)) free.set(element.id, element);
+  }
   gesture = { kind: 'move', start: world, originals, free, moved: false, mindRoots, mindNodes: movers.map((node) => node.id) };
 }
 
@@ -677,6 +740,30 @@ function startGesture(event: PointerEvent): void {
   if (handle && single.value && isPlaced(single.value) && editable.value) {
     model.stopCapturing();
     gesture = { kind: 'resize', id: single.value.id, handle: handle.dataset.handle!, start: world, original: { x: single.value.x, y: single.value.y, w: single.value.w, h: single.value.h } };
+    return;
+  }
+  const waypointHandle = target.closest<SVGElement>('[data-wp]');
+  if (waypointHandle && single.value?.type === 'connector' && editable.value) {
+    model.stopCapturing();
+    gesture = { kind: 'waypoint', id: single.value.id, index: Number(waypointHandle.dataset.wp) };
+    return;
+  }
+  const segmentHandle = target.closest<SVGElement>('[data-seg]');
+  if (segmentHandle && single.value?.type === 'connector' && editable.value) {
+    const connector = single.value;
+    const handle = segmentHandles.value.find((entry) => entry.index === Number(segmentHandle.dataset.seg));
+    if (!handle) return;
+    model.stopCapturing();
+    if (handle.mode === 'shift') {
+      gesture = { kind: 'segment', id: connector.id, index: handle.index, start: world, geometry: geometry(connector), horizontal: handle.horizontal };
+    } else {
+      // Tirer le milieu d'un segment y ajoute un point de passage, qu'on déplace aussitôt.
+      const points = [...(connector.waypoints ?? [])];
+      const rank = waypointRank(connector, geometry(connector), world);
+      points.splice(rank, 0, { x: Math.round(world.x), y: Math.round(world.y) });
+      model.update(connector.id, { waypoints: points });
+      gesture = { kind: 'waypoint', id: connector.id, index: rank };
+    }
     return;
   }
   const end = target.closest<SVGElement>('[data-end]');
@@ -811,10 +898,12 @@ function onPointerMove(event: PointerEvent): void {
       throttle(() => {
         const patches = new Map<string, Partial<BoardElement>>();
         for (const [id, origin] of current.originals) patches.set(id, { x: origin.x + dx, y: origin.y + dy });
-        for (const [id, ends] of current.free) {
+        for (const [id, original] of current.free) {
           const connector = index.value.get(id) as ConnectorElement | undefined;
           if (!connector) continue;
-          patches.set(id, { from: { ...connector.from, x: ends.from.x + dx, y: ends.from.y + dy }, to: { ...connector.to, x: ends.to.x + dx, y: ends.to.y + dy } });
+          const shifted = shiftConnector(original, dx, dy);
+          // Lien emporté avec ses formes : ses extrémités accrochées ne bougent pas d'elles-mêmes.
+          patches.set(id, selection.value.has(id) ? shifted : { waypoints: shifted.waypoints });
         }
         model.updateMany(patches);
         for (const rootId of current.mindRoots) model.layoutMind(rootId);
@@ -878,7 +967,25 @@ function onPointerMove(event: PointerEvent): void {
     case 'connect': {
       const target = elementAt(event.clientX, event.clientY, (candidate) => connectable(candidate) && candidate.id !== (gesture as { from: { id: string | null } }).from.id);
       hoverId.value = target?.id ?? null;
-      draft.value = { from: gesture.from.point, to: target && isPlaced(target) ? anchor(target, sideToward(target, gesture.from.point)) : world };
+      const placed = target && isPlaced(target) ? target : null;
+      const spot = placed ? attachAt(placed, world, 10 / view.zoom) : null;
+      attachMark.value = placed && spot ? anchorOf(placed, spot.side, spot.t) : null;
+      draft.value = { from: gesture.from.point, to: placed ? (attachMark.value ?? anchor(placed, sideToward(placed, gesture.from.point))) : world };
+      break;
+    }
+    case 'waypoint': {
+      const current = gesture;
+      const connector = index.value.get(current.id) as ConnectorElement | undefined;
+      if (!connector?.waypoints?.[current.index]) break;
+      const free = !event.altKey;
+      const points = connector.waypoints.map((point, position) => (position === current.index ? { x: snap(world.x, free), y: snap(world.y, free) } : point));
+      throttle(() => model.update(current.id, { waypoints: points }));
+      break;
+    }
+    case 'segment': {
+      const current = gesture;
+      const offset = snap(current.horizontal ? world.y - current.start.y : world.x - current.start.x, !event.altKey);
+      throttle(() => model.update(current.id, { waypoints: shiftSegment(current.geometry, current.index, offset) }));
       break;
     }
     case 'end': {
@@ -888,7 +995,11 @@ function onPointerMove(event: PointerEvent): void {
       const other = connector[current.which === 'from' ? 'to' : 'from'];
       const target = elementAt(event.clientX, event.clientY, (candidate) => connectable(candidate) && candidate.id !== other.id);
       hoverId.value = target?.id ?? null;
-      const end = target && isPlaced(target) ? { id: target.id, side: sideToward(target, world), x: world.x, y: world.y } : { id: null, side: null, x: world.x, y: world.y };
+      const placed = target && isPlaced(target) ? target : null;
+      // Près d'un bord : accroche précise (côté et position) ; au cœur de la forme : le lien choisit son côté.
+      const spot = placed ? attachAt(placed, world, 10 / view.zoom) : null;
+      attachMark.value = placed && spot ? anchorOf(placed, spot.side, spot.t) : null;
+      const end = placed ? { id: placed.id, side: spot?.side ?? null, ...(spot && spot.t !== 0.5 ? { t: spot.t } : {}), x: world.x, y: world.y } : { id: null, side: null, x: world.x, y: world.y };
       throttle(() => model.update(current.id, { [current.which]: end }));
       break;
     }
@@ -913,6 +1024,7 @@ function onPointerUp(event: PointerEvent): void {
   const current = gesture;
   gesture = null;
   busy.value = false;
+  attachMark.value = null;
   if (root.value?.hasPointerCapture(event.pointerId)) root.value.releasePointerCapture(event.pointerId);
   if (frame) {
     cancelAnimationFrame(frame);
@@ -953,6 +1065,10 @@ function onPointerUp(event: PointerEvent): void {
       break;
     case 'end':
       hoverId.value = null;
+      model.stopCapturing();
+      break;
+    case 'waypoint':
+    case 'segment':
       model.stopCapturing();
       break;
     case 'connect':
@@ -1031,7 +1147,8 @@ function finishConnect(from: { id: string | null; side: Side | null; point: Poin
   });
   model.stopCapturing();
   if (target && isPlaced(target)) {
-    const link = connector({ id: target.id, side: null, x: world.x, y: world.y });
+    const spot = attachAt(target, world, 10 / view.zoom);
+    const link = connector({ id: target.id, side: spot?.side ?? null, ...(spot && spot.t !== 0.5 ? { t: spot.t } : {}), x: world.x, y: world.y });
     model.add([link]);
     select([link.id]);
   } else if (source && isPlaced(source) && (source.type === 'shape' || source.type === 'sticky') && Math.hypot(world.x - from.point.x, world.y - from.point.y) > 40) {
@@ -1078,8 +1195,17 @@ let wheelHover = 0;
 
 function onDoubleClick(event: MouseEvent): void {
   if ((event.target as Element).closest('.board-ui, .edit-overlay')) return;
+  // Double-clic sur un point de passage : il disparaît.
+  const waypointHandle = document.elementFromPoint(event.clientX, event.clientY)?.closest<SVGElement>('[data-wp]');
+  if (waypointHandle && single.value?.type === 'connector' && editable.value) {
+    const connector = single.value;
+    const points = (connector.waypoints ?? []).filter((_, position) => position !== Number(waypointHandle.dataset.wp));
+    model.stopCapturing();
+    model.update(connector.id, { waypoints: points.length ? points : undefined });
+    return;
+  }
   // Poignées et bulles de liaison : rien à éditer ni à créer.
-  if (document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-handle], [data-dot], [data-end]')) return;
+  if (document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-handle], [data-dot], [data-end], [data-seg]')) return;
   // Avec la capture du pointeur, le double-clic peut viser le tableau lui-même : on regarde ce qui est sous le pointeur.
   const hit = (event.target as Element).closest<SVGElement | HTMLElement>('[data-id]');
   const element = (hit ? index.value.get(hit.dataset.id!) : undefined) ?? elementAt(event.clientX, event.clientY, () => true) ?? undefined;
@@ -1326,6 +1452,11 @@ function paste(text: string | null): void {
       const parsed = JSON.parse(text) as { elements?: BoardElement[] } & Record<string, unknown>;
       if (parsed[CLIP_MARK] && Array.isArray(parsed.elements)) source = parsed.elements;
     } catch {
+      // XML de draw.io (copié dans draw.io ou depuis un fichier) : l'import le convertit.
+      if (looksLikeDrawio(text)) {
+        openDrawio(text);
+        return;
+      }
       if (/^\s*(```\s*mermaid|flowchart|graph\s|graph$|mindmap)/m.test(text)) {
         importMermaid(text);
         return;
@@ -1367,7 +1498,7 @@ function nudge(dx: number, dy: number): void {
   for (const element of selected.value) {
     if (element.locked) continue;
     if (isPlaced(element)) patches.set(element.id, { x: element.x + dx, y: element.y + dy });
-    else patches.set(element.id, { from: { ...element.from, x: element.from.x + dx, y: element.from.y + dy }, to: { ...element.to, x: element.to.x + dx, y: element.to.y + dy } });
+    else patches.set(element.id, shiftConnector(element, dx, dy));
   }
   model.updateMany(patches);
 }
@@ -1497,7 +1628,7 @@ function onKeyUp(event: KeyboardEvent): void {
 // --- Actions de la barre de sélection et du menu -----------------------------------------------------------------------
 
 /** Réglages facultatifs, absents des éléments qui ont la valeur habituelle. */
-const OPTIONAL_FIELDS: Partial<Record<BoardElement['type'], string[]>> = { connector: ['weight'] };
+const OPTIONAL_FIELDS: Partial<Record<BoardElement['type'], string[]>> = { connector: ['weight', 'waypoints', 'jump', 'animation', 'animationReverse', 'animationColor', 'animationSpeed'] };
 
 function patchSelection(patch: Record<string, unknown>, filter?: (element: BoardElement) => boolean): void {
   const patches = new Map<string, Record<string, unknown>>();
@@ -1546,7 +1677,7 @@ function alignBlocks(): Block[] {
 function shiftBlock(block: Block, dx: number, dy: number, patches: Map<string, Partial<BoardElement>>): void {
   for (const element of block.members) {
     if (isPlaced(element)) patches.set(element.id, { x: element.x + dx, y: element.y + dy });
-    else patches.set(element.id, { from: { ...element.from, x: element.from.x + dx, y: element.from.y + dy }, to: { ...element.to, x: element.to.x + dx, y: element.to.y + dy } });
+    else patches.set(element.id, shiftConnector(element, dx, dy));
   }
 }
 
@@ -1705,6 +1836,7 @@ function onContextMenu(event: MouseEvent): void {
               { separator: true },
             ]
           : []),
+        { label: t('Exporter la sélection…'), icon: 'pi pi-image', command: openExportImage },
         { label: t('Exporter en Mermaid'), icon: 'pi pi-share-alt', command: openExport },
         ...(write && templatesOn.value
           ? [
@@ -1775,12 +1907,21 @@ function onContextMenu(event: MouseEvent): void {
                 : []),
               { separator: true },
               { label: t('Coller'), icon: 'pi pi-clipboard', command: () => void readClipboard() },
-              { label: t('Importer du Mermaid…'), icon: 'pi pi-download', command: openImport },
+              {
+                label: t('Importer'),
+                icon: 'pi pi-download',
+                items: [
+                  { label: t('Depuis Mermaid…'), icon: 'pi pi-share-alt', command: openImport },
+                  { label: t('Depuis draw.io (XML)…'), icon: 'pi pi-sitemap', command: () => openDrawio('', menuPoint.value) },
+                ],
+              },
               { separator: true },
             ]
           : []),
         { label: t('Tout sélectionner'), icon: 'pi pi-check-square', command: selectAll },
         { label: t('Ajuster à l’écran'), icon: 'pi pi-expand', command: () => fit() },
+        { separator: true },
+        { label: t('Exporter le tableau…'), icon: 'pi pi-image', disabled: !elements.value.length, command: openExportImage },
         { label: t('Exporter le tableau en Mermaid'), icon: 'pi pi-share-alt', disabled: !elements.value.length, command: openExport },
       ];
   menu.value?.show(event);
@@ -1819,6 +1960,38 @@ function openImport(): void {
 }
 
 /** Pose un organigramme ou une carte mentale Mermaid au centre de la vue. */
+// --- Import draw.io --------------------------------------------------------------------------------------------------------
+
+const drawioOpen = ref(false);
+const drawioText = ref('');
+/** Point du clic droit qui a ouvert l'import : le diagramme s'y pose. */
+const drawioAt = ref<Point | null>(null);
+
+function openDrawio(text = '', at: Point | null = null): void {
+  drawioText.value = text;
+  drawioAt.value = at ? { ...at } : null;
+  drawioOpen.value = true;
+}
+
+/** Pose le diagramme importé, centré sur le point du clic droit (ou à droite de ce qui existe). */
+function importDrawio(created: BoardElement[]): void {
+  const bounds = boundsOf(created, new Map(created.map((element) => [element.id, element])));
+  if (!bounds) return;
+  const rect = root.value!.getBoundingClientRect();
+  const existing = boundsOf(elements.value, index.value);
+  const target = drawioAt.value ?? (existing ? { x: existing.x + existing.w + 120 + bounds.w / 2, y: existing.y + bounds.h / 2 } : toWorld(rect.left + size.width / 2, rect.top + size.height / 2));
+  const dx = snap(target.x - (bounds.x + bounds.w / 2));
+  const dy = snap(target.y - (bounds.y + bounds.h / 2));
+  let z = model.nextZ();
+  const placed = created.map((element): BoardElement => (element.type === 'connector' ? { ...element, ...shiftConnector(element, dx, dy), z: z++ } : { ...element, x: element.x + dx, y: element.y + dy, z: z++ }));
+  model.stopCapturing();
+  model.add(placed);
+  model.stopCapturing();
+  select(placed.map((element) => element.id));
+  fit(placed);
+  drawioOpen.value = false;
+}
+
 function importMermaid(text: string): boolean {
   try {
     const rect = root.value!.getBoundingClientRect();
@@ -2261,7 +2434,83 @@ const percent = computed(() => `${Math.round(view.zoom * 100)} %`);
 const zoomIn = () => zoomAt(view.zoom * 1.2, { x: size.width / 2, y: size.height / 2 });
 const zoomOut = () => zoomAt(view.zoom / 1.2, { x: size.width / 2, y: size.height / 2 });
 
-defineExpose({ fit, openImport });
+// --- Export en image -----------------------------------------------------------------------------------------------------
+
+const worldContent = ref<SVGGElement | null>(null);
+/** Capture en cours : les animations s'arrêtent et les repères de l'éditeur se cachent. */
+const exporting = ref(false);
+const imageExportOpen = ref(false);
+const exportBusy = ref(false);
+
+function openExportImage(): void {
+  imageExportOpen.value = true;
+}
+
+/** L'image du tableau (ou de la sélection), sans sélection ni survol affichés le temps de la capture. */
+async function captureSvg(onlySelection: boolean, transparent: boolean): Promise<{ svg: string; width: number; height: number } | null> {
+  const chosen = onlySelection ? selected.value : elements.value;
+  const bounds = boundsOf(chosen, index.value);
+  const content = worldContent.value;
+  if (!bounds || !content) return null;
+  const ids = onlySelection ? new Set(chosen.map((element) => element.id)) : null;
+  if (editing.value) commitEdit();
+  const kept = selection.value;
+  const keptEntered = entered.value;
+  select([]);
+  hoverId.value = null;
+  exporting.value = true;
+  await nextTick();
+  try {
+    const background = transparent ? null : getComputedStyle(root.value!).getPropertyValue('--board-canvas').trim() || '#ffffff';
+    return await buildExportSvg(content, bounds, ids, background);
+  } finally {
+    exporting.value = false;
+    select(kept);
+    entered.value = keptEntered;
+  }
+}
+
+async function exportImage(options: { format: ExportFormat; scale: number; transparent: boolean; selection: boolean }): Promise<void> {
+  exportBusy.value = true;
+  try {
+    const captured = await captureSvg(options.selection, options.transparent);
+    if (!captured) return;
+    const name = exportFileName(props.boardTitle || t('Tableau blanc'), options.format);
+    if (options.format === 'svg') {
+      download(new Blob([captured.svg], { type: 'image/svg+xml;charset=utf-8' }), name);
+    } else {
+      const image =
+        options.format === 'pdf'
+          ? await toPdf(captured.svg, captured.width, captured.height, options.scale)
+          : await rasterize(captured.svg, captured.width, captured.height, options.scale, options.format === 'webp' ? 'image/webp' : 'image/png');
+      download(image.blob, name);
+      if (image.reduced) notify('info', t('Image réduite'), t('Le tableau est trop grand pour cette échelle : l’image a été réduite pour que le navigateur puisse la créer.'));
+    }
+    imageExportOpen.value = false;
+  } catch (error) {
+    notifyError(error, t('Export impossible'));
+  } finally {
+    exportBusy.value = false;
+  }
+}
+
+async function copyImage(options: { scale: number; transparent: boolean; selection: boolean }): Promise<void> {
+  exportBusy.value = true;
+  try {
+    const captured = await captureSvg(options.selection, options.transparent);
+    if (!captured) return;
+    const image = await rasterize(captured.svg, captured.width, captured.height, options.scale, 'image/png');
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': image.blob })]);
+    notify('success', t('Image copiée'), t('Collez-la dans un message, un document ou une présentation.'));
+    imageExportOpen.value = false;
+  } catch (error) {
+    notifyError(error, t('Copie impossible'));
+  } finally {
+    exportBusy.value = false;
+  }
+}
+
+defineExpose({ fit, openImport, openDrawio, openExportImage });
 </script>
 
 <template>
@@ -2296,6 +2545,8 @@ defineExpose({ fit, openImport });
       <rect class="canvas" :width="size.width" :height="size.height" fill="url(#board-dots)" />
 
       <g :transform="`translate(${view.x},${view.y}) scale(${view.zoom})`">
+        <!-- Le dessin du tableau (ce que l'export reprend), sans les repères de l'éditeur -->
+        <g ref="worldContent">
         <!-- Sections, toujours derrière -->
         <g v-for="element in frames" :key="element.id" :data-id="element.id" class="el frame" :class="[`c-${element.color}`, { selected: outlined.has(element.id) }]">
           <template v-if="element.type === 'frame'">
@@ -2307,7 +2558,7 @@ defineExpose({ fit, openImport });
         </g>
 
         <!-- Liens des cartes mentales -->
-        <path v-for="link in mindLinks" :key="`l${link.id}`" :d="link.d" class="mind-link" :class="`c-${link.color}`" />
+        <path v-for="link in mindLinks" :key="`l${link.id}`" :d="link.d" :data-child="link.id" class="mind-link" :class="`c-${link.color}`" />
         <path v-for="link in mindDropLinks" :key="`d${link.id}`" :d="link.d" class="mind-drop-link" />
 
         <template v-for="element in others" :key="element.id">
@@ -2322,9 +2573,33 @@ defineExpose({ fit, openImport });
                 <polygon v-for="(head, at) in stroke.heads" :key="`f${at}`" class="block-fill head" :points="head" />
               </template>
               <template v-else>
-                <path class="line" :class="{ scaled: stroke.line > 2 }" :d="stroke.d" :style="{ strokeWidth: stroke.line, strokeDasharray: element.dashed && stroke.line > 2 ? `${stroke.line * 2.2} ${stroke.line * 1.8}` : undefined }" />
+                <path
+                  class="line"
+                  :class="{ scaled: stroke.line > 2, flowing: element.animation === 'flow' && !exporting }"
+                  :d="stroke.d"
+                  :style="{ strokeWidth: stroke.line, strokeDasharray: (element.dashed || (element.animation === 'flow' && exporting)) && stroke.line > 2 ? `${stroke.line * 2.2} ${stroke.line * 1.8}` : element.animation === 'flow' && exporting ? '6 5' : undefined }"
+                />
                 <polygon v-for="(head, at) in stroke.heads" :key="at" class="arrow-head" :points="head" />
               </template>
+              <!-- Animation : tirets qui défilent, points qui circulent, pulsation ou comète, dans un sens ou dans l'autre -->
+              <g v-if="element.animation && !exporting" class="connector-anim" :class="`c-${element.animationColor ?? element.color}`">
+                <template v-for="timing in [animationTiming(element)]" :key="0">
+                  <path v-if="element.animation === 'flow'" class="anim-flow" :d="stroke.d" :stroke-width="stroke.outline ? stroke.line * 0.35 : stroke.line" :stroke-dasharray="`${timing.dash} ${timing.dash}`">
+                    <animate attributeName="stroke-dashoffset" :from="0" :to="element.animationReverse ? timing.dash * 2 : -timing.dash * 2" :dur="`${(timing.dash * 2) / ANIMATION_PACE[element.animationSpeed ?? 'normal']}s`" repeatCount="indefinite" />
+                  </path>
+                  <template v-else-if="element.animation === 'dots'">
+                    <circle v-for="dot in 3" :key="dot" class="anim-dot" :r="Math.max(3, stroke.line * 1.3 + 1.5)">
+                      <animateMotion :path="stroke.d" :dur="`${timing.duration}s`" :begin="`-${((dot - 1) * timing.duration) / 3}s`" repeatCount="indefinite" :keyPoints="element.animationReverse ? '1;0' : '0;1'" keyTimes="0;1" calcMode="linear" />
+                    </circle>
+                  </template>
+                  <path v-else-if="element.animation === 'comet'" class="anim-comet" :d="stroke.d" pathLength="100" stroke-dasharray="12 88" :stroke-width="stroke.line + 3">
+                    <animate attributeName="stroke-dashoffset" from="0" :to="element.animationReverse ? 100 : -100" :dur="`${timing.duration}s`" repeatCount="indefinite" />
+                  </path>
+                  <path v-else class="anim-pulse" :d="stroke.d" :stroke-width="stroke.line + 8">
+                    <animate attributeName="stroke-opacity" values="0;0.45;0" :dur="`${Math.max(0.8, 2.4 * (110 / ANIMATION_PACE[element.animationSpeed ?? 'normal']) ** 0.5)}s`" repeatCount="indefinite" />
+                  </path>
+                </template>
+              </g>
             </template>
             <foreignObject v-if="element.label && editingId !== element.id" :x="geometry(element).mid.x - 90" :y="geometry(element).mid.y - 14" width="180" height="28">
               <div class="connector-label"><span>{{ element.label }}</span></div>
@@ -2408,6 +2683,8 @@ defineExpose({ fit, openImport });
           </g>
         </template>
 
+        </g>
+
         <!-- Copies de modèles : nom au survol, point quand le modèle a changé -->
         <g v-for="mark in instanceMarks" :key="`i${mark.inst}`" class="instance-mark" :class="mark.state">
           <rect v-if="mark.shown" class="instance-frame" :x="mark.frame.x - 10 / view.zoom" :y="mark.frame.y - 10 / view.zoom" :width="mark.frame.w + 20 / view.zoom" :height="mark.frame.h + 20 / view.zoom" :rx="6 / view.zoom" :stroke-width="1.5 / view.zoom" :stroke-dasharray="`${5 / view.zoom} ${4 / view.zoom}`" />
@@ -2459,10 +2736,38 @@ defineExpose({ fit, openImport });
             />
           </template>
           <template v-if="single?.type === 'connector' && editable">
+            <rect
+              v-for="handle in segmentHandles"
+              :key="`s${handle.index}`"
+              v-tooltip.top="handle.mode === 'shift' ? $t('Glisser pour décaler ce segment') : $t('Glisser pour ajouter un point de passage')"
+              class="segment-handle"
+              :class="[handle.mode, { horizontal: handle.horizontal }]"
+              :data-seg="handle.index"
+              :x="handle.x - 5 / view.zoom"
+              :y="handle.y - 5 / view.zoom"
+              :width="10 / view.zoom"
+              :height="10 / view.zoom"
+              :rx="handle.mode === 'add' ? 5 / view.zoom : 2 / view.zoom"
+              :stroke-width="1.5 / view.zoom"
+            />
+            <circle
+              v-for="(point, at) in single.waypoints ?? []"
+              :key="`w${at}`"
+              v-tooltip.top="$t('Point de passage : glisser pour le déplacer, double-clic pour le retirer')"
+              class="waypoint-handle"
+              :data-wp="at"
+              :cx="point.x"
+              :cy="point.y"
+              :r="5.5 / view.zoom"
+              :stroke-width="2 / view.zoom"
+            />
             <circle class="end-handle" data-end="from" :cx="geometry(single).start.x" :cy="geometry(single).start.y" :r="6 / view.zoom" :stroke-width="2 / view.zoom" />
             <circle class="end-handle" data-end="to" :cx="geometry(single).end.x" :cy="geometry(single).end.y" :r="6 / view.zoom" :stroke-width="2 / view.zoom" />
           </template>
         </template>
+
+        <!-- Accroche précise visée -->
+        <circle v-if="attachMark" class="attach-mark" :cx="attachMark.x" :cy="attachMark.y" :r="5 / view.zoom" :stroke-width="2 / view.zoom" />
 
         <!-- Points d'accroche au survol -->
         <template v-if="hovered">
@@ -2567,6 +2872,18 @@ defineExpose({ fit, openImport });
     </div>
 
     <ContextMenu ref="menu" :model="menuItems" />
+    <BoardDrawioDialog v-model:visible="drawioOpen" :text="drawioText" :z-start="model.nextZ()" @import="importDrawio" />
+    <BoardExportDialog
+      v-model:visible="imageExportOpen"
+      :selection-count="selected.length"
+      :busy="exportBusy"
+      @export="exportImage"
+      @copy="copyImage"
+      @mermaid="
+        imageExportOpen = false;
+        openExport();
+      "
+    />
     <BoardMermaidDialog v-model:visible="mermaidOpen" :mode="mermaidMode" :text="mermaidText" :title="boardTitle" @import="(text) => importMermaid(text) && (mermaidOpen = false)" />
     <BoardFastPicker v-model:visible="pickerOpen" @pick="onPick" />
     <BoardChartDialog v-if="chartElement" :element="chartElement" :source="chartSource ?? null" :editable="editable" @close="chartEditing = null" @save="saveChart" @save-source="(rows) => chartSource && saveTable(chartSource.id, rows)" />
@@ -2774,6 +3091,59 @@ defineExpose({ fit, openImport });
 }
 .arrow-head {
   fill: var(--el-stroke);
+}
+.connector .line.flowing {
+  stroke-opacity: 0.25;
+}
+.connector-anim {
+  pointer-events: none;
+}
+.anim-flow,
+.anim-comet,
+.anim-pulse {
+  fill: none;
+  stroke: var(--el-stroke);
+  stroke-linecap: round;
+}
+.anim-pulse {
+  stroke-opacity: 0;
+}
+.anim-dot {
+  fill: var(--el-stroke);
+}
+@media (prefers-reduced-motion: reduce) {
+  .connector-anim {
+    display: none;
+  }
+  .connector .line.flowing {
+    stroke-opacity: 1;
+  }
+}
+.segment-handle {
+  fill: var(--board-canvas);
+  stroke: var(--board-select);
+  cursor: move;
+}
+.segment-handle.shift {
+  cursor: ew-resize;
+}
+.segment-handle.shift.horizontal {
+  cursor: ns-resize;
+}
+.segment-handle.add {
+  fill: var(--board-select);
+  fill-opacity: 0.35;
+  cursor: copy;
+}
+.waypoint-handle {
+  fill: var(--board-select);
+  stroke: var(--board-canvas);
+  cursor: move;
+}
+.attach-mark {
+  fill: var(--board-select);
+  stroke: var(--board-canvas);
+  pointer-events: none;
 }
 .connector.selected .arrow-head {
   fill: var(--board-select);

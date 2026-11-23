@@ -1,5 +1,5 @@
 import { mockupSvg } from './boardMockup.ts';
-import { boundsOf, connectorGeometry, connectorStroke, mindLink, shapePath, textBox, type Rect } from './boardGeometry.ts';
+import { boundsOf, connectorGeometry, connectorStroke, crossingsOf, mindLink, shapePath, textBox, type Rect } from './boardGeometry.ts';
 import { iconMarkup, libraryIcon } from './boardIcons.ts';
 import { TEXT_SIZE_PX, type BoardColor, type BoardElement, type MindElement } from './boards.ts';
 
@@ -196,7 +196,8 @@ export function boardPreviewSvg(elements: readonly BoardElement[], options: { ma
       case 'connector': {
         const geometry = connectorGeometry(element, index);
         const stroke = palette[element.color].stroke;
-        const drawn = connectorStroke(element, geometry);
+        const below = element.jump ? sorted.filter((other) => other.type === 'connector' && other.z < element.z).map((other) => connectorGeometry(other as typeof element, index).line) : [];
+        const drawn = connectorStroke(element, geometry, below.length ? crossingsOf(geometry.line, below) : undefined);
         if (drawn.outline) {
           // Grosse flèche : contour, puis remplissage par-dessus.
           const fill = palette[element.color].fill;
@@ -205,7 +206,8 @@ export function boardPreviewSvg(elements: readonly BoardElement[], options: { ma
           parts.push(`<path d="${drawn.d}" fill="none" stroke="${fill}" stroke-width="${n(drawn.line)}" stroke-linejoin="round"/>`);
           for (const head of drawn.heads) parts.push(`<polygon points="${head}" fill="${fill}"/>`);
         } else {
-          const dash = element.dashed ? ` stroke-dasharray="${drawn.line > 2 ? `${n(drawn.line * 2.2)} ${n(drawn.line * 1.8)}` : '6 5'}"` : '';
+          // Un lien animé en tirets s'affiche en pointillés dans l'aperçu (une image fixe).
+          const dash = element.dashed || element.animation === 'flow' ? ` stroke-dasharray="${drawn.line > 2 ? `${n(drawn.line * 2.2)} ${n(drawn.line * 1.8)}` : '6 5'}"` : '';
           parts.push(`<path d="${drawn.d}" fill="none" stroke="${stroke}" stroke-width="${n(drawn.line)}" stroke-linejoin="round"${dash}/>`);
           for (const head of drawn.heads) parts.push(`<polygon class="arrow" points="${head}" fill="${stroke}"/>`);
         }

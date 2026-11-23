@@ -1,5 +1,5 @@
 import { boundsOf, type Rect } from '@shared/boardGeometry';
-import { elementGroup, newElementId, withGroup, type BoardElement, type TemplateLink } from '@shared/boards';
+import { elementGroup, newElementId, shiftConnector, withGroup, type BoardElement, type TemplateLink } from '@shared/boards';
 
 /**
  * Modèles des tableaux (façon « prefab ») : une copie est un groupe d'éléments qui portent le même `tpl.inst` ; chacun
@@ -57,8 +57,9 @@ export function instantiate(
     const tpl: TemplateLink = { id: options.templateId, inst, key: original.id, v: options.version };
     const id = ids.get(original.id)!;
     if (element.type === 'connector') {
-      const end = (side: typeof element.from) => ({ ...side, id: side.id ? (ids.get(side.id) ?? null) : null, x: side.x + dx, y: side.y + dy });
-      return { ...element, id, z: z++, from: end(element.from), to: end(element.to), tpl };
+      const shifted = shiftConnector(element, dx, dy);
+      const end = (side: typeof element.from) => ({ ...side, id: side.id ? (ids.get(side.id) ?? null) : null });
+      return { ...element, ...shifted, id, z: z++, from: end(shifted.from), to: end(shifted.to), tpl };
     }
     const moved = { ...element, id, z: z++, x: element.x + dx, y: element.y + dy, tpl };
     if (moved.type === 'mind') return { ...moved, parent: moved.parent ? (ids.get(moved.parent) ?? null) : null };
@@ -87,6 +88,7 @@ export function fingerprint(elements: readonly BoardElement[], keyOf: (element: 
       const end = (side: typeof original.from) => ({ ...side, id: ref(side.id), x: round(side.x - frame.x), y: round(side.y - frame.y) });
       entry.from = end(original.from);
       entry.to = end(original.to);
+      if (original.waypoints) entry.waypoints = original.waypoints.map((point) => ({ x: round(point.x - frame.x), y: round(point.y - frame.y) }));
     } else {
       entry.x = round(original.x - frame.x);
       entry.y = round(original.y - frame.y);

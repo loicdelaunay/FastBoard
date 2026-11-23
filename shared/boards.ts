@@ -33,6 +33,8 @@ export interface BoardSpaceDTO {
   name: string;
   description: string;
   role: BoardRole;
+  /** La personne n'a ce rôle que par ses droits d'administration : elle n'est pas propriétaire de l'espace. */
+  adminAccess: boolean;
   boardCount: number;
   memberCount: number;
   createdAt: string;
@@ -318,6 +320,8 @@ export interface ConnectorEnd {
   side: Side | null;
   x: number;
   y: number;
+  /** Position de l'accroche le long du côté choisi, de 0 (haut ou gauche) à 1 ; absente : le milieu. */
+  t?: number;
 }
 
 export const CONNECTOR_ROUTES = ['straight', 'elbow', 'curve'] as const;
@@ -325,6 +329,16 @@ export type ConnectorRoute = (typeof CONNECTOR_ROUTES)[number];
 /** Épaisseur d'un lien et de ses pointes ; `block` : grosse flèche pleine et cerclée, façon Google Drawings. */
 export const CONNECTOR_WEIGHTS = ['s', 'm', 'l', 'xl', 'block'] as const;
 export type ConnectorWeight = (typeof CONNECTOR_WEIGHTS)[number];
+/** Dessin d'un lien là où il croise un lien placé dessous : arc, coupure ou pointe (comme dans draw.io). */
+export const CONNECTOR_JUMPS = ['arc', 'gap', 'sharp'] as const;
+export type ConnectorJump = (typeof CONNECTOR_JUMPS)[number];
+/** Animations d'un lien : tirets qui défilent, points qui circulent, pulsation, comète. */
+export const CONNECTOR_ANIMATIONS = ['flow', 'dots', 'pulse', 'comet'] as const;
+export type ConnectorAnimation = (typeof CONNECTOR_ANIMATIONS)[number];
+export const ANIMATION_SPEEDS = ['slow', 'normal', 'fast'] as const;
+export type AnimationSpeed = (typeof ANIMATION_SPEEDS)[number];
+/** Nombre maximal de points de passage d'un lien. */
+export const WAYPOINTS_MAX = 64;
 
 export interface ConnectorElement {
   id: string;
@@ -340,6 +354,17 @@ export interface ConnectorElement {
   color: BoardColor;
   /** Absente : `m`, l'épaisseur habituelle. */
   weight?: ConnectorWeight;
+  /** Points de passage, dans l'ordre, en coordonnées du tableau. */
+  waypoints?: Array<{ x: number; y: number }>;
+  /** Saut aux croisements avec les liens placés dessous ; absent : aucun. */
+  jump?: ConnectorJump;
+  /** Animation ; absente : aucune. */
+  animation?: ConnectorAnimation;
+  /** L'animation va de l'arrivée vers le départ. */
+  animationReverse?: boolean;
+  /** Couleur de l'animation ; absente : celle du lien. */
+  animationColor?: BoardColor;
+  animationSpeed?: AnimationSpeed;
   locked?: boolean;
   tpl?: TemplateLink;
   group?: string;
@@ -364,6 +389,15 @@ export const elementGroup = (element: BoardElement): string | null => (element.t
 export function withGroup<T extends BoardElement>(element: T, group: string | null): T {
   const { group: _group, ...rest } = element;
   return (group && element.type !== 'mind' ? { ...rest, group } : rest) as T;
+}
+
+/** Un lien déplacé de (dx, dy) : ses extrémités libres et ses points de passage (les accroches suivent leurs formes). */
+export function shiftConnector(connector: ConnectorElement, dx: number, dy: number): Pick<ConnectorElement, 'from' | 'to' | 'waypoints'> {
+  return {
+    from: { ...connector.from, x: connector.from.x + dx, y: connector.from.y + dy },
+    to: { ...connector.to, x: connector.to.x + dx, y: connector.to.y + dy },
+    waypoints: connector.waypoints?.map((point) => ({ x: point.x + dx, y: point.y + dy })),
+  };
 }
 
 /** Éléments qui portent un texte qu'on peut lier par un lien (export Mermaid, recherche). */

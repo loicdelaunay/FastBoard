@@ -105,7 +105,8 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
         <div class="top">
           <i class="pi pi-objects-column icon"></i>
           <strong class="truncate">{{ space.name }}</strong>
-          <Tag :value="$t(DOC_ROLE_LABELS[space.role])" severity="secondary" />
+<Tag v-if="space.adminAccess" v-tooltip.top="$t('Vous n’êtes pas propriétaire de cet espace : vous y entrez grâce à vos droits d’administration.')" :value="$t('Accès avec droit admin')" icon="pi pi-shield" severity="warn" />
+          <Tag v-else :value="$t(DOC_ROLE_LABELS[space.role])" severity="secondary" />
         </div>
         <p class="muted small description">{{ space.description || $t('Aucune description.') }}</p>
         <p class="muted small meta">

@@ -112,6 +112,7 @@ export function listBoardSpaces(ctx: AppContext, user: AuthUser): BoardSpaceDTO[
     name: row.name,
     description: row.description,
     role: seesAll ? 'owner' : row.my_role!,
+    adminAccess: seesAll && row.my_role !== 'owner',
     boardCount: row.boards,
     memberCount: row.members,
     createdAt: row.created_at,

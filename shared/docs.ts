@@ -21,6 +21,8 @@ export interface DocSpaceDTO {
   description: string;
   /** Rôle de la personne dans cet espace. */
   role: DocRole;
+  /** La personne n'a ce rôle que par ses droits d'administration : elle n'est pas propriétaire de l'espace. */
+  adminAccess: boolean;
   fileCount: number;
   memberCount: number;
   /** Syntaxe propre à Obsidian (callouts, surlignage, commentaires, étiquettes, notes de bas de page…). */

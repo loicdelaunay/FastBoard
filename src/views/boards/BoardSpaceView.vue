@@ -6,6 +6,7 @@ import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Menu from 'primevue/menu';
+import Tag from 'primevue/tag';
 import type { MenuItem } from 'primevue/menuitem';
 import { useConfirm } from 'primevue/useconfirm';
 import { boardTitle, type BoardLinksDTO, type BoardNodeDTO } from '@shared/boards';
@@ -290,6 +291,8 @@ function openCardMenu(event: MouseEvent, node: BoardNodeDTO): void {
   event.stopPropagation();
   cardMenuItems.value = [
     ...(node.id !== boardId.value ? [{ label: t('Ouvrir'), icon: 'pi pi-objects-column', command: () => open(node) }, { separator: true }] : []),
+    // Le tableau ouvert s'exporte en image (PNG, WebP, SVG, PDF) ou en Mermaid, même en lecture seule.
+    ...(node.id === boardId.value ? [{ label: t('Exporter…'), icon: 'pi pi-image', command: () => canvas.value?.openExportImage() }, ...(store.canEdit ? [{ separator: true }] : [])] : []),
     ...(store.canEdit
       ? [
           { label: t('Renommer'), icon: 'pi pi-pencil', command: () => askRename(node) },
@@ -319,6 +322,11 @@ const spaceMenuItems = computed<MenuItem[]>(() => [
 ]);
 
 const canvas = ref<InstanceType<typeof BoardCanvas> | null>(null);
+const importMenu = ref<InstanceType<typeof Menu> | null>(null);
+const importItems = computed<MenuItem[]>(() => [
+  { label: t('Depuis Mermaid…'), icon: 'pi pi-share-alt', command: () => canvas.value?.openImport() },
+  { label: t('Depuis draw.io (XML)…'), icon: 'pi pi-sitemap', command: () => canvas.value?.openDrawio() },
+]);
 
 async function copyLink(): Promise<void> {
   if (!board.value) return;
@@ -367,6 +375,7 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
             <strong class="crumb current truncate">{{ boardTitle(board.path) }}</strong>
           </template>
         </nav>
+        <Tag v-if="store.space.adminAccess" v-tooltip.bottom="$t('Vous n’êtes pas propriétaire de cet espace : vous y entrez grâce à vos droits d’administration.')" :value="$t('Accès avec droit admin')" icon="pi pi-shield" severity="warn" class="admin-chip" />
         <span v-if="isTemplate" class="muted small template-hint">{{ $t('Les copies posées sur les tableaux proposeront de se mettre à jour.') }}</span>
         <Button v-if="isTemplate" :label="returnTo ? $t('Revenir au tableau') : $t('Fermer le modèle')" icon="pi pi-arrow-left" size="small" severity="secondary" outlined @click="leaveTemplate" />
         <div v-if="presence.length" class="people">
@@ -391,10 +400,11 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
             :aria-pressed="linksOpen"
             @click="linksOpen = !linksOpen"
           />
-          <Button v-tooltip.bottom="$t('Importer du Mermaid…')" icon="pi pi-file-import" text rounded size="small" severity="secondary" :aria-label="$t('Importer du Mermaid…')" :disabled="!session.canWrite.value" @click="canvas?.openImport()" />
+          <Button v-tooltip.bottom="$t('Importer (Mermaid, draw.io)')" icon="pi pi-file-import" text rounded size="small" severity="secondary" :aria-label="$t('Importer (Mermaid, draw.io)')" aria-haspopup="true" :disabled="!session.canWrite.value" @click="importMenu?.toggle($event)" />
+          <Menu ref="importMenu" :model="importItems" popup />
           <Button v-tooltip.bottom="$t('Copier le lien du tableau')" icon="pi pi-link" text rounded size="small" severity="secondary" :aria-label="$t('Copier le lien du tableau')" @click="copyLink" />
           <Button v-if="store.isOwner && !isTemplate" :label="$t('Partager')" :icon="board.share === 'public' ? 'pi pi-globe' : 'pi pi-share-alt'" size="small" :severity="board.share ? 'warn' : undefined" :outlined="!board.share" class="share-button" @click="openShare()" />
-          <Button v-if="store.canEdit && !isTemplate" v-tooltip.bottom="$t('Plus d’actions')" icon="pi pi-ellipsis-v" text rounded size="small" severity="secondary" :aria-label="$t('Plus d’actions')" aria-haspopup="true" @click="openCardMenu($event, board)" />
+          <Button v-if="!isTemplate" v-tooltip.bottom="$t('Plus d’actions')" icon="pi pi-ellipsis-v" text rounded size="small" severity="secondary" :aria-label="$t('Plus d’actions')" aria-haspopup="true" @click="openCardMenu($event, board)" />
         </template>
       </header>
 
@@ -488,6 +498,9 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
   gap: 0.1rem;
   padding: 0.3rem 0.35rem;
   border-top: 1px solid var(--fb-border);
+}
+.admin-chip {
+  flex: none;
 }
 .space-name {
   display: flex;

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { BOARD_COLORS, CHART_KINDS, CONNECTOR_ROUTES, CONNECTOR_WEIGHTS, MOCKUP_KINDS, MOCKUP_VARIANTS, FILL_STYLES, ICON_STROKES, SHAPE_KINDS, TEXT_SIZES, type BoardColor, type BoardElement, type ChartKind, type ConnectorWeight, type MockupVariant } from '@shared/boards';
+import { ANIMATION_SPEEDS, BOARD_COLORS, CHART_KINDS, CONNECTOR_ANIMATIONS, CONNECTOR_JUMPS, CONNECTOR_ROUTES, CONNECTOR_WEIGHTS, MOCKUP_KINDS, MOCKUP_VARIANTS, FILL_STYLES, ICON_STROKES, SHAPE_KINDS, TEXT_SIZES, type BoardColor, type BoardElement, type AnimationSpeed, type ChartKind, type ConnectorAnimation, type ConnectorJump, type ConnectorWeight, type MockupVariant } from '@shared/boards';
 import type { InstanceState } from './editor/templates';
 import { MOCKUP_LABELS, MOCKUP_SPECS } from '@shared/boardMockup';
 import { COLOR_LABELS, MOCKUP_ICONS, SHAPE_LABELS, shapeIcon, type SelectionAction } from './editor/tools';
@@ -19,7 +19,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ patch: [patch: Record<string, unknown>]; action: [action: SelectionAction] }>();
 
-type Menu = 'shape' | 'color' | 'chart' | 'weight' | 'mockup';
+type Menu = 'shape' | 'color' | 'chart' | 'weight' | 'mockup' | 'jump' | 'anim';
 const open = ref<Menu | null>(null);
 const types = computed(() => new Set(props.elements.map((element) => element.type)));
 const has = (...kinds: BoardElement['type'][]) => kinds.some((kind) => types.value.has(kind));
@@ -42,6 +42,20 @@ function weightIcon(weight: ConnectorWeight): string {
   const line = { s: 1, m: 1.6, l: 2.6, xl: 4 }[weight];
   const head = { s: 3, m: 3.6, l: 4.4, xl: 5.4 }[weight];
   return `<svg viewBox="0 0 28 14" width="28" height="14"><path d="M2,7 H${24 - head * 1.2}" stroke="currentColor" stroke-width="${line}"/><path d="M26,7 L${26 - head * 1.8},${7 - head} L${26 - head * 1.8},${7 + head} Z" fill="currentColor"/></svg>`;
+}
+const JUMP_LABELS: Record<ConnectorJump | 'none', string> = { none: 'Croisement simple', arc: 'Saut en arc', gap: 'Coupure', sharp: 'Saut en pointe' };
+/** Aperçu d'un croisement : le lien horizontal passe par-dessus le lien vertical. */
+function jumpIcon(jump: ConnectorJump | 'none'): string {
+  const over = jump === 'arc' ? 'M2,9 H10 A4,4 0 0 1 18,9 H26' : jump === 'gap' ? 'M2,9 H10 M18,9 H26' : jump === 'sharp' ? 'M2,9 H10 L14,4 L18,9 H26' : 'M2,9 H26';
+  return `<svg viewBox="0 0 28 16" width="28" height="16"><path d="M14,1 V15" stroke="currentColor" stroke-width="1.4" opacity="0.5"/><path d="${over}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+}
+const ANIMATION_LABELS: Record<ConnectorAnimation, string> = { flow: 'Tirets qui défilent', dots: 'Points qui circulent', pulse: 'Pulsation', comet: 'Comète' };
+const ANIMATION_ICONS: Record<ConnectorAnimation, string> = { flow: 'pi pi-ellipsis-h', dots: 'pi pi-circle-fill', pulse: 'pi pi-wave-pulse', comet: 'pi pi-bolt' };
+const SPEED_LABELS: Record<AnimationSpeed, string> = { slow: 'Lente', normal: 'Normale', fast: 'Rapide' };
+const link = computed(() => firstOf('connector'));
+/** Réglage sans refermer le menu (plusieurs choix à la suite dans le menu de l'animation). */
+function tweak(value: Record<string, unknown>): void {
+  emit('patch', value);
 }
 const VARIANT_LABELS: Record<MockupVariant, string> = { primary: 'Plein', secondary: 'Teinté', outline: 'Contour', ghost: 'Sans fond' };
 /** Composants de maquette choisis, et les réglages qu'ils partagent (ceux du premier). */
@@ -201,6 +215,52 @@ function toggle(menu: Menu): void {
               {{ $t(WEIGHT_LABELS[weight]) }}
             </button>
           </div>
+        </div>
+        <div class="group">
+          <button v-tooltip.top="$t('Croisements avec les liens placés dessous')" type="button" class="item wide" :aria-label="$t('Croisements avec les liens placés dessous')" @click="toggle('jump')">
+            <!-- eslint-disable-next-line vue/no-v-html -- icône SVG construite ici. -->
+            <span class="weight-icon" v-html="jumpIcon(link?.jump ?? 'none')"></span>
+            <i class="pi pi-angle-down caret"></i>
+          </button>
+          <div v-if="open === 'jump'" class="menu column">
+            <button v-for="jump in ['none', ...CONNECTOR_JUMPS] as const" :key="jump" type="button" class="item wide weight-item" :class="{ active: (link?.jump ?? 'none') === jump }" @click="patch({ jump: jump === 'none' ? undefined : jump })">
+              <!-- eslint-disable-next-line vue/no-v-html -- icône SVG construite ici. -->
+              <span class="weight-icon" v-html="jumpIcon(jump)"></span>
+              {{ $t(JUMP_LABELS[jump]) }}
+            </button>
+          </div>
+        </div>
+        <div class="group">
+          <button v-tooltip.top="$t('Animation du lien')" type="button" class="item" :class="{ active: link?.animation }" :aria-label="$t('Animation du lien')" @click="toggle('anim')">
+            <i class="pi pi-play-circle"></i>
+            <i class="pi pi-angle-down caret"></i>
+          </button>
+          <div v-if="open === 'anim'" class="menu column anim-menu">
+            <button type="button" class="item wide weight-item" :class="{ active: !link?.animation }" @click="patch({ animation: undefined, animationReverse: undefined, animationColor: undefined, animationSpeed: undefined })">
+              <i class="pi pi-ban"></i> {{ $t('Sans animation') }}
+            </button>
+            <button v-for="animation in CONNECTOR_ANIMATIONS" :key="animation" type="button" class="item wide weight-item" :class="{ active: link?.animation === animation }" @click="tweak({ animation })">
+              <i :class="ANIMATION_ICONS[animation]"></i> {{ $t(ANIMATION_LABELS[animation]) }}
+            </button>
+            <template v-if="link?.animation">
+              <span class="menu-title">{{ $t('Sens') }}</span>
+              <div class="segmented-row">
+                <button type="button" class="item wide" :class="{ active: !link.animationReverse }" @click="tweak({ animationReverse: undefined })"><i class="pi pi-arrow-right"></i> {{ $t('Vers l’arrivée') }}</button>
+                <button type="button" class="item wide" :class="{ active: link.animationReverse }" @click="tweak({ animationReverse: true })"><i class="pi pi-arrow-left"></i> {{ $t('Vers le départ') }}</button>
+              </div>
+              <span class="menu-title">{{ $t('Vitesse') }}</span>
+              <div class="segmented-row">
+                <button v-for="speed in ANIMATION_SPEEDS" :key="speed" type="button" class="item wide" :class="{ active: (link.animationSpeed ?? 'normal') === speed }" @click="tweak({ animationSpeed: speed === 'normal' ? undefined : speed })">{{ $t(SPEED_LABELS[speed]) }}</button>
+              </div>
+              <span class="menu-title">{{ $t('Couleur de l’animation') }}</span>
+              <div class="swatch-row">
+                <button v-for="value in BOARD_COLORS" :key="value" v-tooltip.top="$t(COLOR_LABELS[value])" type="button" class="swatch" :class="[`s-${value}`, { active: (link.animationColor ?? link.color) === value }]" :aria-label="$t(COLOR_LABELS[value])" @click="tweak({ animationColor: value === link.color ? undefined : value })"></button>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div v-if="link?.waypoints?.length" class="group">
+          <button v-tooltip.top="$t('Retirer les points de passage')" type="button" class="item" :aria-label="$t('Retirer les points de passage')" @click="patch({ waypoints: undefined })"><i class="pi pi-replay"></i></button>
         </div>
       </template>
 
@@ -398,6 +458,25 @@ function toggle(menu: Menu): void {
 .weight-icon {
   display: inline-flex;
   align-items: center;
+}
+.anim-menu {
+  min-width: 15rem;
+}
+.menu-title {
+  padding: 0.35rem 0.4rem 0.1rem;
+  color: var(--fb-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.segmented-row,
+.swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+.swatch-row {
+  padding: 0.15rem 0.3rem 0.3rem;
 }
 .weight-item {
   justify-content: flex-start;
