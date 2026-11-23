@@ -10,11 +10,12 @@ import Message from 'primevue/message';
 import Password from 'primevue/password';
 import RadioButton from 'primevue/radiobutton';
 import ToggleSwitch from 'primevue/toggleswitch';
-import { AI_LIMITS, guessCapabilities, type DetectedModelDTO } from '@shared/ai';
+import { AI_LIMITS, guessCapabilities, REASONING_PRESETS, reasoningPresetOf, type AiReasoningOption, type DetectedModelDTO } from '@shared/ai';
 import { api } from '@/api';
 import { translateServerMessage } from '@/i18n/server';
 import { notifyError } from '@/utils/notify';
 import { matchesQuery } from '@/utils/search';
+import AiReasoningDialog from './AiReasoningDialog.vue';
 import type { DefaultModel, ProviderDraft } from './aiProviderDraft';
 
 import { t } from '@/i18n';
@@ -31,11 +32,29 @@ const manualId = ref('');
 const PRESETS = [
   { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
   { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1' },
+  { label: 'Qwen', baseUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1' },
   { label: 'Mistral', baseUrl: 'https://api.mistral.ai/v1' },
   { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
   { label: 'Ollama', baseUrl: 'http://localhost:11434/v1' },
   { label: 'LM Studio', baseUrl: 'http://localhost:1234/v1' },
 ];
+
+// --- Réglages de réflexion d'un modèle ---
+type CatalogModel = ProviderDraft['catalog'][number];
+const reasoningOpen = ref(false);
+const reasoningModel = ref<CatalogModel | null>(null);
+/** Nom du préréglage de réflexion d'un modèle (« Personnalisé » pour une liste à lui). */
+const reasoningName = (model: CatalogModel): string => REASONING_PRESETS.find((entry) => entry.key === reasoningPresetOf(model.reasoningOptions))?.label ?? t('Personnalisé');
+function editReasoning(model: CatalogModel): void {
+  reasoningModel.value = model;
+  reasoningOpen.value = true;
+}
+function saveReasoning(options: AiReasoningOption[] | undefined): void {
+  const model = reasoningModel.value;
+  if (!model) return;
+  if (options) model.reasoningOptions = options;
+  else delete model.reasoningOptions;
+}
 
 function choosePreset(preset: (typeof PRESETS)[number]): void {
   const previous = PRESETS.find((entry) => entry.baseUrl === props.provider.baseUrl);
@@ -177,7 +196,7 @@ async function test(): Promise<void> {
                 <th>{{ $t('Nom affiché') }}</th>
                 <th v-tooltip.top="$t('Le modèle comprend les images')">{{ $t('Vision') }}</th>
                 <th v-tooltip.top="$t('Taille du contexte, en jetons')">{{ $t('Contexte') }}</th>
-                <th v-tooltip.top="$t('Accepte un niveau de réflexion (reasoning_effort)')">{{ $t('Réflexion') }}</th>
+                <th v-tooltip.top="$t('Le modèle a des réglages de réflexion ; le bouton choisit ceux proposés dans le panneau')">{{ $t('Réflexion') }}</th>
                 <th>{{ $t('Par défaut') }}</th>
               </tr>
             </thead>
@@ -188,7 +207,12 @@ async function test(): Promise<void> {
                 <td><InputText v-model="model.label" size="small" maxlength="80" :placeholder="model.id" :disabled="!model.selected" class="label-input" @keydown.enter.prevent /></td>
                 <td><ToggleSwitch v-model="model.vision" :disabled="!model.selected" :aria-label="$t('Vision')" /></td>
                 <td><InputNumber v-model="model.contextWindow" :min="1000" :max="10000000" :step="1000" size="small" :disabled="!model.selected" :input-style="{ width: '6.5rem' }" suffix=" tk" /></td>
-                <td><ToggleSwitch v-model="model.reasoning" :disabled="!model.selected" :aria-label="$t('Réflexion')" /></td>
+                <td>
+                  <div class="reasoning-cell">
+                    <ToggleSwitch v-model="model.reasoning" :disabled="!model.selected" :aria-label="$t('Réflexion')" />
+                    <Button v-if="model.reasoning" v-tooltip.top="$t('Réglages de réflexion proposés dans le panneau')" type="button" :label="reasoningName(model)" icon="pi pi-sliders-h" size="small" severity="secondary" text :disabled="!model.selected" class="reasoning-button" @click="editReasoning(model)" />
+                  </div>
+                </td>
                 <td><RadioButton :model-value="isDefault(model.id) ? model.id : null" :value="model.id" :disabled="!model.selected" :aria-label="$t('Par défaut')" @update:model-value="emit('setDefault', model.id)" /></td>
               </tr>
               <tr v-if="!visible.length">
@@ -199,6 +223,8 @@ async function test(): Promise<void> {
         </div>
         <small v-if="hiddenCount" class="muted">{{ $t('{n} modèle détecté masqué par le filtre.|{n} modèles détectés masqués par le filtre.', { n: hiddenCount }) }}</small>
       </div>
+
+      <AiReasoningDialog v-model:visible="reasoningOpen" :model="reasoningModel?.label || reasoningModel?.id || ''" :options="reasoningModel?.reasoningOptions" @save="saveReasoning" />
 
       <Message v-if="result" :severity="result.ok ? 'success' : 'error'" :closable="false" size="small">{{ result.message }}</Message>
 
@@ -212,6 +238,14 @@ async function test(): Promise<void> {
 </template>
 
 <style scoped>
+.reasoning-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.reasoning-button {
+  white-space: nowrap;
+}
 .provider {
   border: 1px solid var(--fb-border);
   border-radius: 12px;

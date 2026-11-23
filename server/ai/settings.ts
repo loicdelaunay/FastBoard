@@ -7,9 +7,11 @@ import {
   guessCapabilities,
   modelRef,
   parseModelRef,
+  reasoningOptionsOf,
   type AiModelChoiceDTO,
   type AiModelDTO,
   type AiProviderDTO,
+  type AiReasoningOption,
   type AiSettingsDTO,
   type DetectedModelDTO,
 } from '../../shared/ai.ts';
@@ -65,7 +67,20 @@ function normalizeModel(raw: Partial<AiModelDTO> & { id: string }): AiModelDTO {
     vision: raw.vision === true,
     contextWindow: typeof raw.contextWindow === 'number' && raw.contextWindow >= 1_000 ? Math.round(raw.contextWindow) : DEFAULT_CONTEXT_WINDOW,
     reasoning: raw.reasoning === true,
+    ...reasoningOptionsField(raw.reasoningOptions),
   };
+}
+
+/** Réglages de réflexion d'un modèle, nettoyés (absents s'il n'en a pas de propres). */
+function reasoningOptionsField(raw: unknown): { reasoningOptions?: AiReasoningOption[] } {
+  if (!Array.isArray(raw)) return {};
+  const seen = new Set<string>();
+  const options = raw
+    .filter((option): option is AiReasoningOption => typeof option?.id === 'string' && /^[\w-]{1,40}$/.test(option.id) && typeof option.params === 'object' && option.params !== null && !Array.isArray(option.params))
+    .filter((option) => !seen.has(option.id) && Boolean(seen.add(option.id)))
+    .slice(0, AI_LIMITS.reasoningOptions)
+    .map((option) => ({ id: option.id, label: typeof option.label === 'string' ? option.label.slice(0, 40) : '', params: option.params }));
+  return options.length ? { reasoningOptions: options } : {};
 }
 
 function normalizeModels(raw: unknown): AiModelDTO[] {
@@ -180,7 +195,15 @@ export function aiAvailable(ctx: AppContext): boolean {
 export function availableModels(ctx: AppContext): { models: AiModelChoiceDTO[]; defaultModel: string } {
   const value = stored(ctx);
   return {
-    models: value.providers.flatMap((provider) => provider.models.map((model) => ({ ...model, ref: modelRef(provider.id, model.id), provider: provider.name }))),
+    // Le panneau n'a besoin que du nom des réglages de réflexion : leurs paramètres restent côté serveur.
+    models: value.providers.flatMap((provider) =>
+      provider.models.map((model) => ({
+        ...model,
+        ...(model.reasoning ? { reasoningOptions: reasoningOptionsOf(model).map((option) => ({ id: option.id, label: option.label, params: {} })) } : {}),
+        ref: modelRef(provider.id, model.id),
+        provider: provider.name,
+      })),
+    ),
     defaultModel: value.defaultModel,
   };
 }
@@ -287,6 +310,7 @@ export async function detectModels(baseUrl: string, apiKey: string | null, timeo
         label: '',
         vision: entry.capabilities?.vision ?? guess.vision,
         reasoning: guess.reasoning,
+        ...(guess.reasoningOptions ? { reasoningOptions: guess.reasoningOptions } : {}),
         contextWindow: typeof context === 'number' && context >= 1_000 ? context : guess.contextWindow,
         ownedBy: 'owned_by' in entry && typeof entry.owned_by === 'string' ? entry.owned_by : null,
       };

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { AI_LIMITS, type AiChatRequest, type AiFile, type AiMessage, type AiModelDTO, type AiStreamEvent } from '../../shared/ai.ts';
+import { AI_LIMITS, reasoningOptionsOf, reasoningParams, type AiChatRequest, type AiFile, type AiMessage, type AiModelDTO, type AiStreamEvent } from '../../shared/ai.ts';
 import { todayISO } from '../../shared/dates.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { boardRole, boardsEnabled } from '../boards/store.ts';
@@ -185,7 +185,10 @@ export async function runAgent(ctx: AppContext, user: AuthUser, request: AiChatR
     ...fitConversation(request, model, budget, config.maxTurns),
   ];
   // Paramètres propres au modèle : niveau de réflexion, ou température basse pour les modèles classiques.
-  const options: Record<string, unknown> = model.reasoning ? (request.reasoning ? { reasoning_effort: request.reasoning } : {}) : { temperature: 0.2 };
+  // Le réglage de réflexion choisi ajoute les paramètres que l'administrateur lui a donnés (`reasoning_effort`,
+  // `enable_thinking`, `thinking`…) ; un réglage inconnu de ce modèle est ignoré.
+  const reasoning = request.reasoning ? reasoningOptionsOf(model).find((option) => option.id === request.reasoning) : undefined;
+  const options: Record<string, unknown> = model.reasoning ? (reasoning ? reasoningParams(reasoning) : {}) : { temperature: 0.2 };
   const used: string[] = [];
 
   for (let step = 0; step < config.maxSteps; step += 1) {

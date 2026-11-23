@@ -205,7 +205,7 @@ const OPERATIONS: Operation[] = [
     access: 'session',
     permission: 'ai.use',
     summary: 'Modèles proposés dans le panneau de l’assistant',
-    ok: obj({ models: arr({ type: 'object', description: 'ref (à passer dans `model`), id, label, provider, vision, contextWindow, reasoning' }), defaultModel: str('Référence du modèle par défaut.') }),
+    ok: obj({ models: arr({ type: 'object', description: 'ref (à passer dans `model`), id, label, provider, vision, contextWindow, reasoning, reasoningOptions (réglages de réflexion du modèle : `id` à passer dans `reasoning`, `label`)' }), defaultModel: str('Référence du modèle par défaut.') }),
   },
   { method: 'get', path: '/ai/conversations', tag: 'Assistant IA', access: 'session', permission: 'ai.use', summary: 'Mes 50 dernières conversations avec l’assistant', ok: obj({ conversations: arr({ type: 'object', description: 'id, title, messageCount, createdAt, updatedAt' }) }) },
   { method: 'get', path: '/ai/conversations/{id}', tag: 'Assistant IA', access: 'session', permission: 'ai.use', summary: 'Rouvrir une conversation', params: { id: 'Identifiant de la conversation.' }, stringParams: ['id'], ok: obj({ conversation: { type: 'object', description: 'id, title, context, turns, messageCount, createdAt, updatedAt' } }) },
@@ -1053,7 +1053,7 @@ const OPERATIONS: Operation[] = [
     summary: 'Détecter les modèles du fournisseur (`GET /models`)',
     description: 'Capacités (vision, contexte, réflexion) devinées d’après le nom ou fournies par l’API, à vérifier.',
     body: S.aiProbeSchema,
-    ok: obj({ models: arr({ type: 'object', description: 'id, label, vision, contextWindow, reasoning, ownedBy' }) }),
+    ok: obj({ models: arr({ type: 'object', description: 'id, label, vision, contextWindow, reasoning, reasoningOptions (réglages de réflexion devinés d’après le nom, s’ils ne sont pas ceux d’OpenAI), ownedBy' }) }),
   },
   { method: 'put', path: '/admin/app', tag: 'Administration', access: 'session', permission: 'settings.manage', summary: "Changer le nom de l'application", body: S.appNameSchema, ok: ref('AppInfo') },
   {

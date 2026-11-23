@@ -11,6 +11,62 @@ export const DEFAULT_CONTEXT_WINDOW = 128_000;
 export const REASONING_LEVELS = ['minimal', 'low', 'medium', 'high'] as const;
 export type ReasoningLevel = (typeof REASONING_LEVELS)[number];
 
+/**
+ * Un réglage de réflexion proposé pour un modèle : son nom dans le panneau, et les paramètres ajoutés à la requête
+ * `chat/completions` quand il est choisi (chaque fournisseur a les siens : `reasoning_effort`, `enable_thinking`…).
+ */
+export interface AiReasoningOption {
+  /** Identifiant envoyé par le panneau (`reasoning`). */
+  id: string;
+  /** Nom affiché ; vide : le nom habituel de l'identifiant (`low` → « Faible », `off` → « Sans »…). */
+  label: string;
+  params: Record<string, unknown>;
+}
+
+/** Paramètres de la requête qu'un réglage de réflexion ne peut pas remplacer. */
+export const RESERVED_REASONING_PARAMS = ['model', 'messages', 'tools', 'tool_choice', 'stream', 'n'];
+
+const effort = (id: string, params: Record<string, unknown>): AiReasoningOption => ({ id, label: '', params });
+
+/**
+ * Préréglages des réglages de réflexion, d'après la documentation de chaque fournisseur. « Personnalisé » (une liste
+ * qui ne correspond à aucun) laisse l'administrateur écrire les siens.
+ */
+export const REASONING_PRESETS: Array<{ key: string; label: string; options: AiReasoningOption[] }> = [
+  { key: 'openai', label: 'OpenAI', options: REASONING_LEVELS.map((level) => effort(level, { reasoning_effort: level })) },
+  // Qwen (Alibaba Cloud Model Studio, mode compatible OpenAI) : un interrupteur.
+  { key: 'qwen', label: 'Qwen', options: [effort('off', { enable_thinking: false }), effort('on', { enable_thinking: true })] },
+  // DeepSeek V4 et V4.1 (Flash, Pro) : `thinking` l'active, `reasoning_effort` (low, high, max) règle l'effort.
+  {
+    key: 'deepseek',
+    label: 'DeepSeek V4.1 Flash',
+    options: [
+      effort('off', { thinking: { type: 'disabled' } }),
+      effort('low', { thinking: { type: 'enabled' }, reasoning_effort: 'low' }),
+      effort('high', { thinking: { type: 'enabled' }, reasoning_effort: 'high' }),
+      effort('max', { thinking: { type: 'enabled' }, reasoning_effort: 'max' }),
+    ],
+  },
+];
+
+/** Réglages de réflexion d'un modèle : les siens, sinon ceux d'OpenAI (`reasoning_effort`) ; aucun sans réflexion. */
+export function reasoningOptionsOf(model: Pick<AiModelDTO, 'reasoning' | 'reasoningOptions'>): AiReasoningOption[] {
+  if (!model.reasoning) return [];
+  return model.reasoningOptions?.length ? model.reasoningOptions : REASONING_PRESETS[0]!.options;
+}
+
+/** Préréglage auquel correspond une liste de réglages, ou `custom`. */
+export function reasoningPresetOf(options: readonly AiReasoningOption[] | undefined): string {
+  if (!options?.length) return 'openai';
+  const same = (a: readonly AiReasoningOption[], b: readonly AiReasoningOption[]): boolean => a.length === b.length && a.every((option, index) => option.id === b[index]!.id && option.label === b[index]!.label && JSON.stringify(option.params) === JSON.stringify(b[index]!.params));
+  return REASONING_PRESETS.find((preset) => same(preset.options, options))?.key ?? 'custom';
+}
+
+/** Paramètres d'un réglage à ajouter à la requête (sans ceux que FastBoard fixe lui-même). */
+export function reasoningParams(option: AiReasoningOption): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(option.params).filter(([key]) => !RESERVED_REASONING_PARAMS.includes(key)));
+}
+
 /** Un modèle mis à disposition par l'administrateur, avec ses capacités. */
 export interface AiModelDTO {
   id: string;
@@ -20,8 +76,10 @@ export interface AiModelDTO {
   vision: boolean;
   /** Taille du contexte en jetons : la conversation et les résultats d'outils sont réduits pour y tenir. */
   contextWindow: number;
-  /** Le modèle accepte un niveau de réflexion (`reasoning_effort`). */
+  /** Le modèle a des réglages de réflexion. */
   reasoning: boolean;
+  /** Réglages de réflexion proposés ; absent : les quatre niveaux d'OpenAI (`reasoning_effort`). */
+  reasoningOptions?: AiReasoningOption[];
 }
 
 /** Un fournisseur compatible OpenAI v1 (OpenAI, Azure OpenAI, Mistral, DeepSeek, Ollama, LM Studio…) et ses modèles. */
@@ -146,8 +204,8 @@ export interface AiChatRequest {
   writeMode?: AiWriteMode;
   /** Modèle choisi dans le panneau (référence parmi ceux mis à disposition) ; absent = modèle par défaut. */
   model?: string;
-  /** Niveau de réflexion (modèles qui le gèrent) ; absent = réglage du fournisseur. */
-  reasoning?: ReasoningLevel;
+  /** Réglage de réflexion choisi (identifiant d'un réglage du modèle) ; absent = réglage du fournisseur. */
+  reasoning?: string;
 }
 
 /** Champs d'un ticket modifiables par l'assistant (identifiants déjà résolus). */
@@ -234,6 +292,9 @@ export const AI_LIMITS = {
   fileBytes: 25 * 1024 * 1024,
   models: 50,
   providers: 10,
+  /** Réglages de réflexion par modèle, et taille de leurs paramètres (JSON, en caractères). */
+  reasoningOptions: 8,
+  reasoningParamsChars: 2_000,
   /** Conversations gardées par personne. */
   conversations: 50,
   /** Taille maximale d'une conversation enregistrée (JSON, en caractères). */
@@ -256,10 +317,13 @@ export interface AiConversationDTO extends AiConversationSummaryDTO {
 }
 
 /** Capacités probables d'un modèle d'après son nom (à vérifier par l'administrateur). */
-export function guessCapabilities(id: string): Pick<AiModelDTO, 'vision' | 'reasoning' | 'contextWindow'> {
+export function guessCapabilities(id: string): Pick<AiModelDTO, 'vision' | 'reasoning' | 'contextWindow' | 'reasoningOptions'> {
   const name = id.toLowerCase();
   const vision = /gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-5|o3|o4|vision|-vl|vl-|llava|pixtral|gemini|claude|qwen.*vl|gemma-3|llama-?3\.2.*vision|mistral-(small|medium)-(2503|2505|latest)|grok-.*vision/.test(name);
-  const reasoning = /(^|[^a-z])o[1345](-|$)|gpt-5|reasoner|-r1|deepseek-r|thinking|qwq|magistral|grok-3-mini|grok-4/.test(name);
+  // Réglages de réflexion propres au fournisseur, quand son nom le dit.
+  const preset = /deepseek-(v4|flash|pro)|deepseek.*v4/.test(name) ? 'deepseek' : /qwen3|qwen-(plus|max|flash|turbo)|qwq/.test(name) ? 'qwen' : null;
+  const reasoning = preset !== null || /(^|[^a-z])o[1345](-|$)|gpt-5|reasoner|-r1|deepseek-r|thinking|magistral|grok-3-mini|grok-4/.test(name);
   const contextWindow = /gpt-4\.1|gemini/.test(name) ? 1_000_000 : /gpt-5|o3|o4/.test(name) ? 200_000 : /gpt-3\.5/.test(name) ? 16_000 : /llama|mistral|qwen|gemma|phi/.test(name) ? 32_000 : DEFAULT_CONTEXT_WINDOW;
-  return { vision, reasoning, contextWindow };
+  const options = preset ? REASONING_PRESETS.find((entry) => entry.key === preset)!.options : null;
+  return { vision, reasoning, contextWindow, ...(options ? { reasoningOptions: structuredClone(options) } : {}) };
 }

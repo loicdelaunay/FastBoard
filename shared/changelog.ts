@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.14.0';
+export const APP_VERSION = '2.15.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.15.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Assistant IA : dans Administration → IA, chaque modèle a ses réglages de réflexion, ceux que le panneau propose. Des préréglages sont fournis pour OpenAI, Qwen et DeepSeek V4.1 Flash, et « Personnalisé » permet d’écrire les siens (nom et paramètres envoyés au fournisseur).' },
+      { category: 'Amélioration', text: 'Assistant IA : un préréglage de fournisseur « Qwen » (Alibaba Cloud Model Studio), et les réglages de réflexion de Qwen et de DeepSeek V4 sont reconnus d’après le nom du modèle.' },
+    ],
+  },
   {
     version: '2.14.0',
     date: '2026-11-23',

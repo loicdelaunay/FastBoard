@@ -109,7 +109,9 @@ async function save(): Promise<void> {
         baseUrl: provider.baseUrl.trim(),
         timeoutSeconds: provider.timeoutSeconds,
         verifyCertificate: provider.verifyCertificate,
-        models: provider.catalog.filter((model) => model.selected).map(({ id, label, vision, contextWindow, reasoning }) => ({ id, label: label.trim(), vision, contextWindow, reasoning })),
+        models: provider.catalog
+          .filter((model) => model.selected)
+          .map(({ id, label, vision, contextWindow, reasoning, reasoningOptions }) => ({ id, label: label.trim(), vision, contextWindow, reasoning, ...(reasoning && reasoningOptions?.length ? { reasoningOptions } : {}) })),
         ...(provider.replacingKey ? { apiKey: provider.apiKey } : {}),
       })),
     });

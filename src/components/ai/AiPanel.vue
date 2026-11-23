@@ -6,10 +6,11 @@ import Popover from 'primevue/popover';
 import Select from 'primevue/select';
 import SelectButton from 'primevue/selectbutton';
 import ToggleSwitch from 'primevue/toggleswitch';
-import { AI_LIMITS, contextOfItems, REASONING_LEVELS, type AiFile, type AiWriteMode, type ReasoningLevel } from '@shared/ai';
+import { AI_LIMITS, contextOfItems, reasoningOptionsOf, type AiFile, type AiWriteMode } from '@shared/ai';
 import { boardTitle } from '@shared/boards';
 import { docTitle } from '@shared/docs';
 import { AI_FILE_ACCEPT, fileIcon, fileInfo, isImage, readForAi } from '@/utils/aiFiles';
+import { reasoningLabel } from '@/utils/aiReasoning';
 import { imageToDataUrl } from '@/utils/image';
 import { notify, notifyError } from '@/utils/notify';
 import MarkdownView from '@/components/common/MarkdownView.vue';
@@ -53,9 +54,11 @@ const picker = ref<HTMLInputElement | null>(null);
 const settingsPanel = ref<InstanceType<typeof Popover> | null>(null);
 const showHistory = ref(false);
 
-const REASONING_LABELS = computed<Record<ReasoningLevel, string>>(() => ({ minimal: t('Minimale'), low: t('Faible'), medium: t('Moyenne'), high: t('Élevée') }));
+// Réglages de réflexion du modèle choisi (ceux que l'administrateur lui a donnés).
 // « Auto » : valeur sentinelle (SelectButton ne marque pas une option de valeur null comme choisie).
-const reasoningOptions = computed(() => [{ value: 'auto', label: t('Auto') }, ...REASONING_LEVELS.map((level) => ({ value: level, label: REASONING_LABELS.value[level] }))]);
+const reasoningOptions = computed(() => [{ value: 'auto', label: t('Auto') }, ...(ai.model ? reasoningOptionsOf(ai.model) : []).map((option) => ({ value: option.id, label: reasoningLabel(option) }))]);
+/** Réglage choisi, s'il existe pour ce modèle ; sinon automatique. */
+const reasoningChoice = computed(() => (ai.reasoning && reasoningOptions.value.some((option) => option.value === ai.reasoning) ? ai.reasoning : 'auto'));
 const writeModeOptions = computed(() => [
   { value: 'apply', label: t('Appliquer directement') },
   { value: 'propose', label: t('Me les proposer') },
@@ -390,7 +393,7 @@ onBeforeUnmount(() => (resizing.value = false));
             </p>
             <div v-if="ai.model?.reasoning" class="setting">
               <span class="setting-label">{{ $t('Niveau de réflexion') }}</span>
-              <SelectButton :model-value="ai.reasoning ?? 'auto'" :options="reasoningOptions" option-label="label" option-value="value" size="small" :allow-empty="false" @update:model-value="(level: ReasoningLevel | 'auto') => ai.chooseReasoning(level === 'auto' ? null : level)" />
+              <SelectButton :model-value="reasoningChoice" :options="reasoningOptions" option-label="label" option-value="value" size="small" :allow-empty="false" class="reasoning-choice" @update:model-value="(level: string) => ai.chooseReasoning(level === 'auto' ? null : level)" />
               <small class="muted">{{ $t('Plus de réflexion : réponses plus sûres mais plus lentes.') }}</small>
             </div>
             <div v-if="canWrite" class="setting">
@@ -852,6 +855,10 @@ onBeforeUnmount(() => (resizing.value = false));
 .setting-label {
   font-weight: 700;
   font-size: 0.8rem;
+}
+/* Plusieurs réglages de réflexion : ils passent à la ligne plutôt que de déborder du panneau. */
+.reasoning-choice {
+  flex-wrap: wrap;
 }
 .model-option {
   display: flex;

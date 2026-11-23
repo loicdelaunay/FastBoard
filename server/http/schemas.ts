@@ -2,7 +2,7 @@
  * Tous les schémas de validation des requêtes. Ils servent à la fois à valider les routes et à générer
  * la documentation OpenAPI (`server/openapi`) : une seule source de vérité.
  */
-import { AI_CONTEXT_KINDS, AI_LIMITS, REASONING_LEVELS } from '../../shared/ai.ts';
+import { AI_CONTEXT_KINDS, AI_LIMITS, RESERVED_REASONING_PARAMS } from '../../shared/ai.ts';
 import { parseRetentionRules } from '../../shared/backup.ts';
 import { BOARD_ICON_LIMITS, BOARD_LIMITS, BOARD_SHARE_AUDIENCES, BOARD_SHARE_LIMITS, BOARD_SHARE_ROLES } from '../../shared/boards.ts';
 import { LIMITS, NOTIFICATION_LEVELS, TICKET_STATUSES } from '../../shared/constants.ts';
@@ -436,7 +436,7 @@ export const aiChatSchema = z.object({
   allowWrite: z.boolean().default(false).describe("Autorise l'assistant à modifier (si la personne en a le droit)."),
   writeMode: z.enum(['apply', 'propose']).default('apply').describe('`apply` : modifications faites directement ; `propose` : proposées, à valider par la personne.'),
   model: z.string().max(300).optional().describe('Référence d’un modèle mis à disposition (`GET /ai/models` → `ref`) ; absent = modèle par défaut.'),
-  reasoning: z.enum(REASONING_LEVELS).optional().describe('Niveau de réflexion, pour les modèles qui le gèrent.'),
+  reasoning: z.string().max(40).optional().describe('Réglage de réflexion : identifiant d’un réglage du modèle (`GET /ai/models` → `reasoningOptions`), ex. `high` ; absent = réglage du fournisseur.'),
 });
 
 const aiModelsSchema = z
@@ -446,7 +446,22 @@ const aiModelsSchema = z
       label: z.string().trim().max(80).default(''),
       vision: z.boolean().default(false),
       contextWindow: z.number().int().min(1_000).max(10_000_000).default(128_000).describe('Taille du contexte en jetons.'),
-      reasoning: z.boolean().default(false).describe('Le modèle accepte un niveau de réflexion (reasoning_effort).'),
+      reasoning: z.boolean().default(false).describe('Le modèle a des réglages de réflexion.'),
+      reasoningOptions: z
+        .array(
+          z.object({
+            id: z.string().regex(/^[\w-]{1,40}$/, 'Identifiant de réglage invalide (lettres, chiffres, tirets).'),
+            label: z.string().trim().max(40).default('').describe('Nom affiché ; vide : le nom habituel de l’identifiant.'),
+            params: z
+              .record(z.string(), z.unknown())
+              .refine((params) => JSON.stringify(params).length <= AI_LIMITS.reasoningParamsChars, 'Paramètres de réflexion trop longs.')
+              .refine((params) => !Object.keys(params).some((key) => RESERVED_REASONING_PARAMS.includes(key)), 'Un réglage de réflexion ne peut pas remplacer model, messages, tools, tool_choice, stream ni n.')
+              .describe('Paramètres ajoutés à la requête chat/completions, ex. `{ "reasoning_effort": "high" }`.'),
+          }),
+        )
+        .max(AI_LIMITS.reasoningOptions)
+        .optional()
+        .describe('Réglages de réflexion proposés dans le panneau ; absent : les quatre niveaux d’OpenAI (reasoning_effort).'),
     }),
   )
   .max(AI_LIMITS.models);

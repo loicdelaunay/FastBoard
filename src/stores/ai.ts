@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
-import type { AiChangeDTO, AiContext, AiContextKind, AiConversationSummaryDTO, AiFile, AiMessage, AiModelChoiceDTO, AiStreamEvent, AiWriteMode, ReasoningLevel } from '@shared/ai';
+import { reasoningOptionsOf } from '@shared/ai';
+import type { AiChangeDTO, AiContext, AiContextKind, AiConversationSummaryDTO, AiFile, AiMessage, AiModelChoiceDTO, AiStreamEvent, AiWriteMode } from '@shared/ai';
 import { api } from '@/api';
 import { httpHeaders } from '@/api/http';
 import { translateServerMessage } from '@/i18n/server';
@@ -76,11 +77,12 @@ export const useAiStore = defineStore('ai', () => {
   const models = ref<AiModelChoiceDTO[]>([]);
   const defaultModel = ref('');
   const chosenModel = ref<string | null>(null);
-  const reasoning = ref<ReasoningLevel | null>(null);
+  /** Réglage de réflexion choisi (identifiant d'un réglage du modèle) ; `null` : automatique. */
+  const reasoning = ref<string | null>(null);
   const writeMode = ref<AiWriteMode>('apply');
   const width = ref(PANEL_WIDTH.default);
   try {
-    const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as { model?: string; reasoning?: ReasoningLevel | null; writeMode?: AiWriteMode; width?: number };
+    const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as { model?: string; reasoning?: string | null; writeMode?: AiWriteMode; width?: number };
     chosenModel.value = prefs.model ?? null;
     reasoning.value = prefs.reasoning ?? null;
     writeMode.value = prefs.writeMode === 'propose' ? 'propose' : 'apply';
@@ -111,7 +113,7 @@ export const useAiStore = defineStore('ai', () => {
     savePrefs();
   }
 
-  function chooseReasoning(level: ReasoningLevel | null): void {
+  function chooseReasoning(level: string | null): void {
     reasoning.value = level;
     savePrefs();
   }
@@ -262,7 +264,8 @@ export const useAiStore = defineStore('ai', () => {
           allowWrite: canWrite && allowWrite.value,
           writeMode: writeMode.value,
           model: model.value?.ref,
-          ...(model.value?.reasoning && reasoning.value ? { reasoning: reasoning.value } : {}),
+          // Le réglage choisi n'est envoyé que si ce modèle le propose (chaque modèle a les siens).
+          ...(reasoning.value && reasoningOptionsOf(model.value ?? { reasoning: false }).some((option) => option.id === reasoning.value) ? { reasoning: reasoning.value } : {}),
         }),
         credentials: 'same-origin',
         signal: controller.signal,

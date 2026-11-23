@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
-import { contextOfItems, type AiChangeDTO, type AiStreamEvent } from '../../shared/ai.ts';
+import { contextOfItems, guessCapabilities, REASONING_PRESETS, reasoningPresetOf, type AiChangeDTO, type AiStreamEvent } from '../../shared/ai.ts';
 import { writeSetting } from '../services/appSettings.ts';
 import { bootServer, TestClient } from './helpers.ts';
 
@@ -156,6 +156,11 @@ describe('assistant IA', () => {
     const byId = Object.fromEntries(detected.body.models.map((model: { id: string }) => [model.id, model]));
     assert.equal(byId['gpt-4o'].vision, true, 'vision devinée');
     assert.equal(byId['o3-mini'].reasoning, true, 'réflexion devinée');
+    // Réglages de réflexion devinés d'après le nom : ceux du fournisseur quand on le reconnaît, sinon ceux d'OpenAI.
+    assert.equal(reasoningPresetOf(guessCapabilities('deepseek-v4.1-flash').reasoningOptions), 'deepseek');
+    assert.equal(reasoningPresetOf(guessCapabilities('qwen3-max').reasoningOptions), 'qwen');
+    assert.equal(reasoningPresetOf(guessCapabilities('o3-mini').reasoningOptions), 'openai');
+    assert.equal(reasoningPresetOf([{ id: 'x', label: 'Mien', params: { effort: 3 } }]), 'custom');
     assert.equal(byId['local-model'].contextWindow, 8192, 'contexte fourni par l’API');
     const unsavedTest = await admin.post('/api/admin/ai/test', { baseUrl: provider.url, model: 'gpt-4o', apiKey: 'sk-tape-0000' });
     assert.equal(unsavedTest.body.ok, true);
@@ -380,6 +385,44 @@ describe('assistant IA', () => {
       const lastUser = sent.messages.at(-1)!;
       assert.ok(Array.isArray(lastUser.content) && lastUser.content.some((part) => part.type === 'image_url' && part.image_url?.url === image));
       assert.ok(!sent.messages.some((message) => typeof message.content === 'string' && message.content.length >= 11_000), 'le long message ancien est retiré (petit contexte)');
+
+      // Réglages de réflexion : sans réglages propres, les quatre niveaux d'OpenAI ; le panneau n'en reçoit que les noms.
+      const offeredOptions = offered.models[1].reasoningOptions as Array<{ id: string; params: object }>;
+      assert.deepEqual(offeredOptions.map((option) => option.id), ['minimal', 'low', 'medium', 'high']);
+      assert.deepEqual(offeredOptions[0]!.params, {}, 'les paramètres restent côté serveur');
+      // L'administrateur donne à ce modèle les réglages de DeepSeek, plus un réglage à lui.
+      const custom = [...REASONING_PRESETS.find((preset) => preset.key === 'deepseek')!.options, { id: 'budget', label: 'Budget court', params: { thinking: { type: 'enabled' }, thinking_budget: 2048 } }];
+      const withOptions = (options: unknown) => ({
+        enabled: true,
+        maxSteps: 10,
+        maxTurns: 20,
+        providers: [
+          { id: providerId, name: 'Principal', baseUrl: provider.url, timeoutSeconds: 30, models: [{ ...MODEL, label: 'Rapide' }] },
+          { id: local.id, name: 'Local', baseUrl: second.url, timeoutSeconds: 300, models: [{ id: 'raisonneur', label: 'Réfléchi', vision: true, contextWindow: 3000, reasoning: true, reasoningOptions: options }] },
+        ],
+        defaultModel: `${providerId}:modele-test`,
+      });
+      const refused = await admin.request('PUT', '/api/admin/ai', withOptions([{ id: 'piege', label: '', params: { model: 'autre-modele' } }]));
+      assert.equal(refused.status, 400, 'un réglage ne remplace pas le modèle');
+      const kept = await admin.request('PUT', '/api/admin/ai', withOptions(custom));
+      assert.equal(kept.status, 200);
+      assert.deepEqual(kept.body.settings.providers[1].models[0].reasoningOptions, custom);
+      assert.deepEqual(
+        ((await bob.get('/api/ai/models')).body.models[1].reasoningOptions as Array<{ id: string; label: string }>).map((option) => [option.id, option.label]),
+        [['off', ''], ['low', ''], ['high', ''], ['max', ''], ['budget', 'Budget court']],
+      );
+      const ask = async (reasoning: string): Promise<Record<string, unknown>> => {
+        await bob.request('POST', '/api/ai/chat', { messages: [{ role: 'user', content: 'Salut' }], context: {}, model: `${local.id}:raisonneur`, reasoning });
+        return second.requests.at(-1)!.body as unknown as Record<string, unknown>;
+      };
+      let body = await ask('max');
+      assert.deepEqual([body.thinking, body.reasoning_effort], [{ type: 'enabled' }, 'max']);
+      body = await ask('off');
+      assert.deepEqual([body.thinking, body.reasoning_effort], [{ type: 'disabled' }, undefined]);
+      body = await ask('budget');
+      assert.equal(body.thinking_budget, 2048);
+      body = await ask('medium');
+      assert.deepEqual([body.thinking, body.reasoning_effort], [undefined, undefined], 'un réglage que ce modèle n’a pas est ignoré');
 
       // Référence sans fournisseur (panneau de la 1.3) : retrouvée ; modèle sans vision : image signalée ; inconnu : défaut.
       await bob.request('POST', '/api/ai/chat', { messages: [{ role: 'user', content: 'Salut' }], context: {}, model: 'raisonneur' });
