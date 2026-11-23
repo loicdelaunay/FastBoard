@@ -22,6 +22,10 @@ export type TableAction =
   | 'col-move-left'
   | 'col-move-right'
   | 'col-delete'
+  | 'row-duplicate'
+  | 'col-duplicate'
+  | 'sort-asc'
+  | 'sort-desc'
   | 'align-left'
   | 'align-center'
   | 'align-right';
@@ -166,6 +170,27 @@ export function applyTableAction(model: TableModel, action: TableAction, row: nu
       for (const cells of rows) cells.splice(col, 1);
       align.splice(col, 1);
       return done({ row, col: Math.min(col, align.length - 1) });
+    case 'row-duplicate':
+      if (row < 1) return null;
+      rows.splice(row + 1, 0, [...rows[row]!]);
+      return done({ row: row + 1, col });
+    case 'col-duplicate':
+      for (const cells of rows) cells.splice(col + 1, 0, cells[col] ?? '');
+      align.splice(col + 1, 0, align[col] ?? null);
+      return done({ row, col: col + 1 });
+    case 'sort-asc':
+    case 'sort-desc': {
+      // L'en-tête reste en haut ; les cellules vides vont à la fin, les nombres se comparent comme des nombres.
+      const sign = action === 'sort-asc' ? 1 : -1;
+      const body = rows.slice(1).sort((a, b) => {
+        const left = (a[col] ?? '').trim();
+        const right = (b[col] ?? '').trim();
+        if (!left || !right) return left ? -1 : right ? 1 : 0;
+        return sign * left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
+      });
+      rows.splice(1, body.length, ...body);
+      return done({ row: 1, col });
+    }
     case 'align-left':
     case 'align-center':
     case 'align-right': {
@@ -174,4 +199,132 @@ export function applyTableAction(model: TableModel, action: TableAction, row: nu
       return done({ row, col });
     }
   }
+}
+
+// --- Plages de cellules et presse-papiers ------------------------------------------------------------------------------
+
+/** Rectangle de cellules, bornes comprises. */
+export interface CellRange {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+}
+
+/** Rectangle entre deux cellules, dans n'importe quel sens. */
+export function cellRange(a: TableFocus, b: TableFocus): CellRange {
+  return { top: Math.min(a.row, b.row), left: Math.min(a.col, b.col), bottom: Math.max(a.row, b.row), right: Math.max(a.col, b.col) };
+}
+
+export function inRange(range: CellRange | null, row: number, col: number): boolean {
+  return !!range && row >= range.top && row <= range.bottom && col >= range.left && col <= range.right;
+}
+
+/** Contenu d'un rectangle, ligne par ligne. */
+export function rangeCells(model: TableModel, range: CellRange): string[][] {
+  return model.rows.slice(range.top, range.bottom + 1).map((cells) => cells.slice(range.left, range.right + 1));
+}
+
+/** Les cellules d'un rectangle reçoivent `value` (vides par défaut). */
+export function fillRange(model: TableModel, range: CellRange, value = ''): TableModel {
+  const rows = model.rows.map((cells, row) => cells.map((cell, col) => (inRange(range, row, col) ? value : cell)));
+  return { align: [...model.align], rows };
+}
+
+/** Texte collé dans une cellule : une ligne, les retours à la ligne deviennent des <br> comme dans Obsidian. */
+export function cellText(text: string): string {
+  return text.replace(/\r\n?/g, '\n').replace(/^\n+|\n+$/g, '').replace(/\n/g, '<br>');
+}
+
+/**
+ * Colle une grille à partir de la cellule `at` ; le tableau s'agrandit (lignes et colonnes) pour la recevoir. Renvoie la
+ * nouvelle grille et le rectangle collé.
+ */
+export function pasteGrid(model: TableModel, at: TableFocus, grid: string[][]): { model: TableModel; range: CellRange } {
+  const height = grid.length;
+  const width = Math.max(1, ...grid.map((cells) => cells.length));
+  const align = [...model.align];
+  while (align.length < at.col + width) align.push(null);
+  const rows = model.rows.map((cells) => [...cells, ...Array<string>(align.length - cells.length).fill('')]);
+  while (rows.length < at.row + height) rows.push(Array<string>(align.length).fill(''));
+  grid.forEach((cells, row) => cells.forEach((value, col) => (rows[at.row + row]![at.col + col] = cellText(value))));
+  return { model: { align, rows }, range: { top: at.row, left: at.col, bottom: at.row + height - 1, right: at.col + width - 1 } };
+}
+
+/** Déplace la ligne `from` à la place `to` (l'en-tête ne bouge pas). */
+export function moveRow(model: TableModel, from: number, to: number): TableModel | null {
+  if (from < 1 || to < 1 || from >= model.rows.length || to >= model.rows.length || from === to) return null;
+  const rows = model.rows.map((cells) => [...cells]);
+  const [moved] = rows.splice(from, 1);
+  rows.splice(to, 0, moved!);
+  return { align: [...model.align], rows };
+}
+
+/** Déplace la colonne `from` à la place `to`, avec son alignement. */
+export function moveColumn(model: TableModel, from: number, to: number): TableModel | null {
+  const width = model.align.length;
+  if (from < 0 || to < 0 || from >= width || to >= width || from === to) return null;
+  const move = <T>(list: T[]): T[] => {
+    const copy = [...list];
+    const [moved] = copy.splice(from, 1);
+    copy.splice(to, 0, moved!);
+    return copy;
+  };
+  return { align: move(model.align), rows: model.rows.map(move) };
+}
+
+/** Grille au format des tableurs (Excel, Google Sheets) : tabulations, et guillemets autour des cellules qui en ont besoin. */
+export function gridToTsv(grid: string[][]): string {
+  const quote = (value: string): string => (/[\t\n"]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+  return grid.map((cells) => cells.map((cell) => quote(cell.replace(/<br\s*\/?>/gi, '\n'))).join('\t')).join('\n');
+}
+
+/** Grille en tableau Markdown, la première ligne servant d'en-tête. */
+export function gridToMarkdown(grid: string[][]): string {
+  const width = Math.max(1, ...grid.map((cells) => cells.length));
+  const rows = grid.map((cells) => [...cells, ...Array<string>(width - cells.length).fill('')]);
+  if (rows.length === 1) rows.push(Array<string>(width).fill(''));
+  return serializeTable({ align: Array<TableAlign>(width).fill(null), rows });
+}
+
+/** Texte des tableurs (TSV) en grille : guillemets doublés, retours à la ligne dans une cellule entre guillemets. */
+export function parseTsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+  const source = text.replace(/\r\n?/g, '\n').replace(/\n$/, '');
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]!;
+    if (quoted) {
+      if (char === '"' && source[index + 1] === '"') {
+        cell += '"';
+        index += 1;
+      } else if (char === '"') quoted = false;
+      else cell += char;
+    } else if (char === '"' && cell === '') quoted = true;
+    else if (char === '\t') {
+      row.push(cell);
+      cell = '';
+    } else if (char === '\n') {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else cell += char;
+  }
+  row.push(cell);
+  rows.push(row);
+  return rows;
+}
+
+/**
+ * Grille contenue dans un texte collé : tableau Markdown, ou texte de tableur (avec des tabulations). `null` pour un
+ * texte ordinaire, qui va dans une seule cellule.
+ */
+export function gridFromText(text: string): string[][] | null {
+  const table = parseTable(text.trim());
+  if (table) return table.rows;
+  if (!text.includes('\t')) return null;
+  return parseTsv(text);
 }

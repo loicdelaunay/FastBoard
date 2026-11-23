@@ -60,7 +60,10 @@ class BlockWidget extends WidgetType {
     const box = document.createElement('div');
     box.className = 'cm-live-block markdown';
     box.innerHTML = this.options.render(this.source, this.block, view.state);
-    for (const checkbox of box.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) checkbox.disabled = false;
+    for (const checkbox of box.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) {
+      checkbox.disabled = false;
+      checkbox.removeAttribute('data-readonly');
+    }
     // Un diagramme ou une image change la hauteur du bloc une fois chargé.
     for (const image of box.querySelectorAll('img')) image.addEventListener('load', () => view.requestMeasure());
     void renderMermaid(box, document.documentElement.classList.contains('app-dark')).then(() => view.requestMeasure());

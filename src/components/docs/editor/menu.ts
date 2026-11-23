@@ -6,7 +6,7 @@ import type { MarkdownBlock } from '@/utils/markdown';
 import { addTableColumn, addTableRow, deleteBlock, duplicateBlock, isTaskDone, swapBlocks, toggleTask, type TextRange } from './commands';
 import { openLightbox } from '@/utils/lightbox';
 import { editRaw } from './live';
-import { tableAction, tableSize } from './tableWidget';
+import { tableAction, tableClear, tableCopy, tablePaste, tableRange, tableSize } from './tableWidget';
 import { inlineTools, insertTools, lineTools, type DocTool, type ToolHandlers } from './tools';
 
 /** Ce qui se trouve sous le clic droit. */
@@ -67,7 +67,18 @@ export function editorMenu(view: EditorView, target: MenuTarget, handlers: MenuH
     const { dom, row, col } = target.cell;
     const { rows, cols } = tableSize(dom);
     const act = (action: Parameters<typeof tableAction>[1]) => () => tableAction(dom, action, row, col);
+    const range = tableRange(dom);
+    const several = !!range && (range.bottom > range.top || range.right > range.left);
     items.push(
+      ...(several
+        ? [
+            { label: t('Copier les cellules'), icon: 'pi pi-copy', command: () => void tableCopy(dom, 'selection', row, col) },
+            { label: t('Couper les cellules'), icon: 'pi pi-clone', command: () => void tableCopy(dom, 'selection', row, col, true) },
+            { label: t('Vider les cellules'), icon: 'pi pi-eraser', command: () => tableClear(dom) },
+          ]
+        : []),
+      { label: t('Coller'), icon: 'pi pi-clipboard', command: () => void tablePaste(dom, row, col) },
+      { separator: true },
       { label: t('Insérer une ligne en dessous'), icon: 'pi pi-arrow-down', command: act('row-below') },
       { label: t('Insérer une colonne à droite'), icon: 'pi pi-arrow-right', command: act('col-right') },
       {
@@ -78,6 +89,8 @@ export function editorMenu(view: EditorView, target: MenuTarget, handlers: MenuH
           { label: t('Insérer une ligne en dessous'), icon: 'pi pi-arrow-down', command: act('row-below') },
           { label: t('Monter la ligne'), icon: 'pi pi-angle-up', disabled: row < 2, command: act('row-up') },
           { label: t('Descendre la ligne'), icon: 'pi pi-angle-down', disabled: row < 1 || row >= rows - 1, command: act('row-down') },
+          { label: t('Dupliquer la ligne'), icon: 'pi pi-clone', disabled: row < 1, command: act('row-duplicate') },
+          { label: t('Copier la ligne'), icon: 'pi pi-copy', command: () => void tableCopy(dom, 'row', row, col) },
           { separator: true },
           { label: t('Supprimer la ligne'), icon: 'pi pi-trash', disabled: row < 1, command: act('row-delete') },
         ],
@@ -90,6 +103,11 @@ export function editorMenu(view: EditorView, target: MenuTarget, handlers: MenuH
           { label: t('Insérer une colonne à droite'), icon: 'pi pi-arrow-right', command: act('col-right') },
           { label: t('Déplacer la colonne à gauche'), icon: 'pi pi-angle-left', disabled: col < 1, command: act('col-move-left') },
           { label: t('Déplacer la colonne à droite'), icon: 'pi pi-angle-right', disabled: col >= cols - 1, command: act('col-move-right') },
+          { label: t('Dupliquer la colonne'), icon: 'pi pi-clone', command: act('col-duplicate') },
+          { label: t('Copier la colonne'), icon: 'pi pi-copy', command: () => void tableCopy(dom, 'col', row, col) },
+          { separator: true },
+          { label: t('Trier de A à Z'), icon: 'pi pi-sort-alpha-down', disabled: rows < 3, command: act('sort-asc') },
+          { label: t('Trier de Z à A'), icon: 'pi pi-sort-alpha-up', disabled: rows < 3, command: act('sort-desc') },
           { separator: true },
           { label: t('Aligner à gauche'), icon: 'pi pi-align-left', command: act('align-left') },
           { label: t('Centrer'), icon: 'pi pi-align-center', command: act('align-center') },

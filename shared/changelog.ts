@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.7.0';
+export const APP_VERSION = '2.8.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,17 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.8.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Documentation : les tableaux s’éditent comme dans Obsidian : poignées de ligne et de colonne (clic pour le menu, glisser pour déplacer), sélection de cellules à la souris, avec Maj ou Ctrl A, et copier, couper, coller ou vider (Suppr) une sélection, une ligne ou une colonne.' },
+      { category: 'Nouveauté', text: 'Documentation : copier-coller de tableaux avec Excel, Google Sheets, Word ou Slides, dans les deux sens ; coller un tableau dans une note le transforme en tableau Markdown, et coller dans un tableau l’agrandit au besoin.' },
+      { category: 'Amélioration', text: 'Documentation : dupliquer une ligne ou une colonne, et trier un tableau de A à Z ou de Z à A d’après une colonne.' },
+      { category: 'Correction', text: 'Documentation : en « Lecture et écriture », la sélection de texte est bien visible dans une citation, un code ou un surlignage, sans déborder à côté du texte.' },
+      { category: 'Correction', text: 'Documentation : le texte entre crochets ([REQ-012]), les mentions et les appels de notes de bas de page prennent la couleur des liens du thème, et les cases à cocher celle des puces.' },
+    ],
+  },
   {
     version: '2.7.0',
     date: '2026-11-23',

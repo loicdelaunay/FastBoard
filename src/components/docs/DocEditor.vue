@@ -32,7 +32,7 @@ import { docComments, setDocComments } from './editor/comments';
 import { docHighlight, docLiveHighlight } from './editor/highlight';
 import { editImageSource, liveInline } from './editor/liveInline';
 import { livePreview, refreshLive, textBeforePoint } from './editor/live';
-import { tableCellAt } from './editor/tableWidget';
+import { markdownFromHtmlTable, tableCellAt } from './editor/tableWidget';
 import { editorMenu, type MenuHandlers, type MenuTarget } from './editor/menu';
 import { completionIcon, inlineTools, insertTools, lineTools, slashCommands, type DocTool, type ToolHandlers } from './editor/tools';
 import { FIND_LIMIT, NO_RESULT, type FindOptions, type FindResult } from './find/find';
@@ -671,6 +671,18 @@ onMounted(() => {
         }),
         EditorView.domEventHandlers({
           paste(event, editor) {
+            // Un tableau copié d'un tableur, d'un traitement de texte ou d'une page web devient un tableau Markdown.
+            const table = markdownFromHtmlTable(event.clipboardData?.getData('text/html') ?? '');
+            if (table) {
+              event.preventDefault();
+              const { from, to } = editor.state.selection.main;
+              // Une ligne vide avant le tableau : sinon il prolongerait le paragraphe précédent.
+              const head = editor.state.sliceDoc(0, from);
+              const before = !head.trim() || /\n[ \t]*\n[ \t]*$/.test(head) ? '' : /\n[ \t]*$/.test(head) ? '\n' : '\n\n';
+              const insert = `${before}${table}\n`;
+              editor.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, scrollIntoView: true, userEvent: 'input.paste' });
+              return true;
+            }
             const files = images(event.clipboardData?.files);
             if (!files.length) return false;
             event.preventDefault();
@@ -688,6 +700,10 @@ onMounted(() => {
         EditorView.theme({
           '&': { height: '100%', fontSize: '0.9rem', backgroundColor: 'transparent', color: 'var(--fb-text)' },
           '&.cm-focused': { outline: 'none' },
+          // Sélection dessinée au-dessus du texte, translucide : un fond (citation, code, surlignage) ne la cache plus.
+          '& .cm-selectionLayer': { zIndex: '2 !important' },
+          '& .cm-selectionLayer .cm-selectionBackground': { background: 'color-mix(in srgb, var(--fb-accent) 18%, transparent) !important' },
+          '&.cm-focused .cm-selectionLayer .cm-selectionBackground': { background: 'color-mix(in srgb, var(--fb-accent) 30%, transparent) !important' },
           '.cm-scroller': { fontFamily: FONT_MONO, lineHeight: '1.55' },
           '.cm-gutters': { backgroundColor: 'transparent', borderRight: '1px solid var(--fb-border)', color: 'var(--fb-muted)' },
           '.cm-activeLine, .cm-activeLineGutter': { backgroundColor: 'color-mix(in srgb, var(--fb-text) 5%, transparent)' },
@@ -715,13 +731,15 @@ onMounted(() => {
             ? {
                 '.cm-scroller': { fontFamily: "var(--fb-font-doc, var(--fb-font, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif))", fontSize: 'var(--fb-doc-size, 1rem)', lineHeight: '1.65' },
                 // Même largeur de texte que la lecture (52rem et ses marges), centrée sur l'écran si possible.
+                // Marges extérieures plutôt qu'intérieures : la sélection de CodeMirror part du bord du contenu, elle ne
+                // déborde ainsi pas à côté du texte (ni d'une citation).
                 '.cm-content': {
                   boxSizing: 'border-box',
-                  width: '100%',
-                  maxWidth: 'calc(var(--fb-reading-width, 52rem) + 3rem)',
-                  marginRight: 'auto',
-                  marginLeft: 'max(0px, calc((100% - var(--fb-reading-width, 52rem) - 3rem) / 2 + var(--reading-shift, 0px)))',
-                  padding: '1.25rem 1.5rem 4rem',
+                  width: 'calc(100% - 3rem)',
+                  maxWidth: 'var(--fb-reading-width, 52rem)',
+                  marginRight: '1.5rem',
+                  marginLeft: 'max(1.5rem, calc((100% - var(--fb-reading-width, 52rem)) / 2 + var(--reading-shift, 0px)))',
+                  padding: '1.25rem 0 4rem',
                   color: 'var(--md-text, currentColor)',
                 },
                 '.cm-line': { padding: '0' },
@@ -756,7 +774,7 @@ onMounted(() => {
                 '.cm-lp-quote-last': { paddingBottom: '0.25rem !important' },
                 '.cm-lp-bullet': { display: 'inline-block', minWidth: '0.9em', color: 'var(--md-marker, var(--fb-md-marker))', fontWeight: '700' },
                 '.cm-lp-ordinal': { color: 'var(--md-marker, var(--fb-md-marker))' },
-                '.cm-lp-task': { margin: '0 0.45em 0 0', verticalAlign: 'middle', cursor: 'pointer' },
+                '.cm-lp-task': { margin: '0 0.45em 0 0', verticalAlign: 'middle', cursor: 'pointer', accentColor: 'var(--md-marker, var(--fb-md-marker))' },
                 '.cm-lp-done': { color: 'var(--fb-muted)', textDecoration: 'line-through' },
                 '.cm-lp-hr-line': { position: 'relative' },
                 '.cm-lp-hr': { display: 'inline-block', width: '100%', borderTop: '1px solid var(--md-hr, var(--fb-border))', verticalAlign: 'middle' },
@@ -800,7 +818,14 @@ onMounted(() => {
                 '.cm-lp-board-tools button': { display: 'grid', placeItems: 'center', width: '1.7rem', height: '1.7rem', padding: '0', border: '0', borderRadius: '6px', background: 'none', color: 'var(--fb-muted)', cursor: 'pointer' },
                 '.cm-lp-board-tools button:hover': { backgroundColor: 'var(--fb-panel-alt)', color: 'var(--fb-text)' },
                 '.cm-lp-board-preview': { display: 'block', width: '100%', maxHeight: '30rem', padding: '0.75rem', objectFit: 'contain', boxSizing: 'border-box' },
-                '.cm-lp-mention, .cm-lp-embed': { padding: '0.05em 0.45em', borderRadius: '999px', backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)', fontWeight: '600', cursor: 'pointer' },
+                '.cm-lp-mention, .cm-lp-embed': {
+                  padding: '0.05em 0.45em',
+                  borderRadius: '999px',
+                  backgroundColor: 'color-mix(in srgb, var(--md-link, var(--fb-accent)) 12%, transparent)',
+                  color: 'var(--md-link, var(--fb-accent))',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                },
                 '.cm-lp-embed::before': { content: '"\\e9c3"', marginRight: '0.3em', fontFamily: 'primeicons', fontSize: '0.8em', fontWeight: 'normal' },
                 '.cm-lp-highlight': { borderRadius: '3px', backgroundColor: 'var(--md-highlight, color-mix(in srgb, #facc15 38%, transparent))' },
                 // Formules et HTML en ligne, comme en lecture.
@@ -833,16 +858,45 @@ onMounted(() => {
                 '.cm-lp-hl-white': { backgroundColor: 'color-mix(in srgb, #cbd5e1 45%, transparent)' },
                 '.cm-lp-comment': { color: 'var(--fb-muted)', fontStyle: 'italic' },
                 '.cm-lp-tag': { padding: '0 0.4em', borderRadius: '999px', backgroundColor: 'color-mix(in srgb, var(--md-tag, var(--fb-accent)) 14%, transparent)', color: 'var(--md-tag, var(--fb-accent))', fontSize: '0.9em' },
-                '.cm-lp-footnote': { color: 'var(--fb-accent)', fontSize: '0.75em', verticalAlign: 'super' },
+                '.cm-lp-footnote': { color: 'var(--md-link, var(--fb-accent))', fontSize: '0.75em', verticalAlign: 'super' },
                 '.cm-live-block': { padding: '0.15rem 0.35rem', margin: '0 -0.35rem', borderRadius: '6px', cursor: 'text', whiteSpace: 'normal' },
                 '.cm-live-block:hover': { backgroundColor: 'color-mix(in srgb, var(--fb-text) 4%, transparent)' },
-                '.cm-table-editor': { position: 'relative', padding: '0.15rem 1.4rem 1.4rem 0', whiteSpace: 'normal' },
+                // Tableaux : poignées ⋮⋮ de ligne (à gauche) et de colonne (au-dessus), sélection de cellules, comme dans Obsidian.
+                '.cm-table-editor': { position: 'relative', width: 'fit-content', maxWidth: '100%', padding: '0.7rem 1.4rem 1.4rem 0', whiteSpace: 'normal', outline: 'none' },
                 '.cm-table-scroll': { overflowX: 'auto' },
-                '.cm-table-editor table': { margin: '0' },
+                '.cm-table-editor table': { display: 'table', margin: '0' },
                 '.cm-table-editor th, .cm-table-editor td': { padding: '0', verticalAlign: 'top' },
                 '.cm-table-cell': { minWidth: '3rem', minHeight: '1.6em', padding: '0.35rem 0.6rem', outline: 'none', cursor: 'text', whiteSpace: 'pre-wrap', wordBreak: 'break-word' },
                 '.cm-table-editor td.editing, .cm-table-editor th.editing': { boxShadow: 'inset 0 0 0 2px var(--fb-accent)' },
-                '.cm-table-editor .editing .cm-table-cell': { fontFamily: FONT_MONO, fontSize: '0.86em' },
+                '.cm-table-editor .editing .cm-table-cell': { backgroundColor: 'color-mix(in srgb, var(--fb-accent) 5%, transparent)' },
+                '.cm-table-editor td.selected, .cm-table-editor th.selected': {
+                  backgroundColor: 'color-mix(in srgb, var(--fb-accent) 16%, transparent)',
+                  boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--fb-accent) 45%, transparent)',
+                },
+                '.cm-table-editor.ranging .cm-table-cell': { caretColor: 'transparent', userSelect: 'none' },
+                '.cm-table-grip': {
+                  position: 'absolute',
+                  zIndex: '3',
+                  display: 'grid',
+                  placeItems: 'center',
+                  padding: '0',
+                  border: '1px solid var(--fb-border)',
+                  borderRadius: '5px',
+                  backgroundColor: 'var(--fb-panel)',
+                  color: 'var(--fb-muted)',
+                  fontSize: '0.62rem',
+                  cursor: 'grab',
+                  opacity: '0',
+                  pointerEvents: 'none',
+                  transition: 'opacity 0.12s',
+                  touchAction: 'none',
+                },
+                '.cm-table-grip.row': { width: '0.95rem', height: '1.5rem', transform: 'translate(calc(-100% - 2px), -50%)' },
+                '.cm-table-grip.col': { width: '1.5rem', height: '0.95rem', transform: 'translate(-50%, -50%)' },
+                '.cm-table-editor.hovering .cm-table-grip, .cm-table-editor.dragging .cm-table-grip': { opacity: '1', pointerEvents: 'auto' },
+                '.cm-table-grip:hover': { borderColor: 'var(--fb-accent)', backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)' },
+                '.cm-table-editor.dragging, .cm-table-editor.dragging *': { cursor: 'grabbing !important' },
+                '.cm-table-drop': { position: 'absolute', zIndex: '4', display: 'none', borderRadius: '2px', backgroundColor: 'var(--fb-accent)', pointerEvents: 'none' },
                 '.cm-table-add': {
                   position: 'absolute',
                   display: 'grid',
@@ -858,7 +912,7 @@ onMounted(() => {
                   transition: 'opacity 0.15s',
                 },
                 '.cm-table-add.row': { left: '0', right: '1.4rem', bottom: '0.1rem', height: '1.1rem' },
-                '.cm-table-add.col': { top: '0.15rem', right: '0.1rem', bottom: '1.4rem', width: '1.1rem' },
+                '.cm-table-add.col': { top: '0.7rem', right: '0.1rem', bottom: '1.4rem', width: '1.1rem' },
                 '.cm-table-editor:hover .cm-table-add, .cm-table-editor:focus-within .cm-table-add': { opacity: '1' },
                 '.cm-table-add:hover': { backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)' },
               }

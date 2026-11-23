@@ -225,9 +225,29 @@ function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews
     renderer: (token) => math(token.text as string, false),
   };
 
+  /**
+   * Texte entre crochets qui n'est ni un lien ni une note de bas de page (`[REQ-012]`, `[À valider]`) : coloré comme
+   * en « Lecture et écriture », où l'éditeur le lit comme un lien de référence. Un lien de référence défini reste un lien.
+   */
+  const bracketRef: TokenizerAndRendererExtension = {
+    name: 'bracketRef',
+    level: 'inline',
+    start: (src: string) => src.indexOf('['),
+    tokenizer(src: string) {
+      const match = /^\[(?!\^)(?![ xX]?\])([^[\]\n]+)\](?![([:])/.exec(src);
+      if (!match) return undefined;
+      const label = match[1]!.trim().toLowerCase().replace(/\s+/g, ' ');
+      if ((this.lexer.tokens.links as Record<string, unknown> | undefined)?.[label]) return undefined;
+      return { type: 'bracketRef', raw: match[0], text: match[1]!, tokens: this.lexer.inlineTokens(match[1]!) };
+    },
+    renderer(token) {
+      return `<span class="md-ref"><span class="md-ref-mark">[</span>${this.parser.parseInline(token.tokens ?? [])}<span class="md-ref-mark">]</span></span>`;
+    },
+  };
+
   const marked = new Marked({ gfm: true, breaks: true });
   marked.use({
-    extensions: [...(boardPreviews ? [boardPreview] : []), mention, blockMath, inlineMath, ...(obsidian ? obsidianExtensions() : [])],
+    extensions: [...(boardPreviews ? [boardPreview] : []), mention, blockMath, inlineMath, ...(obsidian ? obsidianExtensions() : []), bracketRef],
     renderer: {
       code({ text, lang }) {
         const language = (lang ?? '').trim().toLowerCase();
@@ -241,6 +261,10 @@ function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews
       },
       // Repère de chaque titre (numérotation comprise), pour le sommaire et les liens [[Note#Titre]] ou #ancre ; un
       // `{#id}` final ne s'affiche pas, il devient un identifiant du titre comme `<a id="…">`.
+      // Case d'une liste de tâches : en lecture seule sans être « disabled », qui la grise et ignore la couleur du thème.
+      checkbox({ checked }) {
+        return `<input type="checkbox"${checked ? ' checked' : ''} tabindex="-1" data-readonly="1"> `;
+      },
       heading({ tokens, depth, text }) {
         const { title, ids } = headingTitle(text);
         const last = tokens.at(-1);

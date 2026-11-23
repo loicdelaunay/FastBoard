@@ -129,6 +129,13 @@ function onClick(event: MouseEvent): void {
 .markdown li > input[type='checkbox'] {
   margin: 0 0.4rem 0 -1.2rem;
   vertical-align: middle;
+  accent-color: var(--md-marker, var(--fb-md-marker));
+}
+.markdown input[type='checkbox'][data-readonly] {
+  pointer-events: none;
+}
+.markdown li:has(> input[type='checkbox']:checked) {
+  color: var(--fb-muted);
 }
 .markdown li:has(> input[type='checkbox']) {
   list-style: none;
@@ -255,10 +262,18 @@ function onClick(event: MouseEvent): void {
   display: inline-block;
   padding: 0 0.4rem;
   border-radius: 999px;
-  background: var(--fb-accent-soft);
-  color: var(--fb-accent);
+  /* Une mention est un lien : elle prend la couleur des liens du thème. */
+  background: color-mix(in srgb, var(--md-link, var(--fb-accent)) 12%, transparent);
+  color: var(--md-link, var(--fb-accent));
   font-weight: 600;
   text-decoration: none;
+}
+/* Texte entre crochets ([REQ-012]) : couleur des liens, crochets discrets, comme en « Lecture et écriture ». */
+.markdown .md-ref {
+  color: var(--md-link, var(--fb-accent));
+}
+.markdown .md-ref-mark {
+  color: var(--fb-muted);
 }
 .markdown .md-mention.ticket {
   font-size: 0.9em;
