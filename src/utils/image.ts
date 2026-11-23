@@ -82,6 +82,62 @@ export async function imageToDataUrl(file: Blob, max = 1568): Promise<string> {
   }
 }
 
+/** Formats qu'une image remplacée peut garder, d'après l'extension de son nom. */
+const FORMAT_OF_EXTENSION: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' };
+
+/**
+ * Prépare une image qui en remplace une autre et garde son nom (image d'une note) : convertie au format de ce nom (une
+ * `.png` reste du PNG, une `.jpg` du JPEG, une `.webp` du WebP allégé), pour que le fichier reste cohérent sur le disque
+ * et dans un coffre Obsidian. Un GIF ne se convertit pas : il part tel quel.
+ */
+export async function imageAs(file: File, name: string): Promise<File> {
+  const extension = /\.([a-z0-9]+)$/i.exec(name)?.[1]?.toLowerCase() ?? '';
+  const wanted = FORMAT_OF_EXTENSION[extension];
+  if (!wanted || wanted === 'image/gif' || typeof createImageBitmap !== 'function') return file;
+  if (wanted === 'image/webp') return compressImage(file);
+  if (file.type === wanted) return file;
+  let bitmap: ImageBitmap | null = null;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) return file;
+    // Le JPEG n'a pas de transparence : fond blanc plutôt que noir.
+    if (wanted === 'image/jpeg') {
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    context.drawImage(bitmap, 0, 0);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, wanted, UPLOAD_WEBP_QUALITY));
+    if (!blob || blob.type !== wanted) return file;
+    return new File([blob], name.split('/').pop() ?? name, { type: wanted, lastModified: file.lastModified });
+  } catch {
+    return file;
+  } finally {
+    bitmap?.close();
+  }
+}
+
+/** Ouvre le choix d'un fichier image ; `null` si l'on annule. */
+export function pickImage(accept = 'image/png,image/jpeg,image/webp,image/gif'): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = accept;
+    input.style.display = 'none';
+    const done = (file: File | null): void => {
+      input.remove();
+      resolve(file);
+    };
+    input.addEventListener('change', () => done(input.files?.[0] ?? null), { once: true });
+    input.addEventListener('cancel', () => done(null), { once: true });
+    document.body.append(input);
+    input.click();
+  });
+}
+
 /** Qualité des images converties en WebP à l'envoi. */
 export const UPLOAD_WEBP_QUALITY = 0.8;
 /** Formats convertis : images matricielles fixes. Un GIF (souvent animé), un SVG (vectoriel) et un WebP restent tels quels. */

@@ -65,7 +65,7 @@ function icon(entry: HistoryEntryDTO): string {
           </template>
 
           <p v-else-if="entry.data.kind === 'attachment'" class="text">
-            {{ entry.data.action === 'added' ? $t('a joint') : $t('a retiré') }} <strong>{{ entry.data.name }}</strong> ({{ entry.data.link ? (entry.data.link === 'url' ? $t('lien web') : $t('fichier local')) : formatBytes(entry.data.size) }}).
+            {{ entry.data.action === 'added' ? $t('a joint') : entry.data.action === 'replaced' ? $t('a remplacé l’image par') : $t('a retiré') }} <strong>{{ entry.data.name }}</strong> ({{ entry.data.link ? (entry.data.link === 'url' ? $t('lien web') : $t('fichier local')) : formatBytes(entry.data.size) }}).
           </p>
 
           <p v-else-if="entry.data.kind === 'subtask'" class="text">

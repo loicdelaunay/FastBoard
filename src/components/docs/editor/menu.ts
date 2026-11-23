@@ -29,8 +29,11 @@ export interface MenuTarget {
   rendered: TextRange | null;
   /** Cellule d'un tableau éditable. */
   cell: { dom: HTMLElement; row: number; col: number } | null;
-  /** Image sous le clic ; `edit` sélectionne son Markdown quand elle est affichée seule. */
-  image: { src: string; alt: string; edit: (() => void) | null } | null;
+  /**
+   * Image sous le clic ; `edit` sélectionne son Markdown quand elle est affichée seule ; `replace` la remplace (une image
+   * de l'espace sur place, une image d'un autre site par une image envoyée dans l'espace).
+   */
+  image: { src: string; alt: string; edit: (() => void) | null; replace: (() => void) | null } | null;
   /** Tableau blanc cité sous le clic : on peut choisir son affichage. */
   board: BoardMention | null;
 }
@@ -52,6 +55,7 @@ export function editorMenu(view: EditorView, target: MenuTarget, handlers: MenuH
   if (target.image) {
     const image = target.image;
     items.push({ label: t('Agrandir l’image'), icon: 'pi pi-expand', command: () => openLightbox(image.src, image.alt) });
+    if (image.replace) items.push({ label: t('Remplacer l’image…'), icon: 'pi pi-sync', command: image.replace });
     if (image.edit) items.push({ label: t('Modifier le Markdown'), icon: 'pi pi-code', command: image.edit });
     items.push({ label: t('Ouvrir l’image dans un nouvel onglet'), icon: 'pi pi-external-link', command: () => window.open(image.src, '_blank', 'noopener') });
   }

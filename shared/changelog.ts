@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.18.0';
+export const APP_VERSION = '2.19.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,13 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.19.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: '« Remplacer l’image… » au clic droit sur les images : dans la documentation (arbre, image ouverte, note en lecture ou en écriture), sur les tableaux blancs et dans les pièces jointes des tickets. L’image change sur place et garde son nom : les notes qui la montrent affichent la nouvelle, et l’ancienne reste 15 jours dans la corbeille.' },
+    ],
+  },
   {
     version: '2.18.0',
     date: '2026-11-23',

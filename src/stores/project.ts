@@ -318,7 +318,8 @@ export const useProjectStore = defineStore('project', () => {
         patchLocal(event.comment.ticketId, { commentCount: event.commentCount });
         if (event.type === 'comment.created') noteCommentUpdate(event.comment);
         break;
-      case 'attachment.created': {
+      case 'attachment.created':
+      case 'attachment.updated': {
         const list = attachments.value[event.attachment.ticketId];
         if (list) {
           upsertBy(list, event.attachment);
@@ -677,6 +678,14 @@ export const useProjectStore = defineStore('project', () => {
     return attachment;
   }
 
+  /** Remplace l'image d'une pièce jointe ; elle garde sa place dans la liste. */
+  async function replaceAttachmentImage(attachment: AttachmentDTO, file: File): Promise<AttachmentDTO> {
+    const { attachment: updated } = await api.replaceAttachmentImage(attachment.id, file);
+    const list = attachments.value[attachment.ticketId];
+    if (list) upsertBy(list, updated);
+    return updated;
+  }
+
   async function removeAttachment(attachment: AttachmentDTO): Promise<void> {
     await api.deleteAttachment(attachment.id);
     const list = attachments.value[attachment.ticketId];
@@ -793,7 +802,7 @@ export const useProjectStore = defineStore('project', () => {
     // tickets
     createTicket, updateTicket, moveTicket, deleteTicket, forgetTicket, wasDeletedLocally,
     setWatching, addPart, updatePart, deletePart, addLink, deleteLink, linksOf, childrenOf, fieldOn,
-    loadComments, loadHistory, loadAttachments, addAttachment, addAttachmentLink, removeAttachment, addComment, editComment, removeComment,
+    loadComments, loadHistory, loadAttachments, addAttachment, addAttachmentLink, replaceAttachmentImage, removeAttachment, addComment, editComment, removeComment,
     // configuration
     updateProjectInfo, saveCategory, deleteCategory, saveListItem, deleteListItem, saveDelivery, deleteDelivery,
     // annuler / rétablir

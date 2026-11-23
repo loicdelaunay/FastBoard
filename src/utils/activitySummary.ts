@@ -21,7 +21,7 @@ export function describeActivity(data: ActivityData): ActivitySummary {
       if (entry.kind === 'updated') return { icon: 'pi pi-pencil', text: t('a modifié'), ...base };
       if (entry.kind === 'assignees') return { icon: 'pi pi-users', text: t('a changé les assignés de'), ...base };
       if (entry.kind === 'part') return { icon: 'pi pi-check-circle', text: t('a mis à jour une part de'), ...base };
-      if (entry.kind === 'attachment') return { icon: 'pi pi-paperclip', text: entry.action === 'added' ? t('a joint un fichier à') : t('a retiré un fichier de'), ...base };
+      if (entry.kind === 'attachment') return { icon: 'pi pi-paperclip', text: entry.action === 'added' ? t('a joint un fichier à') : entry.action === 'replaced' ? t('a remplacé une image de') : t('a retiré un fichier de'), ...base };
       if (entry.kind === 'transferred') return { icon: 'pi pi-folder', text: t('a déplacé vers un autre projet'), ...base };
       if (entry.kind === 'subtask') return { icon: 'pi pi-list-check', text: `${SUBTASK_ACTIONS[entry.action]} « ${entry.title} » ${t('sur')}`, ...base };
       return { icon: 'pi pi-link', text: t('a modifié les dépendances de'), ...base };

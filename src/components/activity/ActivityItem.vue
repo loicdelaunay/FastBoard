@@ -156,7 +156,7 @@ const CONFIG_ACTIONS = { created: t('a créé'), updated: t('a modifié'), delet
             <span v-else class="key gone">{{ ticketData.ticketKey }}</span>
           </template>
           <template v-else-if="entry.kind === 'attachment'">
-            {{ entry.action === 'added' ? $t('a joint') : $t('a retiré') }} <strong class="file">{{ entry.name }}</strong> ({{ entry.link ? (entry.link === 'url' ? $t('lien web') : $t('fichier local')) : formatBytes(entry.size) }}) {{ entry.action === 'added' ? $t('à') : $t('de') }}
+            {{ entry.action === 'added' ? $t('a joint') : entry.action === 'replaced' ? $t('a remplacé l’image par') : $t('a retiré') }} <strong class="file">{{ entry.name }}</strong> ({{ entry.link ? (entry.link === 'url' ? $t('lien web') : $t('fichier local')) : formatBytes(entry.size) }}) {{ entry.action === 'removed' ? $t('de') : entry.action === 'replaced' ? $t('sur') : $t('à') }}
             <button v-if="canOpen(ticketData.ticketId)" type="button" class="key" @click="emit('open', ticketData.ticketId)">{{ ticketData.ticketKey }}</button>
             <span v-else class="key gone">{{ ticketData.ticketKey }}</span>
           </template>

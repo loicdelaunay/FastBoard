@@ -25,7 +25,9 @@ import type { DocSession } from '@/realtime/docSession';
 import { copyText, pendingAnchor, renderDocBlock, selectionQuote } from '@/utils/docRender';
 import { markdownBlocks } from '@/utils/markdown';
 import { mentionToken, type MentionKind } from '@/utils/mentions';
-import { notifyError } from '@/utils/notify';
+import { notify, notifyError } from '@/utils/notify';
+import { pickImage } from '@/utils/image';
+import { docImageIdOf, docImageUrl, replaceDocImage } from '@/utils/replaceImage';
 import { matchesQuery, normalizeText } from '@/utils/search';
 import { boardChoice, boardMentionAt, showBoardChoice } from './editor/boardMention';
 import { taskLine, toggleTask } from './editor/commands';
@@ -140,7 +142,7 @@ function imageInfo(node: DocNodeDTO): HTMLElement {
   const box = document.createElement('div');
   box.className = 'cm-image-info';
   const image = document.createElement('img');
-  image.src = `/api/documentation/nodes/${node.id}/raw`;
+  image.src = docImageUrl(node);
   image.alt = docBaseName(node.path);
   const caption = document.createElement('span');
   caption.textContent = node.path;
@@ -205,7 +207,7 @@ function wikiLinks(context: CompletionContext): CompletionResult | null {
         label: image ? docBaseName(node.path) : docTitle(node.path),
         detail: docParent(node.path) || undefined,
         type: image ? 'doc-image' : 'doc-note',
-        ...(image ? { thumb: `/api/documentation/nodes/${node.id}/raw`, info: () => imageInfo(node) } : { icon: 'pi pi-file' }),
+        ...(image ? { thumb: docImageUrl(node), info: () => imageInfo(node) } : { icon: 'pi pi-file' }),
         apply: (editor, completion, from, to) => {
           const text = `${linkTarget(node)}]]`;
           // Une image s'intègre : le « ! » s'ajoute devant les crochets s'il manque.
@@ -219,6 +221,64 @@ function wikiLinks(context: CompletionContext): CompletionResult | null {
       };
     });
   return { from: start, filter: false, options };
+}
+
+/**
+ * « Remplacer l'image » sur une image de la note. Une image de l'espace est remplacée sur place (elle change partout où
+ * elle est montrée). Une image d'un autre site, affichée seule, est remplacée par une image envoyée dans l'espace : son
+ * adresse change dans le Markdown.
+ */
+function imageReplacer(editor: EditorView, src: string, figure: HTMLElement | null, range?: { from: number; to: number }): (() => void) | null {
+  const imageId = docImageIdOf(src);
+  const node = imageId === null ? undefined : props.nodes.find((entry) => entry.id === imageId);
+  if (node) return () => void replaceDocImage(node);
+  if ((!figure && !range) || !/^https?:/i.test(src)) return null;
+  const from = range?.from ?? editor.posAtDOM(figure!);
+  const to = range?.to ?? from + Number(figure!.dataset.length ?? 0);
+  const source = editor.state.sliceDoc(from, to);
+  const link = /^(!\[[^\]\n]*\]\()(<[^>\n]*>|[^)\s]+)/.exec(source);
+  if (!link) return null;
+  return () =>
+    void (async () => {
+      const file = await pickImage();
+      if (!file) return;
+      try {
+        const { node: added } = await api.docUploadImage(props.spaceId, docParent(props.notePath), file);
+        // Le texte a pu bouger pendant l'envoi : on retrouve le lien à sa place, sinon on renonce.
+        if (editor.state.sliceDoc(from, to) !== source) throw new Error(t('La note a changé pendant l’envoi : l’image a été ajoutée à l’espace, mais pas remplacée ici.'));
+        const target = /\(([^)\s]+)\)$/.exec(imageMarkdown(props.notePath, added.path))![1]!;
+        const start = from + link[1]!.length;
+        editor.dispatch({ changes: { from: start, to: start + link[2]!.length, insert: target }, userEvent: 'input' });
+        notify('success', t('Image remplacée'), t('La nouvelle image est rangée dans l’espace.'));
+      } catch (error) {
+        notifyError(error, t('Image non remplacée'));
+      }
+    })();
+}
+
+/** Image écrite sous une position du source (mode Écriture) : son adresse et de quoi la remplacer. */
+function sourceImage(editor: EditorView, position: number): MenuTarget['image'] {
+  const line = editor.state.doc.lineAt(position);
+  for (const match of line.text.matchAll(/!\[\[([^\]|#\n]+)[^\]\n]*\]\]|!\[[^\]\n]*\]\((<[^>\n]*>|[^)\s]+)[^)\n]*\)/g)) {
+    const from = line.from + match.index;
+    const to = from + match[0].length;
+    if (position < from || position > to) continue;
+    const written = (match[1] ?? match[2] ?? '').replace(/^<|>$/g, '').trim();
+    let src = written;
+    if (!/^(https?:|data:)/i.test(written)) {
+      let target = written;
+      try {
+        if (!match[1]) target = decodeURIComponent(written);
+      } catch {
+        // Adresse mal encodée : prise telle quelle.
+      }
+      const node = resolveDocLink(props.nodes, props.notePath, target);
+      if (node?.kind !== 'image') return null;
+      src = docImageUrl(node);
+    }
+    return { src, alt: '', edit: null, replace: props.readonly ? null : imageReplacer(editor, src, null, { from, to }) };
+  }
+  return null;
 }
 
 /** Une image collée ou glissée est envoyée au serveur, puis son lien s'insère au curseur. */
@@ -329,7 +389,7 @@ const inline = liveInline({
   skipped: (state) => live.complexRanges(state),
   imageUrl: (target) => {
     const node = resolveDocLink(props.nodes, props.notePath, target);
-    return node?.kind === 'image' ? `/api/documentation/nodes/${node.id}/raw` : null;
+    return node?.kind === 'image' ? docImageUrl(node) : null;
   },
   mentionLabel: (kind, id, label) => (kind === 'user' ? `@${props.users.find((user) => user.id === id)?.name ?? label}` : label),
   follow: (element, event) => followRendered(element, event),
@@ -451,7 +511,17 @@ function targetOf(editor: EditorView, event: MouseEvent): MenuTarget {
     code: block?.type === 'code' ? text.slice(block.from, block.to).replace(/^[`~]{3,}[^\n]*\n|\n?[`~]{3,}\s*$/g, '') : null,
     rendered,
     cell: box ? tableCellAt(element) : null,
-    image: picture && (figure || box) ? { src: picture.currentSrc || picture.src, alt: picture.alt, edit: figure ? () => editImageSource(editor, figure) : null } : null,
+    image:
+      picture && (figure || box)
+        ? {
+            src: picture.currentSrc || picture.src,
+            alt: picture.alt,
+            edit: figure ? () => editImageSource(editor, figure) : null,
+            replace: props.readonly ? null : imageReplacer(editor, picture.currentSrc || picture.src, figure),
+          }
+        : box || figure
+          ? null
+          : sourceImage(editor, position),
     board: box ? null : boardMentionAt(editor.state, position),
   };
 }

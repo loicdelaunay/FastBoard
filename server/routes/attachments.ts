@@ -9,7 +9,7 @@ import { actorOf, csrfGuard, currentUser, requireAuth } from '../http/middleware
 import { attachmentLinkSchema, uploadQuerySchema } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireProject } from '../services/access.ts';
-import { addAttachmentLink, attachmentFile, contentDisposition, deleteAttachment, listAttachments, openLocalPath, requireAttachment, storeAttachment } from '../services/attachments.ts';
+import { addAttachmentLink, attachmentFile, contentDisposition, deleteAttachment, listAttachments, openLocalPath, replaceAttachmentImage, requireAttachment, storeAttachment } from '../services/attachments.ts';
 import { requireTicket } from '../services/tickets.ts';
 
 /**
@@ -50,6 +50,34 @@ export function attachmentUploadRouter(ctx: AppContext): Router {
       contentLength: Number.isFinite(length) && req.get('content-length') ? length : null,
     });
     res.status(201).json({ attachment });
+  });
+
+  // Remplace l'image d'une pièce jointe, sur place (corps brut, comme un envoi).
+  router.put('/attachments/:id/file', csrfGuard(ctx), requireAuth(ctx), async (req, res) => {
+    const row = requireAttachment(ctx.db, idParam(req.params.id));
+    const ticket = requireTicket(ctx.db, row.ticket_id);
+    const access = requireProject(ctx, currentUser(res), ticket.project_id, 'attachment.create');
+    if (access.project.archived === 1) throw new HttpError(409, 'Ce projet est archivé : il est en lecture seule.', 'conflict');
+    if (req.get('content-type')?.toLowerCase().startsWith('multipart/')) {
+      throw new HttpError(415, "Envoyez le fichier en corps brut (curl --data-binary @fichier), pas en multipart/form-data.", 'unsupported_media_type');
+    }
+    const header = req.get(FILE_NAME_HEADER);
+    let name = row.name;
+    if (header) {
+      try {
+        name = decodeURIComponent(header);
+      } catch {
+        name = header;
+      }
+    }
+    const length = Number(req.get('content-length'));
+    const attachment = await replaceAttachmentImage(ctx, actorOf(req, res), ticket, row, access.permissions.has('attachment.moderate'), {
+      stream: req,
+      name,
+      declaredMime: req.get('content-type'),
+      contentLength: Number.isFinite(length) && req.get('content-length') ? length : null,
+    });
+    res.json({ attachment });
   });
 
   return router;

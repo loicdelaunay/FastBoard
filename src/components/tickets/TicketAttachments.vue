@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useConfirm } from 'primevue/useconfirm';
 import Button from 'primevue/button';
+import ContextMenu from 'primevue/contextmenu';
 import Image from 'primevue/image';
 import Menu from 'primevue/menu';
 import type { MenuItem } from 'primevue/menuitem';
@@ -16,6 +17,8 @@ import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
 import { attachmentUrl, fileIcon, formatBytes, isImageAttachment } from '@/utils/files';
 import { formatDateTime, formatRelative } from '@/utils/format';
+import { pickImage } from '@/utils/image';
+import { openLightbox } from '@/utils/lightbox';
 import { notify, notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
@@ -184,6 +187,45 @@ function askRemove(attachment: AttachmentDTO): void {
   });
 }
 
+// --- Clic droit sur une pièce jointe image : la remplacer ---
+const itemMenu = ref<InstanceType<typeof ContextMenu> | null>(null);
+const itemMenuItems = ref<MenuItem[]>([]);
+const replacing = ref<number | null>(null);
+
+function openItemMenu(event: MouseEvent, attachment: AttachmentDTO): void {
+  if (attachment.kind !== 'file') return;
+  event.preventDefault();
+  const image = isImageAttachment(attachment);
+  itemMenuItems.value = [
+    ...(image ? [{ label: t('Agrandir l’image'), icon: 'pi pi-expand', command: () => openLightbox(attachmentUrl(attachment, true), attachment.name) }] : []),
+    { label: t('Télécharger'), icon: 'pi pi-download', command: () => download(attachment) },
+    ...(image && canRemove(attachment) && canAdd.value ? [{ separator: true }, { label: t('Remplacer l’image…'), icon: 'pi pi-sync', command: () => void replace(attachment) }] : []),
+    ...(canRemove(attachment) ? [{ separator: true }, { label: t('Supprimer'), icon: 'pi pi-trash', command: () => askRemove(attachment) }] : []),
+  ];
+  itemMenu.value?.show(event);
+}
+
+function download(attachment: AttachmentDTO): void {
+  const link = document.createElement('a');
+  link.href = attachmentUrl(attachment);
+  link.download = attachment.name;
+  link.click();
+}
+
+async function replace(attachment: AttachmentDTO): Promise<void> {
+  const file = await pickImage();
+  if (!file) return;
+  replacing.value = attachment.id;
+  try {
+    await project.replaceAttachmentImage(attachment, file);
+    notify('success', t('Image remplacée'), t('La pièce jointe garde sa place ; l’historique du ticket le note.'));
+  } catch (error) {
+    notifyError(error, t('Image non remplacée'));
+  } finally {
+    replacing.value = null;
+  }
+}
+
 defineExpose({ addFiles });
 </script>
 
@@ -219,7 +261,7 @@ defineExpose({ addFiles });
     </ul>
 
     <ul v-if="items.length" class="list">
-      <li v-for="attachment in items" :key="attachment.id" class="item">
+      <li v-for="attachment in items" :key="attachment.id" class="item" :class="{ busy: replacing === attachment.id }" @contextmenu="openItemMenu($event, attachment)">
         <template v-if="attachment.kind !== 'file'">
           <div class="preview">
             <a v-if="attachment.kind === 'url'" class="icon" :href="attachment.url ?? '#'" target="_blank" rel="noopener noreferrer" :aria-label="$t('Ouvrir {name}', { name: attachment.name })"><i :class="linkIcon(attachment)"></i></a>
@@ -254,6 +296,7 @@ defineExpose({ addFiles });
     </ul>
     <p v-else-if="loadError" class="muted small">{{ $t('Impossible de charger les pièces jointes.') }} <a href="#" @click.prevent="load">{{ $t('Réessayer') }}</a></p>
 
+    <ContextMenu ref="itemMenu" :model="itemMenuItems" />
     <AttachmentLinkDialog :ticket-id="ticket.id" :kind="linkKind" @close="linkKind = null" />
   </section>
 </template>
@@ -360,6 +403,11 @@ defineExpose({ addFiles });
 }
 .upload.failed {
   border-color: var(--fb-danger);
+}
+/* Image en cours de remplacement. */
+.item.busy {
+  opacity: 0.55;
+  pointer-events: none;
 }
 .upload-body,
 .meta {

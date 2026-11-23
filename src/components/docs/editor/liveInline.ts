@@ -12,6 +12,7 @@ import { openLightbox } from '@/utils/lightbox';
 import { boardMentionAt, boardViewChoices, setBoardMentionView } from './boardMention';
 import { toggleTask, type TextRange } from './commands';
 import { findField, findMatches, overlapsMatch } from './findState';
+import { refreshLive } from './live';
 
 /**
  * « Lecture et écriture » à la manière d'Obsidian : le texte reste rendu (titres, gras, liens, cases, images…) et seule
@@ -614,7 +615,9 @@ export function liveInline(options: LiveInlineOptions): Extension {
 
       update(update: ViewUpdate): void {
         const findChanged = update.state.field(findField, false) !== update.startState.field(findField, false);
-        if (findChanged || update.docChanged || update.selectionSet || update.viewportChanged || update.focusChanged || syntaxTree(update.state) !== syntaxTree(update.startState)) {
+        // L'arbre a changé (image remplacée, renommée…) : les adresses des images sont à refaire.
+        const refreshed = update.transactions.some((transaction) => transaction.effects.some((effect) => effect.is(refreshLive)));
+        if (refreshed || findChanged || update.docChanged || update.selectionSet || update.viewportChanged || update.focusChanged || syntaxTree(update.state) !== syntaxTree(update.startState)) {
           this.decorations = build(update.view, options);
         }
       }

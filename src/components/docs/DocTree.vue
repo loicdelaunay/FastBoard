@@ -328,7 +328,7 @@ const menuItems = computed<MenuItem[]>(() => {
     space: { out: t('Exporter l’espace en ZIP'), in: t('Importer un .md ou un ZIP') },
     folder: { out: t('Exporter le dossier en ZIP'), in: t('Importer un .md ou un ZIP ici') },
     markdown: { out: t('Exporter en .md'), in: t('Importer un .md') },
-    image: { out: t('Exporter l’image'), in: t('Remplacer l’image') },
+    image: { out: t('Exporter l’image'), in: t('Remplacer l’image…') },
   };
   const labels = transfer[node?.kind ?? 'space'];
   const file = node && node.kind !== 'folder' ? node : null;
@@ -363,7 +363,7 @@ const menuItems = computed<MenuItem[]>(() => {
     ...write,
     ...about,
     { label: labels.out, icon: 'pi pi-download', command: () => emit('export', node) },
-    ...(props.editable ? [{ label: labels.in, icon: 'pi pi-upload', command: () => emit('import', node) }] : []),
+    ...(props.editable ? [{ label: labels.in, icon: node?.kind === 'image' ? 'pi pi-sync' : 'pi pi-upload', command: () => emit('import', node) }] : []),
     ...(props.editable && node ? [{ separator: true }, { label: t('Supprimer'), icon: 'pi pi-trash', command: () => emit('remove', node) }] : []),
   ];
 });

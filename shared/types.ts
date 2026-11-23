@@ -305,7 +305,7 @@ export type HistoryData =
   /** `note` : mission définie ou modifiée (chaîne vide = mission effacée). */
   /** `user` : personne de la ligne ; `line` : son texte ; `action` : ligne ajoutée, retirée ou confiée à quelqu'un. */
   | { kind: 'part'; user: NameRef | null; line?: string; action?: 'added' | 'removed' | 'assigned'; done?: boolean; progress?: number; note?: string }
-  | { kind: 'attachment'; action: 'added' | 'removed'; name: string; size: number; link?: 'url' | 'path' }
+  | { kind: 'attachment'; action: 'added' | 'removed' | 'replaced'; name: string; size: number; link?: 'url' | 'path' }
   /** Historique antérieur à la version 2 : les sous-tâches sont devenues des lignes d'avancement. */
   | { kind: 'subtask'; action: 'added' | 'done' | 'reopened' | 'renamed' | 'removed'; title: string; previousTitle?: string }
   | { kind: 'link'; action: 'added' | 'removed'; reason: string; target: { id: number; key: string; title: string } }

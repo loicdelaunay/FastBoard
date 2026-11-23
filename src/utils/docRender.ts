@@ -6,6 +6,7 @@ import { docBaseName, docTitle, type DocNodeDTO } from '@shared/docs';
 import type { UserSummaryDTO } from '@shared/types';
 import { t } from '@/i18n';
 import { escapeHtml, renderMarkdown, type MentionResolver } from '@/utils/markdown';
+import { docImageUrl } from '@/utils/replaceImage';
 
 /** Rendu d'une note, commun à la lecture et aux blocs du mode « Lecture et écriture ». */
 
@@ -112,7 +113,7 @@ export function finishDocHtml(html: string, context: DocRenderContext, comments:
     }
     if (/^(https?:|data:)/i.test(source)) continue;
     const node = resolveDocLink(context.nodes, context.notePath, source);
-    if (node) image.src = context.fileUrl ? context.fileUrl(node.id) : `/api/documentation/nodes/${node.id}/raw`;
+    if (node) image.src = context.fileUrl ? context.fileUrl(node.id) : docImageUrl(node);
     else image.alt = t('Image introuvable : {name}', { name: decodeURI(source) });
   }
   for (const link of box.querySelectorAll('a')) {

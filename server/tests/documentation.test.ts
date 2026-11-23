@@ -16,6 +16,7 @@ import { bootServer, type SocketProbe, TestClient } from './helpers.ts';
 type Booted = Awaited<ReturnType<typeof bootServer>>;
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+const GIF = Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
 
 /** Attend qu'une condition devienne vraie (écritures différées, messages en route). */
 async function until(check: () => boolean | Promise<boolean>, timeoutMs = 4000): Promise<void> {
@@ -372,6 +373,40 @@ describe('documentation', () => {
     assert.equal(served.headers.get('content-type'), 'image/png');
     assert.equal(served.headers.get('x-content-type-options'), 'nosniff');
     assert.ok(Buffer.from(await served.arrayBuffer()).equals(PNG));
+  });
+
+  it('remplace une image sur place ; l’ancienne reste dans la corbeille', async () => {
+    const spaceId = await newSpace('Remplacements');
+    await bob.post(`/api/documentation/spaces/${spaceId}/members`, { userId: ids.vera, role: 'reader' });
+    const image = (await bob.raw('POST', `/api/documentation/spaces/${spaceId}/images?folder=Guides`, PNG, { 'Content-Type': 'image/png', 'X-File-Name': 'plan.png' })).json.node;
+    const note = (await bob.post(`/api/documentation/spaces/${spaceId}/nodes`, { path: 'Guides/Lire', content: '![plan](Pictures/plan.png)' })).body.node;
+    const replace = (client: TestClient, id: number, body: Buffer) => client.raw('PUT', `/api/documentation/nodes/${id}/raw`, body, { 'Content-Type': 'application/octet-stream' });
+
+    assert.equal((await replace(vera, image.id, GIF)).status, 403, 'un lecteur ne remplace rien');
+    assert.equal((await replace(eve, image.id, GIF)).status, 404, 'hors de l’espace, l’image n’existe pas');
+    assert.equal((await replace(bob, image.id, Buffer.from('<svg onload="alert(1)"/>'))).status, 400, 'contenu vérifié');
+    assert.equal((await replace(bob, note.id, GIF)).status, 404, 'une note n’est pas une image');
+
+    const replaced = await replace(bob, image.id, GIF);
+    assert.equal(replaced.status, 200, JSON.stringify(replaced.json));
+    assert.equal(replaced.json.node.id, image.id, 'même fichier');
+    assert.equal(replaced.json.node.path, 'Guides/Pictures/plan.png', 'même nom : les notes qui la montrent suivent');
+    assert.equal(replaced.json.node.size, GIF.length);
+    assert.notEqual(replaced.json.node.updatedAt, image.updatedAt, 'l’adresse de l’image change pour le navigateur');
+    const served = await fetch(`${app.base}/api/documentation/nodes/${image.id}/raw`, { headers: { Cookie: bob.cookie } });
+    assert.equal(served.headers.get('content-type'), 'image/gif');
+    assert.ok(Buffer.from(await served.arrayBuffer()).equals(GIF));
+    assert.deepEqual((await bob.get(`/api/documentation/spaces/${spaceId}`)).body.nodes.filter((node: { kind: string }) => node.kind === 'image').map((node: { path: string }) => node.path), ['Guides/Pictures/plan.png'], 'une seule image dans l’arbre');
+
+    // L'ancienne est dans la corbeille, sous le même nom, et se récupère à côté de la nouvelle.
+    const trash = (await bob.get(`/api/documentation/spaces/${spaceId}/trash`)).body.nodes as Array<{ id: number; path: string; size: number }>;
+    const old = trash.find((node) => node.path === 'Guides/Pictures/plan.png');
+    assert.ok(old, JSON.stringify(trash));
+    assert.equal(old.size, PNG.length);
+    const restored = (await bob.post(`/api/documentation/nodes/${old.id}/restore`)).body.node;
+    assert.equal(restored.path, 'Guides/Pictures/plan (2).png');
+    const back = await fetch(`${app.base}/api/documentation/nodes/${restored.id}/raw`, { headers: { Cookie: bob.cookie } });
+    assert.ok(Buffer.from(await back.arrayBuffer()).equals(PNG), 'l’ancienne image, intacte');
   });
 
   it('range les images collées dans le dossier de l’espace, sinon celui de l’administration', async (t) => {

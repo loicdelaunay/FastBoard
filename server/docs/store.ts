@@ -716,6 +716,42 @@ export function storeImage(ctx: AppContext, actor: Actor, spaceId: number, folde
   return toNodeDTO(requireNode(db, nodeId));
 }
 
+/**
+ * Remplace le contenu d'une image, sur place : elle garde son nom et son chemin, donc toutes les notes qui la montrent
+ * affichent la nouvelle. L'ancienne part dans la corbeille (15 jours), sous le même nom, pour pouvoir la récupérer.
+ */
+export function replaceImage(ctx: AppContext, actor: Actor, node: NodeRow, data: Uint8Array): DocNodeDTO {
+  const { db } = ctx;
+  if (node.deleted_at) throw conflict('Cette image est dans la corbeille.');
+  if (node.kind !== 'image') throw badRequest('Ce fichier n’est pas une image.');
+  const source = diskPath(ctx, node.space_id, node.path);
+  const now = nowIso();
+  db.transaction(() => {
+    if (fs.existsSync(source)) {
+      // L'ancienne version : une image supprimée au même chemin, que la corbeille sait rendre.
+      const kept = db.run(
+        'INSERT INTO doc_nodes (space_id, path, kind, size, updated_by, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        node.space_id,
+        node.path,
+        'image',
+        node.size,
+        actor.userId,
+        node.updated_at,
+        node.updated_at,
+        now,
+      ).lastInsertRowid;
+      const trash = path.join(spaceDir(ctx, node.space_id), TRASH, String(kept));
+      fs.mkdirSync(path.dirname(trash), { recursive: true });
+      fs.copyFileSync(source, trash);
+    }
+    db.run('UPDATE doc_nodes SET size = ?, updated_by = ?, updated_at = ? WHERE id = ?', data.length, actor.userId, now, node.id);
+    db.run('UPDATE doc_spaces SET updated_at = ? WHERE id = ?', now, node.space_id);
+  });
+  writeFile(source, data);
+  ctx.docRooms.publishTree(node.space_id);
+  return toNodeDTO(requireNode(db, node.id));
+}
+
 /** Écrit un fichier importé, en créant son nœud s'il n'existe pas. */
 export function putImported(ctx: AppContext, actor: Actor, spaceId: number, relative: string, data: string | Uint8Array): void {
   const { db } = ctx;

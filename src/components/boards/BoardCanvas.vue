@@ -47,6 +47,7 @@ import type { BoardSessionLike } from '@/realtime/boardSession';
 import { useAuthStore } from '@/stores/auth';
 import { themeScope, type ThemeScope } from '@/theme/themeManager';
 import { notify, notifyError } from '@/utils/notify';
+import { pickImage } from '@/utils/image';
 import BoardChart from './BoardChart.vue';
 import BoardChartDialog from './BoardChartDialog.vue';
 import BoardDrawioDialog from './BoardDrawioDialog.vue';
@@ -1919,8 +1920,10 @@ function onContextMenu(event: MouseEvent): void {
   const locked = selected.value.some((entry) => entry.locked);
   const blocks = write && has ? alignBlocks().length : 0;
   const { canGroup, canUngroup } = grouping.value;
+  const image = single.value?.type === 'image' && write && props.spaceId && !single.value.locked ? single.value : null;
   menuItems.value = has
     ? [
+        ...(image ? [{ label: t('Remplacer l’image…'), icon: 'pi pi-sync', command: () => void replaceImage(image) }, { separator: true }] : []),
         ...(write ? [{ label: t('Couper'), icon: 'pi pi-times', command: () => copySelection(true) }] : []),
         { label: t('Copier'), icon: 'pi pi-copy', command: () => copySelection() },
         ...(write
@@ -2205,6 +2208,30 @@ async function placeImage(asset: BoardAssetDTO, at: Point, offset = 0): Promise<
   const box = await imageBox(boardAssetUrl(asset.key));
   const element: ImageElement = { id: newElementId(), type: 'image', z: model.nextZ(), x: snap(at.x - box.w / 2 + offset), y: snap(at.y - box.h / 2 + offset), ...box, asset: asset.key, name: asset.name };
   place(element, false);
+}
+
+/**
+ * Remplace l'image d'un élément : la nouvelle est envoyée dans l'espace et prend sa place, à la même largeur (la hauteur
+ * suit ses proportions) ; les liens qui y sont accrochés restent. Annulable comme toute modification.
+ */
+async function replaceImage(element: ImageElement): Promise<void> {
+  if (!props.spaceId) return;
+  const file = await pickImage('image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg');
+  if (!file) return;
+  try {
+    const { asset } = await api.boardUploadAsset(props.spaceId, file);
+    const natural = await imageBox(boardAssetUrl(asset.key), 100_000);
+    const current = index.value.get(element.id);
+    if (current?.type !== 'image') return;
+    model.stopCapturing();
+    model.update(element.id, { asset: asset.key, name: asset.name, h: Math.max(24, Math.round((current.w * natural.h) / natural.w)) });
+    model.stopCapturing();
+    // Le clavier revient au tableau (le choix du fichier l'avait pris) : Ctrl Z annule tout de suite.
+    root.value?.focus({ preventScroll: true });
+    notify('success', t('Image remplacée'), t('Elle garde sa place et sa largeur ; Ctrl Z revient à l’ancienne.'));
+  } catch (error) {
+    notifyError(error, t('Image non remplacée'));
+  }
 }
 
 /** Images glissées ou collées : envoyées dans l'espace, puis posées. */

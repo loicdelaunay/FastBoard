@@ -9,6 +9,7 @@ import { bootServer, TestClient } from './helpers.ts';
 type Booted = Awaited<ReturnType<typeof bootServer>>;
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+const GIF = Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
 
 describe('pièces jointes', () => {
   let app: Booted;
@@ -203,5 +204,42 @@ describe('pièces jointes', () => {
     assert.equal(sniffImageMime(Buffer.from('RIFF\0\0\0\0WEBPVP8 ')), 'image/webp');
     assert.equal(sniffImageMime(Buffer.from('<html>')), null);
     assert.ok(path.isAbsolute(uploadsDir()));
+  });
+
+  it('remplace l’image d’une pièce jointe, sur place', async () => {
+    // Un projet à lui : celui des autres tests a été supprimé juste avant.
+    const roles = (await admin.get('/api/admin/roles')).body.roles as Array<{ id: number; key: string; scope: string }>;
+    const projectRole = (key: string) => roles.find((r) => r.key === key && r.scope === 'project')!.id;
+    const project = (await bob.post('/api/projects', { name: 'Remplacements', key: 'RPL' })).body.project.id as number;
+    await bob.post(`/api/projects/${project}/members`, { userId: ids.alice, roleId: projectRole('contributor') });
+    await bob.post(`/api/projects/${project}/members`, { userId: ids.carl, roleId: projectRole('viewer') });
+    const ticket = (await bob.post(`/api/projects/${project}/tickets`, { title: 'Capture à refaire' })).body.ticket.id as number;
+    const sent = (await upload(bob, ticket, 'capture.png', PNG, 'image/png')).json.attachment;
+    const pdf = (await upload(bob, ticket, 'notice.pdf', Buffer.from('%PDF-1.4 notice'), 'application/pdf')).json.attachment;
+    const storageOf = (id: number) => app.running.ctx.db.get<{ storage: string }>('SELECT storage FROM ticket_attachments WHERE id = ?', id)!.storage;
+    const before = storageOf(sent.id);
+    const replace = (client: TestClient, id: number, body: Uint8Array, name = 'capture-v2.gif') =>
+      client.raw('PUT', `/api/attachments/${id}/file`, body, { 'Content-Type': 'image/gif', 'X-File-Name': encodeURIComponent(name) });
+
+    assert.equal((await replace(carl, sent.id, GIF)).status, 403, 'un lecteur ne remplace rien');
+    assert.equal((await replace(alice, sent.id, GIF)).status, 403, 'seul l’auteur (ou un modérateur) remplace');
+    assert.equal((await replace(bob, pdf.id, GIF)).status, 400, 'seule une image se remplace');
+    assert.equal((await replace(bob, sent.id, Buffer.from('%PDF-1.4 pas une image'))).status, 400, 'par une image');
+    assert.equal(storageOf(sent.id), before, 'rien n’a changé');
+
+    const replaced = await replace(bob, sent.id, GIF);
+    assert.equal(replaced.status, 200, JSON.stringify(replaced.json));
+    assert.equal(replaced.json.attachment.id, sent.id, 'même pièce jointe, même place');
+    assert.equal(replaced.json.attachment.name, 'capture-v2.gif');
+    assert.equal(replaced.json.attachment.mime, 'image/gif');
+    assert.equal(replaced.json.attachment.size, GIF.length);
+    assert.ok(!fs.existsSync(path.join(uploadsDir(), before)), 'l’ancien fichier est effacé');
+    const served = await bob.raw('GET', `/api/attachments/${sent.id}/download?inline=1`);
+    assert.equal(served.headers.get('content-type'), 'image/gif');
+    assert.ok(served.bytes.equals(GIF));
+    const list = (await bob.get(`/api/tickets/${ticket}/attachments`)).body.attachments as Array<{ id: number }>;
+    assert.deepEqual(list.map((entry) => entry.id), [sent.id, pdf.id], 'l’ordre est gardé');
+    const history = (await bob.get(`/api/tickets/${ticket}/history`)).body.history as Array<{ data: { kind: string; action?: string; name?: string } }>;
+    assert.ok(history.some((entry) => entry.data.kind === 'attachment' && entry.data.action === 'replaced' && entry.data.name === 'capture-v2.gif'));
   });
 });

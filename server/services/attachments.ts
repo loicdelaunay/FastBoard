@@ -184,6 +184,53 @@ function publish(ctx: AppContext, actor: Actor, ticket: TicketRow, events: Proje
   });
 }
 
+/**
+ * Remplace l'image d'une pièce jointe, sur place : elle garde sa place dans la liste, prend le nom et le contenu du
+ * nouveau fichier, qui doit être une image. Même règle que pour la supprimer : son auteur, ou `attachment.moderate`.
+ */
+export async function replaceAttachmentImage(ctx: AppContext, actor: Actor, ticket: TicketRow, row: AttachmentRow, canModerate: boolean, input: UploadInput): Promise<AttachmentDTO> {
+  if (row.user_id !== actor.userId && !canModerate) throw forbidden('Vous ne pouvez remplacer que vos propres pièces jointes.');
+  if (row.kind !== 'file' || !isInlineImage(row.mime)) throw badRequest('Seule une image peut être remplacée.');
+  const { db } = ctx;
+  const max = ctx.config.maxUploadBytes;
+  if (input.contentLength !== null && input.contentLength > max) throw tooLarge(max);
+  const storage = randomUUID();
+  const partial = path.join(ctx.uploadsDir, `${storage}.part`);
+  const final = path.join(ctx.uploadsDir, storage);
+  const counter = { bytes: 0 };
+  try {
+    await pipeline(input.stream, sizeGuard(max, counter), fs.createWriteStream(partial, { flags: 'wx' }));
+    if (counter.bytes === 0) throw badRequest('Le fichier est vide.');
+    fs.renameSync(partial, final);
+  } catch (error) {
+    fs.rmSync(partial, { force: true });
+    fs.rmSync(final, { force: true });
+    if (error instanceof HttpError) throw error;
+    throw badRequest("L'envoi du fichier a été interrompu.");
+  }
+  const mime = resolveMime(input.declaredMime, readHead(final));
+  if (!isInlineImage(mime)) {
+    fs.rmSync(final, { force: true });
+    throw badRequest('Image invalide (PNG, JPEG, WebP ou GIF).');
+  }
+  const name = sanitizeFileName(input.name, LIMITS.attachmentNameMax);
+  let updated: AttachmentRow;
+  try {
+    const historyEntry = db.transaction(() => {
+      db.run('UPDATE ticket_attachments SET name = ?, mime = ?, size = ?, storage = ? WHERE id = ?', name, mime, counter.bytes, storage, row.id);
+      updated = requireAttachment(db, row.id);
+      return addHistory(db, ticket.id, actor, { kind: 'attachment', action: 'replaced', name, size: counter.bytes });
+    });
+    removeStoredFiles(ctx, [row.storage]);
+    publish(ctx, actor, ticket, [{ type: 'attachment.updated', attachment: toAttachmentDTO(updated!), attachmentCount: countAttachments(db, ticket.id) }], historyEntry);
+  } catch (error) {
+    fs.rmSync(final, { force: true });
+    throw error;
+  }
+  ctx.logger.info('storage', `Image de pièce jointe remplacée : ${row.name} → ${name} (${counter.bytes} octets)`, { ticketId: ticket.id, mime }, actor.userId);
+  return toAttachmentDTO(updated!);
+}
+
 /** L'auteur de l'envoi peut supprimer sa pièce jointe ; les autres ont besoin de `attachment.moderate`. */
 export function deleteAttachment(ctx: AppContext, actor: Actor, ticket: TicketRow, row: AttachmentRow, canModerate: boolean): void {
   if (row.user_id !== actor.userId && !canModerate) {

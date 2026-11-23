@@ -440,7 +440,7 @@ export const componentSchemas: Record<string, Schema> = {
     data: {
       type: 'object',
       description:
-        'Selon `kind` : `created` {title, assignees?}, `updated` {changes:[{field, from, to}], auto?}, `assignees` {added, removed}, `part` {user, line?, action?: added|removed|assigned, done?, progress?, note?}, `attachment` {action: added|removed, name, size}, `subtask` {action, title, previousTitle?} (historique antérieur à la version 2), `link` {action: added|removed, reason, target}.',
+        'Selon `kind` : `created` {title, assignees?}, `updated` {changes:[{field, from, to}], auto?}, `assignees` {added, removed}, `part` {user, line?, action?: added|removed|assigned, done?, progress?, note?}, `attachment` {action: added|removed|replaced, name, size}, `subtask` {action, title, previousTitle?} (historique antérieur à la version 2), `link` {action: added|removed, reason, target}.',
       properties: { kind: str('', { enum: ['created', 'updated', 'assignees', 'part', 'attachment', 'subtask', 'link'] }) },
       required: ['kind'],
       additionalProperties: true,

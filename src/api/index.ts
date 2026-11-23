@@ -46,7 +46,7 @@ import { ApiError, http, httpHeaders } from './http';
 
 import { t } from '@/i18n';
 import { translateServerMessage } from '@/i18n/server';
-import { compressImage } from '@/utils/image';
+import { compressImage, imageAs } from '@/utils/image';
 export interface TicketInput {
   title?: string;
   description?: string;
@@ -160,9 +160,9 @@ function parseUploadResponse(text: string): UploadResponse | null {
 }
 
 /** Envoie un fichier de documentation en corps brut. */
-async function uploadDocFile<T>(path: string, file: File): Promise<T> {
+async function uploadDocFile<T>(path: string, file: File, method: 'POST' | 'PUT' = 'POST'): Promise<T> {
   const response = await fetch(`/api${path}`, {
-    method: 'POST',
+    method,
     headers: { ...httpHeaders(), 'Content-Type': file.type || 'application/octet-stream', [FILE_NAME_HEADER]: encodeURIComponent(file.name) },
     body: file,
     credentials: 'same-origin',
@@ -307,6 +307,8 @@ export const api = {
   deleteComment: (commentId: number) => http<{ comment: CommentDTO }>('DELETE', `/comments/${commentId}`),
   attachments: (ticketId: number) => http<{ attachments: AttachmentDTO[] }>('GET', `/tickets/${ticketId}/attachments`),
   deleteAttachment: (attachmentId: number) => http<{ ok: true }>('DELETE', `/attachments/${attachmentId}`),
+  /** Remplace l'image d'une pièce jointe, sur place (allégée en WebP comme tout envoi). */
+  replaceAttachmentImage: async (attachmentId: number, file: File) => uploadDocFile<{ attachment: AttachmentDTO }>(`/attachments/${attachmentId}/file`, await compressImage(file), 'PUT'),
   addAttachmentLink: (ticketId: number, input: { kind: 'url' | 'path'; target: string; name?: string }) =>
     http<{ attachment: AttachmentDTO }>('POST', `/tickets/${ticketId}/attachment-links`, { body: input }),
   openAttachment: (attachmentId: number) => http<{ ok: true; revealed: boolean }>('POST', `/attachments/${attachmentId}/open`),
@@ -426,6 +428,8 @@ export const api = {
   docResolveComment: (commentId: number, resolved: boolean) => http<{ comment: DocCommentDTO }>('PATCH', `/documentation/comments/${commentId}`, { body: { resolved } }),
   docDeleteComment: (commentId: number) => http<{ ok: true }>('DELETE', `/documentation/comments/${commentId}`),
   docRescan: (spaceId: number) => http<{ result: DocRescanResultDTO; nodes: DocNodeDTO[]; templates: DocNodeDTO[] }>('POST', `/documentation/spaces/${spaceId}/rescan`, { body: {} }),
+  /** Remplace une image sur place (même nom) ; elle est convertie au format de son nom. L'ancienne va dans la corbeille. */
+  docReplaceImage: async (nodeId: number, path: string, file: File) => uploadDocFile<{ node: DocNodeDTO }>(`/documentation/nodes/${nodeId}/raw`, await imageAs(file, path), 'PUT'),
   docUploadImage: async (spaceId: number, folder: string, file: File) => uploadDocFile<{ node: DocNodeDTO }>(`/documentation/spaces/${spaceId}/images?folder=${encodeURIComponent(folder)}`, await compressImage(file)),
 
   adminAuth: () => http<{ ldap: LdapSettingsDTO }>('GET', '/admin/auth'),

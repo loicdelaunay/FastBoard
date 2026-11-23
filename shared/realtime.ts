@@ -32,6 +32,8 @@ export type ProjectEvent =
   | { type: 'comment.deleted'; comment: CommentDTO; commentCount: number }
   | { type: 'attachment.created'; attachment: AttachmentDTO; attachmentCount: number }
   | { type: 'attachment.deleted'; attachment: AttachmentDTO; attachmentCount: number }
+  /** Image d'une pièce jointe remplacée : même pièce jointe (même place), nouveau fichier. */
+  | { type: 'attachment.updated'; attachment: AttachmentDTO; attachmentCount: number }
   | { type: 'history.created'; entry: HistoryEntryDTO }
   | { type: 'activity.created'; activity: ActivityDTO }
   /** Commentaire ajouté, modifié ou supprimé sur un évènement du journal. */

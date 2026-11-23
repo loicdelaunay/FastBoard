@@ -28,6 +28,7 @@ import {
   readBytes,
   readText,
   removeMember,
+  replaceImage,
   rescanSpace,
   requireDocsEnabled,
   requireNode,
@@ -75,6 +76,18 @@ export function documentationUploadRouter(ctx: AppContext): Router {
     if (!mime || !isInlineImage(mime)) throw badRequest('Image invalide (PNG, JPEG, WebP ou GIF).');
     const folder = typeof req.query.folder === 'string' ? req.query.folder : '';
     res.status(201).json({ node: storeImage(ctx, actorOf(req, res), spaceId, folder, decodedName(req.get(FILE_NAME_HEADER)) || 'image.png', body) });
+  });
+
+  // Remplace une image sur place : même nom, même chemin, nouvelles données (l'ancienne va dans la corbeille).
+  router.put('/documentation/nodes/:id/raw', csrfGuard(ctx), requireAuth(ctx), raw(DOC_LIMITS.imageBytes), (req, res) => {
+    const node = requireNode(ctx.db, idParam(req.params.id));
+    requireSpace(ctx, currentUser(res), node.space_id, 'editor');
+    if (node.deleted_at || node.kind !== 'image') throw notFound('Image introuvable.');
+    const body = req.body as unknown;
+    if (!Buffer.isBuffer(body) || body.length === 0) throw badRequest('Image vide.');
+    const mime = sniffImageMime(body.subarray(0, 16));
+    if (!mime || !isInlineImage(mime)) throw badRequest('Image invalide (PNG, JPEG, WebP ou GIF).');
+    res.json({ node: replaceImage(ctx, actorOf(req, res), node, body) });
   });
 
   router.post('/documentation/spaces/:id/import', csrfGuard(ctx), requireAuth(ctx), raw(DOC_LIMITS.zipBytes), (req, res) => {

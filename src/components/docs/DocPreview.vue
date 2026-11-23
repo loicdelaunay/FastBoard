@@ -9,6 +9,7 @@ import { api } from '@/api';
 import MarkdownView from '@/components/common/MarkdownView.vue';
 import { useDocLinks } from '@/composables/useDocLinks';
 import { openLightbox, zoomImageOnClick } from '@/utils/lightbox';
+import { docImageIdOf, replaceDocImage } from '@/utils/replaceImage';
 import { copyText, docResolver, finishDocHtml, hydrateEmbeds, pendingAnchor, prepareDocText, scrollToHeading, selectionQuote } from '@/utils/docRender';
 
 import { t } from '@/i18n';
@@ -22,6 +23,8 @@ const props = defineProps<{
   comments?: DocCommentDTO[];
   /** Syntaxe propre à Obsidian (réglage de l'espace). */
   obsidian?: boolean;
+  /** On peut modifier l'espace : ses images se remplacent au clic droit. */
+  editable?: boolean;
 }>();
 const emit = defineEmits<{ open: [node: DocNodeDTO, newTab?: boolean]; comment: [quote: DocQuote]; 'focus-comment': [commentId: number] }>();
 
@@ -88,9 +91,13 @@ function onContextMenu(event: MouseEvent): void {
   if (image?.src && !image.closest('a')) {
     event.preventDefault();
     const src = image.currentSrc || image.src;
+    // Une image de l'espace se remplace sur place ; une image d'un autre site se change dans le Markdown.
+    const imageId = docImageIdOf(src);
+    const node = imageId === null ? undefined : props.nodes.find((entry) => entry.id === imageId);
     menuItems.value = [
       { label: t('Agrandir l’image'), icon: 'pi pi-expand', command: () => openLightbox(src, image.alt) },
       { label: t('Ouvrir l’image dans un nouvel onglet'), icon: 'pi pi-external-link', command: () => window.open(src, '_blank', 'noopener') },
+      ...(props.editable && node ? [{ separator: true }, { label: t('Remplacer l’image…'), icon: 'pi pi-sync', command: () => void replaceDocImage(node) }] : []),
     ];
     menu.value?.show(event);
     return;

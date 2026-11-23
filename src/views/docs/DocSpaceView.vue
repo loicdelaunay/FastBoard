@@ -43,6 +43,8 @@ import { downloadFrom } from '@/utils/files';
 import { markdownBlocks } from '@/utils/markdown';
 import { formatDateTime, formatRelative } from '@/utils/format';
 import { notify, notifyError } from '@/utils/notify';
+import { openLightbox } from '@/utils/lightbox';
+import { docImageUrl, replaceDocImage } from '@/utils/replaceImage';
 
 import { currentLocale, t } from '@/i18n';
 /**
@@ -717,8 +719,28 @@ function exportNode(node: DocNodeDTO | null): void {
 }
 
 function askImport(node: DocNodeDTO | null): void {
+  // Une image se remplace directement, sur place (l'ancienne va dans la corbeille).
+  if (node?.kind === 'image') {
+    void replaceDocImage(node);
+    return;
+  }
   importNode.value = node;
   importOpen.value = true;
+}
+
+// --- Image ouverte : clic droit ---
+const imageMenu = ref<InstanceType<typeof ContextMenu> | null>(null);
+const imageMenuItems = ref<MenuItem[]>([]);
+function openImageMenu(event: MouseEvent, node: DocNodeDTO): void {
+  event.preventDefault();
+  const url = docImageUrl(node);
+  imageMenuItems.value = [
+    { label: t('Agrandir l’image'), icon: 'pi pi-expand', command: () => openLightbox(url, docBaseName(node.path)) },
+    { label: t('Ouvrir l’image dans un nouvel onglet'), icon: 'pi pi-external-link', command: () => window.open(url, '_blank', 'noopener') },
+    { label: t('Exporter l’image'), icon: 'pi pi-download', command: () => exportNode(node) },
+    ...(store.canEdit ? [{ separator: true }, { label: t('Remplacer l’image…'), icon: 'pi pi-sync', command: () => void replaceDocImage(node) }] : []),
+  ];
+  imageMenu.value?.show(event);
 }
 
 // --- Note : menu « ⋯ » ---
@@ -1056,7 +1078,7 @@ const recent = computed(() =>
                 />
               </div>
               <div v-if="!writing || (showPreview && !live)" ref="previewPane" class="pane preview" @scroll.passive="onPreviewScroll">
-                <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" :obsidian="obsidian" @open="openNode" @comment="startComment" @focus-comment="focusComment" />
+                <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" :obsidian="obsidian" :editable="store.canEdit" @open="openNode" @comment="startComment" @focus-comment="focusComment" />
                 <p v-else class="muted empty-note">{{ canWrite ? $t('Cette note est vide. Passez en écriture pour la rédiger.') : $t('Cette note est vide.') }}</p>
               </div>
             </div>
@@ -1098,7 +1120,8 @@ const recent = computed(() =>
         </template>
 
         <div v-else class="image-view">
-          <img :src="`/api/documentation/nodes/${selected.id}/raw`" :alt="docBaseName(selected.path)" />
+          <img :src="docImageUrl(selected)" :alt="docBaseName(selected.path)" @contextmenu="openImageMenu($event, selected)" />
+          <ContextMenu ref="imageMenu" :model="imageMenuItems" />
         </div>
       </template>
 

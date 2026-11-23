@@ -266,7 +266,7 @@ Chaque fichier ou dossier porte une note libre (`memo`), écrite avec `PUT /docu
 
 `POST /documentation/spaces/{id}/import` accepte aussi un fichier seul (`.md` ou image), nommé par l'en-tête `X-File-Name` : il devient une nouvelle note, ou la mise à jour de celle qui porte son nom. Avant d'appliquer, `GET …/import/{importId}/compare?path=…` donne le texte du serveur, celui de l'import et leur origine commune (`base`, ou `null`) ; le texte final retenu s'envoie dans `content`, avec l'action `auto`. De même, `POST /documentation/versions/{id}/restore` accepte un `content` pour ne reprendre qu'une partie d'une version.
 
-Rôles : `reader` lit, `editor` écrit, `owner` gère aussi les membres et l'espace. Un texte envoyé par l'API apparaît en direct chez les personnes qui éditent la note. Pour citer un fichier dans un ticket ou une note : `@[Titre](doc:5)`. Pour citer un tableau blanc : `@[Titre](board:7)` ; seul sur sa ligne, il s'affiche en carte (son nom et son aperçu), et `board:7#image`, `board:7#embed` ou `board:7#link` demandent son image seule, une vue intégrée où l'on se déplace et où l'on zoome, ou un simple lien. Les personnes mentionnées qui ont accès à l'espace sont notifiées. L'historique et la corbeille sont gardés 15 jours. Tous les membres peuvent commenter, lecteurs compris : `quote` retrouve le passage par son texte, `before` et `after` le départagent s'il figure plusieurs fois.
+Rôles : `reader` lit, `editor` écrit, `owner` gère aussi les membres et l'espace. Un texte envoyé par l'API apparaît en direct chez les personnes qui éditent la note. Pour citer un fichier dans un ticket ou une note : `@[Titre](doc:5)`. Une image se remplace sur place par `PUT /documentation/nodes/{id}/raw` (corps : la nouvelle image) : elle garde son nom, les notes qui la montrent affichent la nouvelle, et l'ancienne reste 15 jours dans la corbeille. Pour citer un tableau blanc : `@[Titre](board:7)` ; seul sur sa ligne, il s'affiche en carte (son nom et son aperçu), et `board:7#image`, `board:7#embed` ou `board:7#link` demandent son image seule, une vue intégrée où l'on se déplace et où l'on zoome, ou un simple lien. Les personnes mentionnées qui ont accès à l'espace sont notifiées. L'historique et la corbeille sont gardés 15 jours. Tous les membres peuvent commenter, lecteurs compris : `quote` retrouve le passage par son texte, `before` et `after` le départagent s'il figure plusieurs fois.
 
 ### Tableaux blancs
 
@@ -381,6 +381,10 @@ curl -s -X POST $FASTBOARD/api/tickets/12/attachments -H "Authorization: Bearer 
 curl -s $FASTBOARD/api/tickets/12/attachments -H "Authorization: Bearer $TOKEN"
 curl -s -o rapport.pdf $FASTBOARD/api/attachments/5/download -H "Authorization: Bearer $TOKEN"
 curl -s -X DELETE $FASTBOARD/api/attachments/5 -H "Authorization: Bearer $TOKEN"
+
+# Remplacer l'image d'une pièce jointe (elle garde sa place et son identifiant)
+curl -s -X PUT $FASTBOARD/api/attachments/5/file -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: image/png" -H "X-File-Name: capture-v2.png" --data-binary @capture-v2.png
 ```
 
 Lien web ou chemin vers un fichier / dossier (poste ou partage réseau) :
@@ -390,7 +394,7 @@ curl -s -X POST $FASTBOARD/api/tickets/12/attachment-links -H "Authorization: Be
   -d '{ "kind": "url", "target": "https://exemple.fr/specification", "name": "Spécification" }'
 ```
 
-25 Mo maximum par fichier (réponse `413`), 30 pièces jointes par ticket. Envoyer demande la permission `attachment.create` ; supprimer, celle d'en être l'auteur ou `attachment.moderate`. Les images sont reconnues d'après leur contenu ; tout autre fichier est toujours servi en téléchargement.
+25 Mo maximum par fichier (réponse `413`), 30 pièces jointes par ticket. Envoyer demande la permission `attachment.create` ; supprimer, celle d'en être l'auteur ou `attachment.moderate` (remplacer une image : les deux). Les images sont reconnues d'après leur contenu ; tout autre fichier est toujours servi en téléchargement.
 
 ### Commenter, répondre
 

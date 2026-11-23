@@ -17,9 +17,14 @@ export function formatBytes(bytes: number): string {
   return `${value.toLocaleString(intlLocale(), { maximumFractionDigits: value < 10 ? 1 : 0 })} ${units[unit]}`;
 }
 
-/** Adresse de téléchargement ; `inline` affiche l'image dans la page (vignette, aperçu). */
-export function attachmentUrl(attachment: Pick<AttachmentDTO, 'id'>, inline = false): string {
-  return `/api/attachments/${attachment.id}/download${inline ? '?inline=1' : ''}`;
+/**
+ * Adresse de téléchargement ; `inline` affiche l'image dans la page (vignette, aperçu). Le nom et la taille y figurent :
+ * une image remplacée a une autre adresse, le navigateur ne ressert pas l'ancienne.
+ */
+export function attachmentUrl(attachment: Pick<AttachmentDTO, 'id'> & Partial<Pick<AttachmentDTO, 'name' | 'size'>>, inline = false): string {
+  const version = attachment.size !== undefined ? `v=${attachment.size}-${encodeURIComponent(attachment.name ?? '')}` : '';
+  const query = [inline ? 'inline=1' : '', version].filter(Boolean).join('&');
+  return `/api/attachments/${attachment.id}/download${query ? `?${query}` : ''}`;
 }
 
 /** Lance un téléchargement servi par l'API, sans quitter la page. */
