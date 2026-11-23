@@ -193,7 +193,7 @@ class TableEditor {
         td.classList.toggle('editing', editing);
         td.classList.toggle('selected', inRange(this.selection, rowIndex, colIndex));
         if (editing) {
-          if (cell.textContent !== value) cell.textContent = value;
+          if (fromEditable(cell.textContent ?? '') !== value) setEditable(cell, value);
         } else {
           cell.innerHTML = html[rowIndex]?.[colIndex] ?? escapeText(value);
         }
@@ -341,8 +341,8 @@ class TableEditor {
       this.replace(fillRange(this.model, this.selection, value), this.selection);
       return;
     }
-    // Une seule valeur dans la cellule en cours : elle s'insère au curseur, comme une frappe.
-    document.execCommand('insertText', false, value);
+    // Une seule valeur dans la cellule en cours : elle s'insère au curseur, comme une frappe (retours à la ligne visibles).
+    this.insertAtCaret(toEditable(value));
   }
 
   private onCopy(event: ClipboardEvent, cut: boolean): void {
@@ -475,7 +475,7 @@ class TableEditor {
     this.startEditing(row, col);
     cell.focus({ preventScroll: true });
     cell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    placeCaret(cell, caret === 'start' ? 0 : caret === 'end' ? (cell.textContent ?? '').length : caret);
+    placeCaret(cell, caret === 'start' ? 0 : caret === 'end' ? editableLength(cell) : caret);
   }
 
   private startEditing(row: number, col: number): void {
@@ -486,7 +486,7 @@ class TableEditor {
     const cell = this.cellAt(row, col);
     if (!cell) return;
     cell.parentElement!.classList.add('editing');
-    cell.textContent = this.model.rows[row]?.[col] ?? '';
+    setEditable(cell, this.model.rows[row]?.[col] ?? '');
     this.view.requestMeasure();
   }
 
@@ -530,7 +530,7 @@ class TableEditor {
     const cell = this.cellAt(at.row, at.col)!;
     const before = textBefore(cell, event.clientX, event.clientY);
     event.preventDefault();
-    this.focusCell(at.row, at.col, sourceOffset(this.model.rows[at.row]?.[at.col] ?? '', before));
+    this.focusCell(at.row, at.col, sourceOffset(toEditable(this.model.rows[at.row]?.[at.col] ?? ''), before));
   }
 
   /** Glisser d'une cellule à une autre : les cellules parcourues se sélectionnent. */
@@ -569,10 +569,39 @@ class TableEditor {
     const at = this.position(event.target as HTMLElement);
     if (!at) return;
     const cell = this.cellAt(at.row, at.col)!;
-    const value = (cell.textContent ?? '').replace(/\r?\n/g, ' ');
+    // Un retour à la ligne dans la cellule s'écrit <br> dans le Markdown, comme dans Obsidian.
+    const value = fromEditable(cell.textContent ?? '');
     this.model.rows[at.row]![at.col] = value;
     this.view.requestMeasure();
     this.schedule();
+  }
+
+  /**
+   * Une cellule qui finit par un retour à la ligne doit montrer sa dernière ligne, vide : un caractère invisible la
+   * tient ouverte (il ne va jamais dans le Markdown).
+   */
+  /** Insère du texte au curseur de la cellule en cours (retours à la ligne compris), comme une frappe. */
+  private insertAtCaret(text: string): void {
+    const cell = this.editing ? this.cellAt(this.editing.row, this.editing.col) : null;
+    const selection = window.getSelection();
+    if (!cell || !selection?.rangeCount || !cell.contains(selection.getRangeAt(0).startContainer)) return;
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const node = document.createTextNode(text);
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    this.keepLastLine();
+    cell.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  private keepLastLine(): void {
+    const cell = this.editing ? this.cellAt(this.editing.row, this.editing.col) : null;
+    if (!cell) return;
+    const text = cell.textContent ?? '';
+    if (text.endsWith('\n')) cell.append(document.createTextNode(KEEP));
   }
 
   /** Quitte le tableau par le haut ou par le bas, curseur sur la ligne voisine (créée au besoin). */
@@ -659,7 +688,7 @@ class TableEditor {
     const rows = this.model.rows.length;
     const cols = this.model.align.length;
     const cell = this.cellAt(row, col)!;
-    const length = (cell.textContent ?? '').length;
+    const length = editableLength(cell);
     const caret = caretOffset(cell);
     const mod = event.ctrlKey || event.metaKey;
     const handled = (): void => {
@@ -684,7 +713,8 @@ class TableEditor {
     if (event.key === 'Enter') {
       handled();
       if (event.shiftKey) {
-        document.execCommand('insertText', false, '<br>');
+        // Maj Entrée : un vrai retour à la ligne dans la cellule (<br> dans le Markdown, invisible ici).
+        this.insertAtCaret('\n');
         return;
       }
       if (mod || row === rows - 1) this.act('row-below', row, col);
@@ -717,6 +747,8 @@ class TableEditor {
         return;
       }
     }
+    // Haut et Bas parcourent d'abord les lignes d'une cellule qui en a plusieurs.
+    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey && !mod && !caretOnEdge(cell, event.key === 'ArrowUp' ? 'top' : 'bottom')) return;
     if (event.key === 'ArrowUp' && !event.shiftKey) {
       handled();
       if (row === 0) this.leave('up');
@@ -770,6 +802,43 @@ export function markdownFromHtmlTable(html: string): string | null {
   return grid && (grid.length > 1 || (grid[0]?.length ?? 0) > 1) ? gridToMarkdown(grid.map((cells) => cells.map(cellText))) : null;
 }
 
+/** Caractère invisible qui garde ouverte une dernière ligne vide dans une cellule. */
+const KEEP = '\u200b';
+
+/** Texte d'une cellule à l'écriture : ses <br> deviennent de vrais retours à la ligne. */
+function toEditable(value: string): string {
+  return value.replace(/<br\s*\/?>/gi, '\n');
+}
+
+/** Et l'inverse : le texte écrit dans la cellule, en Markdown d'une seule ligne. */
+function fromEditable(text: string): string {
+  return text.replaceAll(KEEP, '').replace(/\r\n?/g, '\n').replace(/\n/g, '<br>');
+}
+
+function setEditable(cell: HTMLElement, value: string): void {
+  const text = toEditable(value);
+  cell.textContent = text.endsWith('\n') ? text + KEEP : text;
+}
+
+/** Longueur du texte écrit, sans le caractère invisible de fin. */
+function editableLength(cell: HTMLElement): number {
+  return (cell.textContent ?? '').replaceAll(KEEP, '').length;
+}
+
+/** Le curseur est sur la première (ou la dernière) ligne affichée de la cellule. */
+function caretOnEdge(cell: HTMLElement, edge: 'top' | 'bottom'): boolean {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return true;
+  const range = selection.getRangeAt(0).cloneRange();
+  range.collapse(edge === 'top');
+  const rect = [...range.getClientRects()].at(0) ?? range.getBoundingClientRect();
+  if (!rect || (rect.top === 0 && rect.bottom === 0)) return !(cell.textContent ?? '').includes('\n');
+  const box = cell.getBoundingClientRect();
+  const style = getComputedStyle(cell);
+  const line = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize) * 1.5;
+  return edge === 'top' ? rect.top - box.top - Number.parseFloat(style.paddingTop) < line * 0.8 : box.bottom - Number.parseFloat(style.paddingBottom) - rect.bottom < line * 0.8;
+}
+
 function escapeText(text: string): string {
   const span = document.createElement('span');
   span.textContent = text;
@@ -779,10 +848,21 @@ function escapeText(text: string): string {
 function placeCaret(element: HTMLElement, offset: number): void {
   const selection = window.getSelection();
   if (!selection) return;
-  const text = element.firstChild;
   const range = document.createRange();
-  if (text?.nodeType === Node.TEXT_NODE) range.setStart(text, Math.max(0, Math.min(offset, text.textContent?.length ?? 0)));
-  else range.setStart(element, 0);
+  // Le texte peut tenir en plusieurs nœuds (retours à la ligne, caractère invisible de fin).
+  let left = Math.max(0, offset);
+  let placed = false;
+  for (const node of element.childNodes) {
+    if (node.nodeType !== Node.TEXT_NODE) continue;
+    const size = node.textContent?.length ?? 0;
+    if (left <= size) {
+      range.setStart(node, left);
+      placed = true;
+      break;
+    }
+    left -= size;
+  }
+  if (!placed) range.setStart(element, element.childNodes.length ? element.childNodes.length - (element.lastChild?.textContent === KEEP ? 1 : 0) : 0);
   range.collapse(true);
   selection.removeAllRanges();
   selection.addRange(range);

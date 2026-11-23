@@ -3,6 +3,7 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import { highlightCodeBlocks } from '@/utils/codeHighlight';
 import { markdownBlocks, renderMermaid, type MarkdownBlock } from '@/utils/markdown';
 import type { TextRange } from './commands';
+import { currentMatch, setFindState } from './findState';
 import { flushTables, TableWidget, type TableOptions } from './tableWidget';
 
 /**
@@ -100,6 +101,9 @@ function decorate(state: EditorState, value: Omit<LiveValue, 'decorations'>, opt
     if (from <= previous) continue;
     previous = to;
     if (value.raw && value.raw.from <= to && value.raw.to >= from) continue;
+    // Le résultat choisi de la recherche (Ctrl F) est dans ce bloc : il s'affiche en Markdown, résultat surligné.
+    const found = currentMatch(state);
+    if (found && found.from < to && found.to > from) continue;
     // Un tableau s'écrit cellule par cellule, sans repasser en Markdown.
     if (block.type === 'table' && !state.readOnly) {
       builder.add(from, to, Decoration.replace({ widget: new TableWidget(state.sliceDoc(from, to), value.version, { from, to }, tables), block: true }));
@@ -153,7 +157,8 @@ export function livePreview(options: LiveOptions): {
         if (main.from < raw.from || main.to > raw.to) raw = null;
       }
       const readOnlyChanged = transaction.startState.readOnly !== transaction.state.readOnly;
-      if (!transaction.docChanged && !transaction.selection && focused === current.focused && version === current.version && raw === current.raw && !readOnlyChanged) return current;
+      const findChanged = transaction.effects.some((effect) => effect.is(setFindState));
+      if (!transaction.docChanged && !transaction.selection && focused === current.focused && version === current.version && raw === current.raw && !readOnlyChanged && !findChanged) return current;
       const blocks = transaction.docChanged || version !== current.version ? liveBlocks(transaction.newDoc.toString(), options.obsidian()) : current.blocks;
       const value = { blocks, focused, version, raw };
       return { ...value, decorations: decorate(transaction.state, value, options, tables) };

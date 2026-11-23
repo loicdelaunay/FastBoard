@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.8.0';
+export const APP_VERSION = '2.9.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,15 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.9.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Documentation : la recherche dans la note comprend la syntaxe de recherche d’Obsidian : "phrase exacte", OR, -mot, /expression/, match-case:, ignore-case:, tag:, task:, task-todo:, task-done:, line:( ) et section:( ), avec une aide (?) et « Expliquer la recherche ».' },
+      { category: 'Amélioration', text: 'Documentation : en « Lecture et écriture », la recherche montre la syntaxe Markdown qu’elle trouve (chercher **s surligne **s, astérisques comprises), et un résultat dans un tableau ou un bloc s’affiche en Markdown ; en lecture, un lien propose de chercher dans le Markdown.' },
+      { category: 'Amélioration', text: 'Documentation : dans un tableau, Maj Entrée fait un vrai retour à la ligne dans la cellule, sans afficher <br> (toujours visible avec « Modifier le Markdown »), et Haut et Bas parcourent les lignes de la cellule.' },
+    ],
+  },
   {
     version: '2.8.0',
     date: '2026-11-23',

@@ -1,16 +1,53 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
+import { parseNoteSearch } from '@shared/noteSearch';
+import { explainSearch, searchTips } from './explain';
 import { FIND_LIMIT, type FindOptions, type FindResult } from './find';
 
 import { t } from '@/i18n';
 /**
- * Barre de recherche d'une note (Ctrl F), à la manière de VS Code : options dans le champ (casse, mot entier, expression
- * régulière), compteur « 3 sur 12 », précédent et suivant, et en écriture le remplacement (Ctrl H).
+ * Barre de recherche d'une note (Ctrl F), à la manière de VS Code et d'Obsidian : options dans le champ (casse, mot
+ * entier, expression régulière), compteur « 3 sur 12 », précédent et suivant, remplacement en écriture (Ctrl H), et la
+ * syntaxe de recherche d'Obsidian (aide « ? », et « Expliquer la recherche »).
  */
-const props = defineProps<{ result: FindResult; canReplace: boolean }>();
+const props = defineProps<{
+  result: FindResult;
+  canReplace: boolean;
+  /** En lecture, la recherche contient du Markdown, qui ne se trouve que dans le source. */
+  markdownHint?: boolean;
+  /** On peut passer en « Lecture et écriture » pour chercher dans le Markdown. */
+  canSwitch?: boolean;
+}>();
 const options = defineModel<FindOptions>({ required: true });
 const replaceOpen = defineModel<boolean>('replaceOpen', { default: false });
-const emit = defineEmits<{ next: []; previous: []; close: []; replace: []; replaceAll: [] }>();
+const emit = defineEmits<{ next: []; previous: []; close: []; replace: []; replaceAll: []; source: [] }>();
+
+const EXPLAIN_KEY = 'fb.docs.findExplain';
+const helpOpen = ref(false);
+const explain = ref((() => {
+  try {
+    return localStorage.getItem(EXPLAIN_KEY) === '1';
+  } catch {
+    return false;
+  }
+})());
+watch(explain, (value) => {
+  try {
+    localStorage.setItem(EXPLAIN_KEY, value ? '1' : '0');
+  } catch {
+    // Stockage indisponible : le choix vaut pour cette page seulement.
+  }
+});
+const tips = searchTips();
+const parsed = computed(() => parseNoteSearch(options.value.search, options.value));
+const explanation = computed(() => (parsed.value.node ? t('Cherche {what}.', { what: explainSearch(parsed.value.node) }) : ''));
+
+/** Exemple de l'aide : il s'ajoute à la recherche, curseur à la fin. */
+function useTip(example: string): void {
+  const current = options.value.search.trim();
+  set('search', current ? `${current} ${example}` : example);
+  void focus('search', false);
+}
 
 const searchInput = ref<HTMLInputElement | null>(null);
 const replaceInput = ref<HTMLInputElement | null>(null);
@@ -52,11 +89,11 @@ function onReplaceKey(event: KeyboardEvent): void {
 }
 
 /** Met le curseur dans la recherche (texte sélectionné), ou dans le remplacement. */
-async function focus(target: 'search' | 'replace' = 'search'): Promise<void> {
+async function focus(target: 'search' | 'replace' = 'search', select = true): Promise<void> {
   await nextTick();
   const input = target === 'replace' ? replaceInput.value : searchInput.value;
   input?.focus();
-  input?.select();
+  if (select) input?.select();
 }
 
 function contains(element: Element | null): boolean {
@@ -100,7 +137,28 @@ defineExpose({ focus, contains });
         <span class="count" :class="{ empty }" aria-live="polite">{{ label }}</span>
         <button v-tooltip.bottom="$t('Précédent (Maj Entrée)')" type="button" class="icon" :disabled="!result.total" :aria-label="$t('Résultat précédent')" @click="emit('previous')"><i class="pi pi-arrow-up"></i></button>
         <button v-tooltip.bottom="$t('Suivant (Entrée)')" type="button" class="icon" :disabled="!result.total" :aria-label="$t('Résultat suivant')" @click="emit('next')"><i class="pi pi-arrow-down"></i></button>
+        <button v-tooltip.bottom="$t('Options de recherche')" type="button" class="icon" :class="{ on: helpOpen }" :aria-expanded="helpOpen" :aria-label="$t('Options de recherche')" @click="helpOpen = !helpOpen"><i class="pi pi-question-circle"></i></button>
         <button v-tooltip.bottom="$t('Fermer (Échap)')" type="button" class="icon" :aria-label="$t('Fermer la recherche')" @click="emit('close')"><i class="pi pi-times"></i></button>
+      </div>
+      <p v-if="parsed.error && options.search" class="note error">{{ $t(parsed.error) }}</p>
+      <p v-else-if="explain && explanation" class="note muted">{{ explanation }}</p>
+      <p v-if="markdownHint" class="note hint">
+        <i class="pi pi-info-circle"></i>
+        <span>{{ $t('En lecture, on cherche dans le texte affiché : la syntaxe Markdown se trouve dans le source.') }}</span>
+        <button v-if="canSwitch" type="button" class="link" @click="emit('source')">{{ $t('Chercher dans le Markdown') }}</button>
+      </p>
+      <div v-if="helpOpen" class="help">
+        <label class="explain">
+          <input v-model="explain" type="checkbox" />
+          <span>{{ $t('Expliquer la recherche') }}</span>
+        </label>
+        <p class="muted small">{{ $t('Comme dans Obsidian, la recherche comprend ces options (clic pour les ajouter) :') }}</p>
+        <ul class="tips">
+          <li v-for="tip in tips" :key="tip.example">
+            <button type="button" class="tip" @click="useTip(tip.example)"><code>{{ tip.example }}</code></button>
+            <span class="muted small">{{ tip.text }}</span>
+          </li>
+        </ul>
       </div>
       <div v-if="canReplace && replaceOpen" class="row">
         <div class="find-field">
@@ -226,6 +284,88 @@ defineExpose({ focus, contains });
 .text:disabled {
   opacity: 0.4;
   cursor: default;
+}
+.icon.on {
+  background: var(--fb-accent-soft);
+  color: var(--fb-accent);
+}
+.note {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 30rem;
+  margin: 0;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.78rem;
+}
+.note.error {
+  color: var(--fb-danger);
+}
+.note.hint {
+  display: block;
+  color: var(--fb-muted);
+}
+.note.hint .pi {
+  margin-right: 0.3rem;
+  font-size: 0.75rem;
+}
+.note.hint .link {
+  margin-left: 0.3rem;
+}
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fb-accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.help {
+  max-width: 30rem;
+  margin-top: 0.15rem;
+  padding: 0.45rem 0.4rem 0.2rem;
+  border-top: 1px solid var(--fb-border);
+}
+.help p {
+  margin: 0.35rem 0;
+}
+.explain {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+.tips {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tips li {
+  display: contents;
+}
+.tip {
+  justify-self: start;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--fb-border);
+  border-radius: 5px;
+  background: var(--fb-bg);
+  color: var(--fb-text);
+  font: inherit;
+  cursor: pointer;
+}
+.tip:hover {
+  border-color: var(--fb-accent);
+}
+.tip code {
+  font-family: var(--fb-font-mono, ui-monospace, Consolas, monospace);
+  font-size: 0.78rem;
+}
+.tips .small {
+  align-self: center;
 }
 .count {
   min-width: 5.5rem;

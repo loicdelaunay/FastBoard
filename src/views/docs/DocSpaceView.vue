@@ -12,6 +12,7 @@ import type { MenuItem } from 'primevue/menuitem';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
 import { docBaseName, docParent, docTitle, type DocLinksDTO, type DocNodeDTO } from '@shared/docs';
 import { docOutline } from '@shared/docOutline';
+import { searchHasMarkdown } from '@shared/noteSearch';
 import { applyDocTemplate, DOC_TEMPLATE_VARIABLES } from '@shared/docTemplates';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
@@ -910,6 +911,9 @@ const recent = computed(() =>
                 class="find-floating"
                 :result="find.result.value"
                 :can-replace="writing"
+                :markdown-hint="!writing && searchHasMarkdown(find.query.value.search)"
+                :can-switch="canWrite"
+                @source="chooseMode('live')"
                 @next="find.next"
                 @previous="find.previous"
                 @replace="find.replace"

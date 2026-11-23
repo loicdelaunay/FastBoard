@@ -8,6 +8,7 @@ import { docBaseName } from '@shared/docs';
 import { t } from '@/i18n';
 import { openLightbox } from '@/utils/lightbox';
 import { toggleTask, type TextRange } from './commands';
+import { findField, findMatches, overlapsMatch } from './findState';
 
 /**
  * « Lecture et écriture » à la manière d'Obsidian : le texte reste rendu (titres, gras, liens, cases, images…) et seule
@@ -271,13 +272,16 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
   const replaced: Array<[number, number]> = [];
   const code: Array<[number, number]> = [];
   const free = (from: number, to: number) => !replaced.some(([start, end]) => from < end && to > start);
+  // Résultats de la recherche (Ctrl F) : la syntaxe qu'ils recouvrent reste visible (chercher « **s » montre « **s »).
+  const finds = findMatches(state);
+  const found = (from: number, to: number) => finds.length > 0 && overlapsMatch(finds, from, to);
   const hide = (from: number, to: number) => {
-    if (to <= from || !free(from, to)) return;
+    if (to <= from || !free(from, to) || found(from, to)) return;
     replaced.push([from, to]);
     decorations.push(hidden.range(from, to));
   };
   const swap = (from: number, to: number, widget: WidgetType) => {
-    if (!free(from, to)) return;
+    if (!free(from, to) || found(from, to)) return;
     replaced.push([from, to]);
     decorations.push(Decoration.replace({ widget }).range(from, to));
   };
@@ -568,7 +572,8 @@ export function liveInline(options: LiveInlineOptions): Extension {
       }
 
       update(update: ViewUpdate): void {
-        if (update.docChanged || update.selectionSet || update.viewportChanged || update.focusChanged || syntaxTree(update.state) !== syntaxTree(update.startState)) {
+        const findChanged = update.state.field(findField, false) !== update.startState.field(findField, false);
+        if (findChanged || update.docChanged || update.selectionSet || update.viewportChanged || update.focusChanged || syntaxTree(update.state) !== syntaxTree(update.startState)) {
           this.decorations = build(update.view, options);
         }
       }

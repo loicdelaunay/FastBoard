@@ -6,6 +6,8 @@ export interface EditorFind {
   findSet(options: FindOptions): FindResult;
   findStep(step: 'next' | 'previous' | 'replace' | 'replaceAll'): FindResult;
   findResult(): FindResult;
+  /** Recalcule les résultats après un changement du texte. */
+  findRefresh(): FindResult;
   findClose(): void;
   selectionText(): string;
   focus(): void;
@@ -58,9 +60,11 @@ export function useDocFind(options: Options) {
     }
   }
 
-  function refresh(): void {
+  /** `recompute` : le texte a changé ; sinon seul le curseur a bougé (le compteur suit). */
+  function refresh(recompute = false): void {
     if (!open.value) return;
-    result.value = onEditor() ? options.editor.value!.findResult() : dom.refresh(query.value);
+    if (onEditor()) result.value = recompute ? options.editor.value!.findRefresh() : options.editor.value!.findResult();
+    else if (recompute) result.value = dom.refresh(query.value);
   }
 
   function step(direction: 'next' | 'previous' | 'replace' | 'replaceAll'): void {
@@ -112,7 +116,7 @@ export function useDocFind(options: Options) {
     if (!open.value) return;
     window.clearTimeout(timer);
     // Le rendu se met à jour juste après le texte.
-    timer = window.setTimeout(refresh, onEditor() ? 0 : 150);
+    timer = window.setTimeout(() => refresh(true), onEditor() ? 0 : 150);
   });
 
   function onKeydown(event: KeyboardEvent): void {

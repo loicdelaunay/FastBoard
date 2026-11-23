@@ -5,7 +5,7 @@ import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, p
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
-import { closeSearchPanel, findNext, findPrevious, getSearchQuery, highlightSelectionMatches, openSearchPanel, replaceAll, replaceNext, search, searchPanelOpen, SearchQuery, setSearchQuery } from '@codemirror/search';
+import { highlightSelectionMatches } from '@codemirror/search';
 import { Compartment, EditorState } from '@codemirror/state';
 import { drawSelection, dropCursor, EditorView, highlightActiveLine, keymap, lineNumbers, placeholder, type Command } from '@codemirror/view';
 import ContextMenu from 'primevue/contextmenu';
@@ -35,7 +35,9 @@ import { livePreview, refreshLive, textBeforePoint } from './editor/live';
 import { markdownFromHtmlTable, tableCellAt } from './editor/tableWidget';
 import { editorMenu, type MenuHandlers, type MenuTarget } from './editor/menu';
 import { completionIcon, inlineTools, insertTools, lineTools, slashCommands, type DocTool, type ToolHandlers } from './editor/tools';
-import { FIND_LIMIT, NO_RESULT, type FindOptions, type FindResult } from './find/find';
+import { NO_RESULT, type FindOptions, type FindResult } from './find/find';
+import { findField, setFindState } from './editor/findState';
+import { markdownLines, parseNoteSearch, runNoteSearch, type ParsedSearch, type SearchMatch } from '@shared/noteSearch';
 import { highlightColors } from './editor/highlightColors';
 
 import { t } from '@/i18n';
@@ -533,49 +535,100 @@ function insertBlock(text: string): boolean {
   return true;
 }
 
-// --- Recherche (Ctrl F), pilotée par la barre de la note ---
+// --- Recherche (Ctrl F), pilotée par la barre de la note : syntaxe d'Obsidian, dans le source Markdown ---
 
-/** Résultats de la recherche en cours et rang de celui qui est sélectionné. */
-function findResult(): FindResult {
-  if (!view || !searchPanelOpen(view.state)) return NO_RESULT;
-  const query = getSearchQuery(view.state);
-  if (!query.search) return NO_RESULT;
-  if (!query.valid) return { ...NO_RESULT, invalid: true };
+let findQuery: { parsed: ParsedSearch; options: FindOptions } | null = null;
+
+function computeMatches(): SearchMatch[] {
+  if (!view || !findQuery) return [];
+  const text = view.state.doc.toString();
+  return runNoteSearch(findQuery.parsed, text, markdownLines(text));
+}
+
+/** Rang du résultat sélectionné dans l'éditeur, sinon celui retenu. */
+function currentIndex(matches: readonly SearchMatch[], fallback: number): number {
+  if (!view) return -1;
   const { from, to } = view.state.selection.main;
-  const cursor = query.getCursor(view.state);
-  let total = 0;
-  let current = -1;
-  for (let next = cursor.next(); !next.done && total < FIND_LIMIT; next = cursor.next()) {
-    if (next.value.from === from && next.value.to === to) current = total;
-    total += 1;
-  }
-  return { total, current };
+  const exact = matches.findIndex((match) => match.from === from && match.to === to);
+  return exact >= 0 ? exact : Math.min(fallback, matches.length - 1);
+}
+
+/** Choisit un résultat : il devient la sélection, au milieu de l'écran. */
+function showMatch(matches: SearchMatch[], current: number): void {
+  if (!view) return;
+  const match = matches[current];
+  view.dispatch({
+    effects: [setFindState.of({ matches, current }), ...(match ? [EditorView.scrollIntoView(match.from, { y: 'center' })] : [])],
+    ...(match ? { selection: { anchor: match.from, head: match.to }, userEvent: 'select.search' } : {}),
+  });
+}
+
+/** Nombre de résultats et rang du résultat choisi, sans rien modifier (le curseur vient de bouger). */
+function findResult(): FindResult {
+  if (!view || !findQuery) return NO_RESULT;
+  if (findQuery.parsed.error) return { ...NO_RESULT, invalid: true };
+  const state = view.state.field(findField, false);
+  const matches = state?.matches ?? [];
+  const current = currentIndex(matches, state?.current ?? 0);
+  // Le résultat sous le curseur devient le résultat choisi (surlignage), juste après cette mise à jour.
+  if (state && current !== state.current) requestAnimationFrame(() => view?.dispatch({ effects: setFindState.of({ matches, current }) }));
+  return { total: matches.length, current };
+}
+
+/** Le texte a changé : les résultats sont recalculés, le résultat choisi reste au plus près. */
+function findRefresh(): FindResult {
+  if (!view || !findQuery) return NO_RESULT;
+  const previous = view.state.field(findField, false)?.current ?? 0;
+  const matches = computeMatches();
+  view.dispatch({ effects: setFindState.of({ matches, current: currentIndex(matches, previous) }) });
+  return findResult();
 }
 
 /** Nouvelle recherche : le résultat choisi est le premier à partir du curseur, comme dans VS Code. */
 function findSet(options: FindOptions): FindResult {
   if (!view) return NO_RESULT;
-  if (!searchPanelOpen(view.state)) openSearchPanel(view);
-  const query = new SearchQuery({ search: options.search, caseSensitive: options.caseSensitive, wholeWord: options.wholeWord, regexp: options.regexp, literal: true, replace: options.replace });
-  view.dispatch({ effects: setSearchQuery.of(query) });
-  if (query.search && query.valid) {
-    const start = view.state.selection.main.from;
-    const match = query.getCursor(view.state, start).next();
-    const found = match.done ? query.getCursor(view.state).next() : match;
-    if (!found.done) view.dispatch({ selection: { anchor: found.value.from, head: found.value.to }, effects: EditorView.scrollIntoView(found.value.from, { y: 'center' }), userEvent: 'select.search' });
-  }
+  const parsed = parseNoteSearch(options.search, options);
+  findQuery = { parsed, options };
+  const matches = computeMatches();
+  const start = view.state.selection.main.from;
+  const after = matches.findIndex((match) => match.from >= start);
+  showMatch(matches, matches.length ? (after >= 0 ? after : 0) : -1);
   return findResult();
 }
 
+/** Texte qui remplace un résultat : `$1`… avec une expression régulière, le texte tel quel sinon. */
+function replacementFor(text: string): string {
+  if (!findQuery) return '';
+  const { parsed, options } = findQuery;
+  const single = parsed.single;
+  if (single && (options.regexp || /^\/.+\/[a-z]*$/.test(options.search.trim()))) return text.replace(new RegExp(single.source, single.flags.replace('g', '')), options.replace);
+  return options.replace;
+}
+
 function findStep(direction: 'next' | 'previous' | 'replace' | 'replaceAll'): FindResult {
-  if (!view) return NO_RESULT;
-  const command = { next: findNext, previous: findPrevious, replace: replaceNext, replaceAll }[direction];
-  command(view);
+  if (!view || !findQuery) return NO_RESULT;
+  const state = view.state.field(findField, false);
+  const matches = state?.matches ?? [];
+  if (!matches.length) return findResult();
+  const current = currentIndex(matches, state?.current ?? 0);
+  if (direction === 'next' || direction === 'previous') {
+    showMatch(matches, (current + (direction === 'next' ? 1 : -1) + matches.length) % matches.length);
+    return findResult();
+  }
+  const targets = direction === 'replaceAll' ? matches : [matches[Math.max(0, current)]!];
+  const changes = targets.map((match) => ({ from: match.from, to: match.to, insert: replacementFor(view!.state.sliceDoc(match.from, match.to)) }));
+  view.dispatch({ changes, userEvent: 'input.replace' });
+  // Puis le résultat suivant celui qui vient d'être remplacé.
+  const resume = direction === 'replace' ? changes[0]!.from + changes[0]!.insert.length : 0;
+  const next = computeMatches();
+  const after = next.findIndex((match) => match.from >= resume);
+  showMatch(next, next.length ? (after >= 0 ? after : 0) : -1);
   return findResult();
 }
 
 function findClose(): void {
-  if (view && searchPanelOpen(view.state)) closeSearchPanel(view);
+  findQuery = null;
+  if (view?.state.field(findField, false)) view.dispatch({ effects: setFindState.of(null) });
 }
 
 /** Texte sélectionné d'une seule ligne, pour préremplir la recherche. */
@@ -586,7 +639,7 @@ function selectionText(): string {
   return text.length <= 200 && !text.includes('\n') ? text : '';
 }
 
-defineExpose({ reveal, scrollToLine, scrollToSourceLine, insertBlock, findSet, findStep, findResult, findClose, selectionText, focus: () => view?.focus() });
+defineExpose({ reveal, scrollToLine, scrollToSourceLine, insertBlock, findSet, findStep, findResult, findRefresh, findClose, selectionText, focus: () => view?.focus() });
 
 // Pour le sommaire : la ligne lue, signalée une fois par image.
 let scrollFrame = 0;
@@ -643,16 +696,8 @@ onMounted(() => {
         EditorView.lineWrapping,
         placeholder(t('Écrivez en Markdown… @ pour mentionner, / pour insérer un élément.')),
         autocompletion({ override: [mentions, wikiLinks, slashCommands(handlers), highlightColors(() => props.obsidian)], addToOptions: [{ render: completionIcon, position: 20 }] }),
-        // Recherche (Ctrl F) : le moteur de CodeMirror, piloté par la barre de la note ; son propre panneau reste caché.
-        search({
-          top: true,
-          createPanel: () => {
-            const dom = document.createElement('div');
-            dom.className = 'cm-find-hidden';
-            return { dom, top: true };
-          },
-          scrollToMatch: (range) => EditorView.scrollIntoView(range, { y: 'center' }),
-        }),
+        // Recherche (Ctrl F) : résultats surlignés, et révélés dans le rendu « Lecture et écriture ».
+        findField,
         yCollab(text, awareness, { undoManager: new Y.UndoManager(text) }),
         keymap.of([
           { key: 'Mod-b', run: shortcut(t('Gras')) },
@@ -720,8 +765,6 @@ onMounted(() => {
           '.cm-ySelectionInfo': { padding: '1px 4px', borderRadius: '4px', fontFamily: 'inherit', fontSize: '0.7rem', fontWeight: '600', opacity: '1' },
           '.cm-doc-comment': { borderRadius: '2px', backgroundColor: 'color-mix(in srgb, #f59e0b 28%, transparent)' },
           // Recherche (Ctrl F) : mêmes couleurs que les résultats en lecture ; le panneau de CodeMirror reste caché.
-          '.cm-panels.cm-panels-top': { borderBottom: 'none' },
-          '.cm-find-hidden': { display: 'none' },
           '.cm-searchMatch': { borderRadius: '2px', backgroundColor: 'var(--fb-find-match)', outline: 'none' },
           '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'var(--fb-find-current)', color: 'var(--fb-find-current-text)' },
           '.cm-searchMatch-selected *': { color: 'inherit !important' },

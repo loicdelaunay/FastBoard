@@ -1,6 +1,8 @@
+import { parseNoteSearch, runNoteSearch, SEARCH_LIMIT, type SearchLine } from '@shared/noteSearch';
+
 /**
- * Recherche dans une note (Ctrl F), façon VS Code : la même barre sert en lecture (texte rendu) et en écriture (source,
- * via la recherche de CodeMirror).
+ * Recherche dans une note (Ctrl F), façon VS Code et Obsidian : la même barre et la même syntaxe de recherche
+ * (`shared/noteSearch`) servent en lecture (texte rendu) et en écriture (source Markdown).
  */
 
 export interface FindOptions {
@@ -21,28 +23,10 @@ export interface FindResult {
 
 export const NO_RESULT: FindResult = { total: 0, current: -1 };
 /** Au-delà, le compteur s'arrête (« 1000+ ») : une note géante ne fige pas la frappe. */
-export const FIND_LIMIT = 1000;
+export const FIND_LIMIT = SEARCH_LIMIT;
 
 export function emptyFindOptions(): FindOptions {
   return { search: '', caseSensitive: false, wholeWord: false, regexp: false, replace: '' };
-}
-
-const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-/** Expression à chercher dans du texte ; `null` pour une recherche vide, `'invalid'` pour une expression fautive. */
-export function compileFind(options: FindOptions): RegExp | null | 'invalid' {
-  if (!options.search) return null;
-  let source = options.regexp ? options.search : escape(options.search);
-  let flags = options.caseSensitive ? 'g' : 'gi';
-  if (options.wholeWord) {
-    source = `(?<![\\p{L}\\p{N}_])(?:${source})(?![\\p{L}\\p{N}_])`;
-    flags += 'u';
-  }
-  try {
-    return new RegExp(source, flags);
-  } catch {
-    return 'invalid';
-  }
 }
 
 /** Ce qui ne se lit pas comme du texte : formules (déjà lisibles en rendu), dessins, scripts. */
@@ -112,13 +96,15 @@ export class DomFinder {
 
   #collect(options: FindOptions): void {
     this.#ranges = [];
-    const pattern = compileFind(options);
-    this.#invalid = pattern === 'invalid';
+    const parsed = parseNoteSearch(options.search, options);
+    this.#invalid = parsed.error !== null;
     const root = this.root();
-    if (!root || !pattern || pattern === 'invalid') return;
+    if (!root || !parsed.node) return;
 
     // Tout le texte visible bout à bout, un saut de ligne entre deux blocs pour qu'un mot ne déborde pas sur le suivant.
+    // Chaque bloc dit s'il est une tâche (cochée ou non) ou un titre : `task:`, `section:`… s'en servent.
     const segments: Segment[] = [];
+    const blocks = new Map<number, Pick<SearchLine, 'task' | 'heading'>>();
     let text = '';
     let block: Element | null = null;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -126,10 +112,22 @@ export class DomFinder {
     });
     for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
       const owner = node.parentElement?.closest(BLOCK) ?? null;
-      if (segments.length && owner !== block) text += '\n';
+      if (owner !== block || !segments.length) {
+        if (segments.length) text += '\n';
+        const box = owner?.querySelector(':scope > input[type="checkbox"]') as HTMLInputElement | null;
+        const level = owner && /^H[1-6]$/.test(owner.tagName) ? Number(owner.tagName[1]) : 0;
+        blocks.set(text.length, { task: box ? (box.checked ? 'done' : 'todo') : null, heading: level });
+      }
       block = owner;
       segments.push({ node, start: text.length });
       text += node.data;
+    }
+    const lines: SearchLine[] = [];
+    let offset = 0;
+    for (const line of text.split('\n')) {
+      const meta = blocks.get(offset);
+      lines.push({ from: offset, to: offset + line.length, contentFrom: offset, task: meta?.task ?? null, heading: meta?.heading ?? 0 });
+      offset += line.length + 1;
     }
 
     const locate = (offset: number, end: boolean): { node: Text; offset: number } => {
@@ -144,10 +142,9 @@ export class DomFinder {
       return { node: segment.node, offset: Math.min(offset - segment.start, segment.node.length) };
     };
 
-    for (const match of text.matchAll(pattern)) {
-      if (!match[0].length) continue;
-      const from = locate(match.index, false);
-      const to = locate(match.index + match[0].length, true);
+    for (const match of runNoteSearch(parsed, text, lines)) {
+      const from = locate(match.from, false);
+      const to = locate(match.to, true);
       const range = document.createRange();
       range.setStart(from.node, from.offset);
       range.setEnd(to.node, to.offset);
