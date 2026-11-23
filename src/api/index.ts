@@ -1,6 +1,6 @@
 import { FILE_NAME_HEADER, type NotificationLevel, type TicketStatus } from '@shared/constants';
 import type { RoleScope, PermissionDef } from '@shared/permissions';
-import type { DocBookmarkDTO, DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocNodeInfoDTO, DocRole, DocSearchHitDTO, DocSiteDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, WikiDTO, WikiPageDTO, WikiSearchHitDTO } from '@shared/docs';
+import type { DocBookmarkDTO, DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocNodeInfoDTO, DocRescanResultDTO, DocRole, DocSearchHitDTO, DocSiteDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, WikiDTO, WikiPageDTO, WikiSearchHitDTO } from '@shared/docs';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
 import type { BoardAssetDTO, BoardElement, BoardIconDTO, BoardLinksDTO, BoardMemberDTO, BoardNodeDTO, BoardNodeKind, BoardRole, BoardSearchHitDTO, BoardShareAudience, BoardShareDTO, BoardShareInfoDTO, BoardShareRole, BoardSpaceDTO } from '@shared/boards';
 import type { LdapFields, LdapSettingsDTO, LdapTestResultDTO } from '@shared/ldap';
@@ -418,6 +418,7 @@ export const api = {
   docAddComment: (nodeId: number, input: Partial<DocQuote> & { body: string; parentId?: number }) => http<{ comment: DocCommentDTO }>('POST', `/documentation/nodes/${nodeId}/comments`, { body: input }),
   docResolveComment: (commentId: number, resolved: boolean) => http<{ comment: DocCommentDTO }>('PATCH', `/documentation/comments/${commentId}`, { body: { resolved } }),
   docDeleteComment: (commentId: number) => http<{ ok: true }>('DELETE', `/documentation/comments/${commentId}`),
+  docRescan: (spaceId: number) => http<{ result: DocRescanResultDTO; nodes: DocNodeDTO[]; templates: DocNodeDTO[] }>('POST', `/documentation/spaces/${spaceId}/rescan`, { body: {} }),
   docUploadImage: (spaceId: number, folder: string, file: File) => uploadDocFile<{ node: DocNodeDTO }>(`/documentation/spaces/${spaceId}/images?folder=${encodeURIComponent(folder)}`, file),
 
   adminAuth: () => http<{ ldap: LdapSettingsDTO }>('GET', '/admin/auth'),

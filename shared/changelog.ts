@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.9.0';
+export const APP_VERSION = '2.10.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,15 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.10.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Documentation : « Actualiser depuis le disque » (réglages de l’espace) relit le dossier de l’espace sur le serveur : les notes, images et dossiers ajoutés à la main entrent dans l’espace, les fichiers modifiés à côté sont relus, et ceux qui ont disparu passent à la corbeille.' },
+      { category: 'Nouveauté', text: 'Documentation : sélection multiple dans l’arbre des fichiers, comme dans un explorateur : Ctrl (Cmd) + clic, Maj + clic, Maj + flèches et Ctrl A ; la sélection se supprime (Suppr), se glisse vers un dossier ou s’ouvre dans des onglets.' },
+      { category: 'Correction', text: 'Documentation : on ne peut plus avoir un fichier et un dossier choisis en même temps dans l’arbre.' },
+    ],
+  },
   {
     version: '2.9.0',
     date: '2026-11-23',

@@ -35,6 +35,15 @@ export interface DocSpaceDTO {
   updatedAt: string;
 }
 
+/** Bilan de « Actualiser depuis le disque » : ce qui est entré dans l'espace, a été relu, ou est parti à la corbeille. */
+export interface DocRescanResultDTO {
+  added: number;
+  updated: number;
+  removed: number;
+  /** Fichiers ignorés : format non pris en charge, nom refusé, ou espace plein. */
+  skipped: number;
+}
+
 /** `members` : membres de l'espace ; `people` : personnes choisies ; `public` : tout le monde, sans compte. */
 export const DOC_SITE_VISIBILITIES = ['members', 'people', 'public'] as const;
 export type DocSiteVisibility = (typeof DOC_SITE_VISIBILITIES)[number];

@@ -631,6 +631,29 @@ function askRemove(node: DocNodeDTO): void {
   });
 }
 
+/** Plusieurs éléments choisis dans l'arbre : une seule confirmation, puis la corbeille. */
+function askRemoveMany(nodes: DocNodeDTO[]): void {
+  confirm.require({
+    header: t('Supprimer {n} éléments ?', { n: nodes.length }),
+    message: t('Ils vont à la corbeille pendant 15 jours, avec le contenu des dossiers choisis.'),
+    icon: 'pi pi-trash',
+    acceptLabel: t('Supprimer'),
+    rejectLabel: t('Annuler'),
+    acceptProps: { severity: 'danger' },
+    rejectProps: { severity: 'secondary', text: true },
+    accept: async () => {
+      for (const node of nodes) {
+        try {
+          await api.docDeleteNode(node.id);
+        } catch (error) {
+          notifyError(error);
+          return;
+        }
+      }
+    },
+  });
+}
+
 // --- Infos et note d'un fichier ou d'un dossier ---
 const infoNode = ref<DocNodeDTO | null>(null);
 const infoMode = ref<'info' | 'memo'>('info');
@@ -721,6 +744,7 @@ const spaceMenuItems = computed<MenuItem[]>(() => [
     ? [
         { label: t('Modifier l’espace'), icon: 'pi pi-cog', command: () => (settingsOpen.value = true) },
         { label: store.space?.site ? t('Site web…') : t('Activer le site web'), icon: 'pi pi-globe', command: () => (siteOpen.value = true) },
+        { label: t('Actualiser depuis le disque'), icon: 'pi pi-refresh', command: askRescan },
       ]
     : []),
   ...(store.space?.site ? [{ label: t('Ouvrir le site web'), icon: 'pi pi-external-link', command: () => window.open(`/wiki/${store.space!.site!.slug}`, '_blank', 'noopener') }] : []),
@@ -740,6 +764,34 @@ const switchItems = computed<MenuItem[]>(() => [
 async function openSwitcher(event: MouseEvent): Promise<void> {
   switchMenu.value?.toggle(event);
   if (!store.loaded) await store.fetchSpaces().catch(() => undefined);
+}
+
+/** Relit le dossier de l'espace sur le serveur : fichiers ajoutés, modifiés ou supprimés hors de FastBoard. */
+function askRescan(): void {
+  confirm.require({
+    header: t('Actualiser depuis le disque ?'),
+    message: t('Le dossier de l’espace sur le serveur est relu : les notes, images et dossiers ajoutés à la main entrent dans l’espace, les fichiers modifiés à côté sont relus (l’historique garde le texte précédent), et ceux qui ont disparu passent à la corbeille.'),
+    icon: 'pi pi-refresh',
+    acceptLabel: t('Actualiser'),
+    rejectLabel: t('Annuler'),
+    rejectProps: { severity: 'secondary', text: true },
+    accept: async () => {
+      try {
+        const { result } = await api.docRescan(spaceId.value);
+        await store.reload(spaceId.value);
+        const changes = result.added + result.updated + result.removed;
+        notify(
+          'success',
+          changes
+            ? t('Espace actualisé : {added} ajouté(s), {updated} mis à jour, {removed} à la corbeille.', { added: result.added, updated: result.updated, removed: result.removed })
+            : t('L’espace est déjà à jour avec le disque.'),
+          result.skipped ? t('{n} fichier ignoré (format non pris en charge ou nom refusé).|{n} fichiers ignorés (format non pris en charge ou nom refusé).', { n: result.skipped }) : undefined,
+        );
+      } catch (error) {
+        notifyError(error, t('Actualisation impossible'));
+      }
+    },
+  });
 }
 
 function askDeleteSpace(): void {
@@ -797,6 +849,7 @@ const recent = computed(() =>
         @save-as-template="askSaveAsTemplate"
         @rename="askRename"
         @remove="askRemove"
+        @remove-many="askRemoveMany"
         @move="moveNode"
         @export="exportNode"
         @import="askImport"

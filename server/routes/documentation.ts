@@ -28,6 +28,7 @@ import {
   readBytes,
   readText,
   removeMember,
+  rescanSpace,
   requireDocsEnabled,
   requireNode,
   requireSpace,
@@ -226,6 +227,13 @@ export function documentationRouter(ctx: AppContext): Router {
   router.get('/documentation/bookmarks', (_req, res) => {
     requireDocsEnabled(ctx.db);
     res.json({ bookmarks: listBookmarks(ctx, currentUser(res)) });
+  });
+
+  router.post('/documentation/spaces/:id/rescan', (req, res) => {
+    const spaceId = idParam(req.params.id);
+    requireSpace(ctx, currentUser(res), spaceId, 'owner');
+    const result = rescanSpace(ctx, actorOf(req, res), spaceId);
+    res.json({ result, nodes: listNodes(ctx.db, spaceId), templates: listTemplates(ctx.db, spaceId) });
   });
 
   router.get('/documentation/spaces/:id/trash', (req, res) => {

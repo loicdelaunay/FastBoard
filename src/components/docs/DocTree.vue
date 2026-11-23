@@ -12,9 +12,10 @@ import { matchesQuery } from '@/utils/search';
 
 import { t } from '@/i18n';
 /**
- * Arbre d'un espace : dossiers, notes et images. Un clic sélectionne un dossier (la flèche le déplie) ou ouvre un
- * fichier, Ctrl + clic ou le clic du milieu l'ouvre dans un nouvel onglet. Clic droit pour agir, glisser pour déplacer.
- * En bas, les modèles de notes de l'espace.
+ * Arbre d'un espace : dossiers, notes et images. Un clic sélectionne un élément (et ouvre un fichier) ; comme dans un
+ * explorateur de fichiers, Ctrl (Cmd) + clic ajoute ou retire un élément de la sélection, Maj + clic sélectionne une
+ * plage, et Maj + flèches l'étend au clavier. Le clic du milieu ouvre un fichier dans un nouvel onglet. Clic droit pour
+ * agir (sur toute la sélection), glisser pour déplacer. En bas, les modèles de notes de l'espace.
  */
 const props = defineProps<{ nodes: DocNodeDTO[]; templates: DocNodeDTO[]; selectedId: number | null; editable: boolean; spaceId: number }>();
 const emit = defineEmits<{
@@ -26,6 +27,8 @@ const emit = defineEmits<{
   saveAsTemplate: [node: DocNodeDTO];
   rename: [node: DocNodeDTO];
   remove: [node: DocNodeDTO];
+  /** Plusieurs éléments à mettre à la corbeille (le contenu d'un dossier choisi n'est pas répété). */
+  removeMany: [nodes: DocNodeDTO[]];
   move: [node: DocNodeDTO, folder: string];
   /** `null` : tout l'espace. */
   export: [node: DocNodeDTO | null];
@@ -47,8 +50,10 @@ interface Row {
 const search = ref('');
 const storageKey = computed(() => `fb.docs.closed.${props.spaceId}`);
 const closed = ref(new Set<number>());
-/** Dossier choisi d'un clic : les nouvelles notes y sont créées. */
-const folderId = ref<number | null>(null);
+/** Éléments sélectionnés (dossiers et fichiers) : un seul après un clic simple, plusieurs avec Ctrl ou Maj. */
+const selection = ref(new Set<number>());
+/** Point de départ d'une sélection avec Maj, et dernier élément choisi. */
+const anchorId = ref<number | null>(null);
 
 function loadClosed(): void {
   try {
@@ -89,7 +94,9 @@ watch(
   (id) => {
     const node = props.nodes.find((entry) => entry.id === id);
     if (!node) return;
-    folderId.value = null;
+    // Le fichier ouvert devient la sélection : jamais un fichier et un dossier choisis chacun de leur côté.
+    if (!selection.value.has(node.id) || selection.value.size > 1) selection.value = new Set([node.id]);
+    anchorId.value = node.id;
     const next = new Set(closed.value);
     let changed = false;
     for (let parent = docParent(node.path); parent; parent = docParent(parent)) {
@@ -216,26 +223,86 @@ watch(templatesOpen, (open) => {
 });
 const shownTemplates = computed(() => props.templates.filter((node) => !search.value.trim() || matchesQuery(search.value.trim(), [node.path])));
 
-/** Où créer une note : le dossier choisi, sinon celui du fichier ouvert. */
+/** Où créer une note : le dossier choisi (ou celui du fichier choisi), sinon celui du fichier ouvert. */
 const currentFolder = computed(() => {
-  const folder = props.nodes.find((node) => node.id === folderId.value);
-  if (folder) return folder.path;
+  const chosen = props.nodes.find((node) => node.id === anchorId.value && selection.value.has(node.id));
+  if (chosen) return chosen.kind === 'folder' ? chosen.path : docParent(chosen.path);
   const open = props.nodes.find((node) => node.id === props.selectedId);
   return open ? docParent(open.path) : '';
 });
 
+/** Éléments sélectionnés, dans l'ordre de l'arbre. */
+const selectedNodes = computed(() => props.nodes.filter((node) => selection.value.has(node.id)).sort((a, b) => a.path.localeCompare(b.path)));
+
+/** Sans ce que contient déjà un dossier choisi : il l'emporte avec lui (corbeille, déplacement). */
+function outermost(nodes: readonly DocNodeDTO[]): DocNodeDTO[] {
+  const folders = nodes.filter((node) => node.kind === 'folder').map((node) => `${node.path}/`);
+  return nodes.filter((node) => !folders.some((folder) => node.path.startsWith(folder)));
+}
+
+/** Lignes visibles de `from` à `to`, dans un sens ou dans l'autre. */
+function rangeIds(from: number, to: number): number[] {
+  const ids = rows.value.map((row) => row.node.id);
+  const start = ids.indexOf(from);
+  const end = ids.indexOf(to);
+  if (start < 0 || end < 0) return [to];
+  return ids.slice(Math.min(start, end), Math.max(start, end) + 1);
+}
+
 function select(row: Row, event: MouseEvent | KeyboardEvent): void {
-  if (row.node.kind === 'folder') {
-    folderId.value = row.node.id;
+  const id = row.node.id;
+  if (event.shiftKey && anchorId.value !== null) {
+    selection.value = new Set(rangeIds(anchorId.value, id));
     return;
   }
-  emit('open', row.node, event.ctrlKey || event.metaKey);
+  if (event.ctrlKey || event.metaKey) {
+    const next = new Set(selection.value);
+    if (next.has(id) && next.size > 1) next.delete(id);
+    else next.add(id);
+    selection.value = next;
+    anchorId.value = id;
+    return;
+  }
+  selection.value = new Set([id]);
+  anchorId.value = id;
+  if (row.node.kind !== 'folder') emit('open', row.node, false);
+}
+
+function focusRow(id: number): void {
+  list.value?.querySelector<HTMLElement>(`[data-node="${id}"]`)?.focus();
 }
 
 function onKey(row: Row, event: KeyboardEvent): void {
-  if (row.node.kind !== 'folder') return;
-  if (event.key === 'ArrowRight') toggle(row.node, true);
-  else if (event.key === 'ArrowLeft') toggle(row.node, false);
+  const index = rows.value.findIndex((entry) => entry.node.id === row.node.id);
+  const mod = event.ctrlKey || event.metaKey;
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    const next = rows.value[index + (event.key === 'ArrowDown' ? 1 : -1)];
+    if (!next) return;
+    focusRow(next.node.id);
+    if (event.shiftKey) {
+      anchorId.value ??= row.node.id;
+      selection.value = new Set(rangeIds(anchorId.value, next.node.id));
+    } else {
+      selection.value = new Set([next.node.id]);
+      anchorId.value = next.node.id;
+    }
+  } else if (mod && event.key.toLowerCase() === 'a') {
+    event.preventDefault();
+    selection.value = new Set(rows.value.map((entry) => entry.node.id));
+  } else if ((event.key === 'Delete' || event.key === 'Backspace') && props.editable && selectedNodes.value.length) {
+    event.preventDefault();
+    removeSelection();
+  } else if (event.key === 'Escape') {
+    selection.value = new Set(props.selectedId ? [props.selectedId] : []);
+  } else if (row.node.kind === 'folder' && event.key === 'ArrowRight') toggle(row.node, true);
+  else if (row.node.kind === 'folder' && event.key === 'ArrowLeft') toggle(row.node, false);
+}
+
+function removeSelection(): void {
+  const nodes = outermost(selectedNodes.value);
+  if (nodes.length === 1) emit('remove', nodes[0]!);
+  else if (nodes.length) emit('removeMany', nodes);
 }
 
 // --- Menu ---
@@ -244,6 +311,18 @@ const target = ref<DocNodeDTO | null>(null);
 const menuItems = computed<MenuItem[]>(() => {
   const node = target.value;
   if (node?.kind === 'template') return templateMenu(node);
+  // Clic droit sur une sélection de plusieurs éléments : ce qui vaut pour tous.
+  if (node && selection.value.size > 1 && selection.value.has(node.id)) {
+    const chosen = selectedNodes.value;
+    const files = chosen.filter((entry) => entry.kind !== 'folder');
+    return [
+      { label: t('{n} élément sélectionné|{n} éléments sélectionnés', { n: chosen.length }), disabled: true },
+      { separator: true },
+      ...(files.length ? [{ label: t('Ouvrir dans des onglets'), icon: 'pi pi-clone', command: () => files.forEach((file) => emit('open', file, true)) }] : []),
+      ...(props.editable ? [{ label: t('Supprimer la sélection'), icon: 'pi pi-trash', command: removeSelection }] : []),
+      { label: t('Désélectionner'), icon: 'pi pi-times', command: () => (selection.value = new Set()) },
+    ];
+  }
   const folder = node ? (node.kind === 'folder' ? node.path : docParent(node.path)) : '';
   const transfer: Record<'space' | Exclude<DocNodeDTO['kind'], 'template'>, { out: string; in: string }> = {
     space: { out: t('Exporter l’espace en ZIP'), in: t('Importer un .md ou un ZIP') },
@@ -310,25 +389,38 @@ function openMenu(event: MouseEvent, node: DocNodeDTO | null): void {
   event.preventDefault();
   event.stopPropagation();
   target.value = node;
-  if (node?.kind === 'folder') folderId.value = node.id;
+  // Un clic droit hors de la sélection la remplace, comme dans un explorateur de fichiers.
+  if (node && node.kind !== 'template' && !selection.value.has(node.id)) {
+    selection.value = new Set([node.id]);
+    anchorId.value = node.id;
+  }
   menu.value?.show(event);
 }
 
-// --- Glisser-déposer ---
-const dragged = ref<DocNodeDTO | null>(null);
+// --- Glisser-déposer : l'élément glissé, ou toute la sélection s'il en fait partie ---
+const dragged = ref<DocNodeDTO[]>([]);
 const over = ref<string | null>(null);
 
+function startDrag(node: DocNodeDTO): void {
+  if (selection.value.has(node.id) && selection.value.size > 1) dragged.value = outermost(selectedNodes.value);
+  else {
+    selection.value = new Set([node.id]);
+    anchorId.value = node.id;
+    dragged.value = [node];
+  }
+}
+
 function canDrop(folder: string): boolean {
-  const node = dragged.value;
-  if (!node || docParent(node.path) === folder) return false;
-  return node.kind !== 'folder' || (folder !== node.path && !folder.startsWith(`${node.path}/`));
+  const nodes = dragged.value;
+  if (!nodes.length) return false;
+  return nodes.some((node) => docParent(node.path) !== folder) && nodes.every((node) => node.kind !== 'folder' || (folder !== node.path && !folder.startsWith(`${node.path}/`)));
 }
 
 function dropOn(folder: string): void {
-  const node = dragged.value;
+  const nodes = dragged.value;
   over.value = null;
-  dragged.value = null;
-  if (node) emit('move', node, folder);
+  dragged.value = [];
+  for (const node of nodes) if (docParent(node.path) !== folder) emit('move', node, folder);
 }
 </script>
 
@@ -355,14 +447,14 @@ function dropOn(folder: string): void {
       <InputText v-model="search" size="small" :placeholder="$t('Filtrer…')" :aria-label="$t('Filtrer les fichiers')" fluid />
     </IconField>
 
-    <ul ref="list" class="list" role="tree" :aria-label="$t('Fichiers de l’espace')" @scroll.passive="onListScroll">
+    <ul ref="list" class="list" role="tree" aria-multiselectable="true" :aria-label="$t('Fichiers de l’espace')" @scroll.passive="onListScroll">
       <li v-if="stuck.length" class="sticky" role="presentation">
         <div class="sticky-rows">
           <div
             v-for="row in stuck"
             :key="row.node.id"
             class="sticky-row"
-            :class="{ chosen: row.node.id === folderId }"
+            :class="{ chosen: selection.has(row.node.id) }"
             :style="{ paddingLeft: indent(row.depth) }"
             :title="row.node.path"
             @click="revealRow(row)"
@@ -379,8 +471,9 @@ function dropOn(folder: string): void {
         class="row"
         role="treeitem"
         :aria-expanded="row.node.kind === 'folder' ? row.open : undefined"
-        :aria-selected="row.node.id === selectedId || row.node.id === folderId"
-        :class="{ selected: row.node.id === selectedId, chosen: row.node.id === folderId, dropping: over === row.node.path }"
+        :aria-selected="selection.has(row.node.id)"
+        :data-node="row.node.id"
+        :class="{ selected: selection.has(row.node.id), dropping: over === row.node.path }"
         :style="{ paddingLeft: indent(row.depth) }"
         :draggable="editable"
         :title="row.node.memo ? `${row.node.path}\n${row.node.memo}` : row.node.path"
@@ -391,8 +484,8 @@ function dropOn(folder: string): void {
         @keydown.enter="select(row, $event)"
         @keydown="onKey(row, $event)"
         @contextmenu="openMenu($event, row.node)"
-        @dragstart="dragged = row.node"
-        @dragend="(dragged = null), (over = null)"
+        @dragstart="startDrag(row.node)"
+        @dragend="(dragged = []), (over = null)"
         @dragover.prevent.stop="row.node.kind === 'folder' && canDrop(row.node.path) && (over = row.node.path)"
         @drop.prevent.stop="row.node.kind === 'folder' ? canDrop(row.node.path) && dropOn(row.node.path) : undefined"
       >
@@ -518,10 +611,6 @@ function dropOn(folder: string): void {
   background: var(--fb-accent-soft);
   color: var(--fb-accent);
   font-weight: 600;
-}
-.row.chosen {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fb-accent) 55%, transparent);
-  background: color-mix(in srgb, var(--fb-accent) 7%, transparent);
 }
 .row:focus-visible {
   outline: 2px solid var(--fb-accent);

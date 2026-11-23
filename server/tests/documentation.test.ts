@@ -419,6 +419,50 @@ describe('documentation', () => {
     assert.equal((await admin.request('PUT', '/api/admin/documentation', { imageFolder: 'Pictures' })).body.imageFolder, 'Pictures');
   });
 
+  it('s’actualise depuis les fichiers du disque', async () => {
+    const spaceId = await newSpace('Disque');
+    await bob.post(`/api/documentation/spaces/${spaceId}/members`, { userId: ids.vera, role: 'editor' });
+    const guide = await note(bob, spaceId, 'Guide', 'v1');
+    const gone = await note(bob, spaceId, 'Disparue', 'à garder');
+    // Déposés à la main dans le dossier de l'espace, sur le serveur.
+    fs.mkdirSync(disk(spaceId, 'Ajout'), { recursive: true });
+    fs.writeFileSync(disk(spaceId, 'Ajout', 'Note ajoutée.md'), '# Ajout\n\nTexte venu du disque');
+    fs.writeFileSync(disk(spaceId, 'Ajout', 'logo.png'), PNG);
+    fs.writeFileSync(disk(spaceId, 'rapport.pdf'), 'pdf');
+    fs.mkdirSync(disk(spaceId, '.obsidian'), { recursive: true });
+    fs.writeFileSync(disk(spaceId, '.obsidian', 'app.md'), 'caché');
+    fs.mkdirSync(disk(spaceId, '.templates'), { recursive: true });
+    fs.writeFileSync(disk(spaceId, '.templates', 'Compte rendu.md'), '# {{title}}');
+    // Modifiée et supprimée hors de FastBoard.
+    fs.writeFileSync(disk(spaceId, 'Guide.md'), 'v2 écrite à côté');
+    const later = new Date(Date.now() + 10_000);
+    fs.utimesSync(disk(spaceId, 'Guide.md'), later, later);
+    fs.rmSync(disk(spaceId, 'Disparue.md'));
+
+    assert.equal((await vera.post(`/api/documentation/spaces/${spaceId}/rescan`, {})).status, 403, 'réservé aux propriétaires');
+    const response = await bob.post(`/api/documentation/spaces/${spaceId}/rescan`, {});
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    assert.deepEqual(response.body.result, { added: 4, updated: 1, removed: 1, skipped: 1 });
+    const paths = (response.body.nodes as DocNodeDTO[]).map((node) => node.path).sort();
+    assert.deepEqual(paths, ['Ajout', 'Ajout/Note ajoutée.md', 'Ajout/logo.png', 'Guide.md']);
+    assert.deepEqual((response.body.templates as DocNodeDTO[]).map((node) => node.path), ['Compte rendu.md']);
+
+    assert.equal(await contentOf(bob, guide.id), 'v2 écrite à côté');
+    const versions = (await bob.get(`/api/documentation/nodes/${guide.id}/versions`)).body.versions as Array<{ origin: string }>;
+    assert.equal(versions[0]!.origin, 'import', 'une version garde le texte précédent');
+    const hits = (await bob.get(`/api/documentation/search?q=${encodeURIComponent('Note ajoutée')}`)).body.files as Array<{ path: string }>;
+    assert.ok(hits.some((hit) => hit.path === 'Ajout/Note ajoutée.md'), 'la note ajoutée se trouve');
+    assert.equal(await contentOf(bob, (response.body.nodes as DocNodeDTO[]).find((node) => node.path === 'Ajout/Note ajoutée.md')!.id), '# Ajout\n\nTexte venu du disque');
+
+    const trash = (await bob.get(`/api/documentation/spaces/${spaceId}/trash`)).body.nodes as DocNodeDTO[];
+    assert.ok(trash.some((node) => node.id === gone.id), 'la note disparue est à la corbeille');
+    await bob.post(`/api/documentation/nodes/${gone.id}/restore`, {});
+    assert.equal(await contentOf(bob, gone.id), 'à garder', 'et se restaure avec son dernier texte');
+
+    const again = await bob.post(`/api/documentation/spaces/${spaceId}/rescan`, {});
+    assert.deepEqual(again.body.result, { added: 0, updated: 0, removed: 0, skipped: 1 }, 'rien de plus la seconde fois');
+  });
+
   describe('export et import', () => {
     const exportZip = async (spaceId: number) => {
       const response = await fetch(`${app.base}/api/documentation/spaces/${spaceId}/export`, { headers: { Cookie: bob.cookie } });

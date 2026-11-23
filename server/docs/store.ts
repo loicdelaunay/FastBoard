@@ -3,7 +3,7 @@ import path from 'node:path';
 import { extractDocLinks } from '../../shared/docLinks.ts';
 import { docBaseName, docFileKind, docRoleAtLeast, docTitle, DOC_DEFAULT_IMAGE_FOLDER, DOC_LIMITS, normalizeDocPath, normalizeImageFolder, withMarkdownExtension } from '../../shared/docs.ts';
 import { applyDocTemplate } from '../../shared/docTemplates.ts';
-import type { DocBookmarkDTO, DocMemberDTO, DocNodeDTO, DocNodeInfoDTO, DocNodeKind, DocRole, DocSearchHitDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, DocVersionOrigin } from '../../shared/docs.ts';
+import type { DocBookmarkDTO, DocMemberDTO, DocRescanResultDTO, DocNodeDTO, DocNodeInfoDTO, DocNodeKind, DocRole, DocSearchHitDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, DocVersionOrigin } from '../../shared/docs.ts';
 import { hasPermission } from '../../shared/permissions.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { nowIso, type Db } from '../db/database.ts';
@@ -488,6 +488,141 @@ export function restoreNode(ctx: AppContext, actor: Actor, nodeId: number): DocN
   }
   ctx.docRooms.publishTree(node.space_id);
   return toNodeDTO(requireNode(db, nodeId));
+}
+
+// --- Actualiser depuis le disque ----------------------------------------------------------------------------------------
+
+interface DiskEntry {
+  relative: string;
+  kind: DocNodeKind;
+  file: string;
+  size: number;
+  mtime: number;
+}
+
+/** Fichiers et dossiers réellement présents dans le dossier de l'espace (dossiers cachés et fichiers temporaires exclus). */
+function diskEntries(ctx: AppContext, spaceId: number): { entries: DiskEntry[]; skipped: number } {
+  const root = spaceDir(ctx, spaceId);
+  fs.mkdirSync(root, { recursive: true });
+  const entries: DiskEntry[] = [];
+  let skipped = 0;
+  const walk = (dir: string, prefix: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      // Les liens symboliques pourraient mener hors de l'espace.
+      if (entry.isSymbolicLink()) continue;
+      const file = path.join(dir, entry.name);
+      if (!prefix && entry.name === TEMPLATES && entry.isDirectory()) {
+        for (const template of fs.readdirSync(file, { withFileTypes: true })) {
+          if (!template.isFile() || docFileKind(template.name) !== 'markdown' || normalizeDocPath(template.name) !== template.name) continue;
+          const stat = fs.statSync(path.join(file, template.name));
+          entries.push({ relative: template.name, kind: 'template', file: path.join(file, template.name), size: stat.size, mtime: stat.mtimeMs });
+        }
+        continue;
+      }
+      // Dossiers cachés (corbeille, .obsidian…) et fichiers en cours d'écriture.
+      if (entry.name.startsWith('.') || /\.\d+\.tmp$/.test(entry.name)) continue;
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (normalizeDocPath(relative) !== relative) {
+        skipped += 1;
+        continue;
+      }
+      if (entry.isDirectory()) {
+        entries.push({ relative, kind: 'folder', file, size: 0, mtime: 0 });
+        walk(file, relative);
+      } else if (entry.isFile()) {
+        const kind = docFileKind(entry.name);
+        if (!kind) {
+          skipped += 1;
+          continue;
+        }
+        const stat = fs.statSync(file);
+        entries.push({ relative, kind, file, size: stat.size, mtime: stat.mtimeMs });
+      }
+    }
+  };
+  walk(root, '');
+  return { entries, skipped };
+}
+
+/**
+ * Relit le dossier de l'espace sur le serveur et met l'arbre à jour : les fichiers et dossiers ajoutés à la main y
+ * entrent, ceux qui ont changé sont relus (une version garde le texte précédent), et ceux qui ont disparu passent à
+ * la corbeille, d'où une note se restaure avec son dernier texte connu.
+ */
+export function rescanSpace(ctx: AppContext, actor: Actor, spaceId: number): DocRescanResultDTO {
+  const { db } = ctx;
+  const { entries, skipped } = diskEntries(ctx, spaceId);
+  const keyOf = (kind: DocNodeKind, relative: string): string => `${kind === 'template' ? 'T' : 'N'}:${relative.toLowerCase()}`;
+  const onDisk = new Map(entries.map((entry) => [keyOf(entry.kind, entry.relative), entry]));
+  const nodes = db.all<NodeRow>(`SELECT ${NODE_COLUMNS} FROM doc_nodes WHERE space_id = ? AND deleted_at IS NULL ORDER BY path`, spaceId);
+  const known = new Map(nodes.map((node) => [keyOf(node.kind, node.path), node]));
+  const result: DocRescanResultDTO = { added: 0, updated: 0, removed: 0, skipped };
+  const now = nowIso();
+  const names = authorNames(ctx, actor.userId);
+
+  // Disparus du disque (ou devenus autre chose : un dossier à la place d'une note).
+  for (const node of nodes) {
+    const entry = onDisk.get(keyOf(node.kind, node.path));
+    if (entry && (entry.kind === node.kind || (isTextNode(entry) && isTextNode(node)))) continue;
+    ctx.docRooms.closeNode(node.id, 'deleted');
+    if (isTextNode(node)) {
+      const last = db.get<{ content: string }>('SELECT content FROM doc_versions WHERE node_id = ? ORDER BY id DESC LIMIT 1', node.id)?.content ?? '';
+      addVersion(ctx, actor, node, last, 'delete', names, last);
+    }
+    db.run('UPDATE doc_nodes SET deleted_at = ?, updated_by = ?, updated_at = ? WHERE id = ?', now, actor.userId, now, node.id);
+    known.delete(keyOf(node.kind, node.path));
+    result.removed += 1;
+  }
+
+  // Présents des deux côtés : le fichier a pu changer hors de FastBoard.
+  for (const entry of entries) {
+    const node = known.get(keyOf(entry.kind, entry.relative));
+    if (!node) continue;
+    if (node.path !== entry.relative) db.run('UPDATE doc_nodes SET path = ? WHERE id = ?', entry.relative, node.id);
+    if (entry.kind === 'folder') continue;
+    // Écrit par FastBoard, un fichier a la date de sa ligne ; plus récent ou d'une autre taille, il a été modifié à côté.
+    const changed = entry.size !== node.size || entry.mtime > Date.parse(node.updated_at) + 2000;
+    if (!changed) continue;
+    if (entry.kind === 'image') {
+      db.run('UPDATE doc_nodes SET size = ?, updated_by = ?, updated_at = ? WHERE id = ?', entry.size, actor.userId, now, node.id);
+      result.updated += 1;
+      continue;
+    }
+    const content = fs.readFileSync(entry.file, 'utf8').slice(0, DOC_LIMITS.fileChars);
+    const fresh = requireNode(db, node.id);
+    const previous = ctx.docRooms.currentText(node.id) ?? db.get<{ content: string }>('SELECT content FROM doc_versions WHERE node_id = ? ORDER BY id DESC LIMIT 1', node.id)?.content ?? '';
+    // Une note ouverte reçoit le texte du disque en direct ; sinon son index (recherche, liens) est refait.
+    if (!ctx.docRooms.replaceText(node.id, content)) storeText(ctx, fresh, content, actor.userId);
+    if (content !== previous) addVersion(ctx, actor, requireNode(db, node.id), content, 'import', names, previous);
+    result.updated += 1;
+  }
+
+  // Nouveaux : les dossiers avant leur contenu (ordre des chemins).
+  const added = entries.filter((entry) => !known.has(keyOf(entry.kind, entry.relative))).sort((a, b) => a.relative.localeCompare(b.relative));
+  let room = DOC_LIMITS.nodesPerSpace - (db.get<{ n: number }>('SELECT COUNT(*) AS n FROM doc_nodes WHERE space_id = ? AND deleted_at IS NULL', spaceId)?.n ?? 0);
+  for (const entry of added) {
+    if (room <= 0) {
+      result.skipped += 1;
+      continue;
+    }
+    db.transaction(() => {
+      if (entry.kind !== 'template') ensureFolders(ctx, spaceId, entry.relative, actor.userId);
+      if (entry.kind === 'folder' && activeNode(db, spaceId, entry.relative)) return;
+      const id = insertNode(db, spaceId, entry.relative, entry.kind, entry.size, actor.userId);
+      if (isTextNode(entry)) {
+        const content = fs.readFileSync(entry.file, 'utf8').slice(0, DOC_LIMITS.fileChars);
+        const node = requireNode(db, id);
+        storeText(ctx, node, content, actor.userId);
+        addVersion(ctx, actor, requireNode(db, id), content, 'import', names, '');
+      }
+    });
+    room -= 1;
+    result.added += 1;
+  }
+
+  ctx.docRooms.publishTree(spaceId);
+  ctx.logger.info('docs', `Espace actualisé depuis le disque : ${result.added} ajouté(s), ${result.updated} mis à jour, ${result.removed} retiré(s)`, { spaceId }, actor.userId);
+  return result;
 }
 
 // --- Contenu et historique -------------------------------------------------------------------------------------------

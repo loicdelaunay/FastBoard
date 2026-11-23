@@ -630,6 +630,17 @@ const OPERATIONS: Operation[] = [
   { method: 'post', path: '/documentation/spaces/{id}/members', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Ajouter un membre', params: DOC_SPACE_ID, body: S.docMemberSchema, status: 201, ok: obj({ members: arr(ref('DocMember')) }) },
   { method: 'patch', path: '/documentation/spaces/{id}/members/{userId}', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Changer le rôle d’un membre', params: { ...DOC_SPACE_ID, userId: 'Identifiant du membre.' }, body: S.docMemberRoleSchema, ok: obj({ members: arr(ref('DocMember')) }) },
   { method: 'delete', path: '/documentation/spaces/{id}/members/{userId}', tag: 'Espaces de documentation', permission: 'propriétaire de l’espace', summary: 'Retirer un membre', params: { ...DOC_SPACE_ID, userId: 'Identifiant du membre.' }, ok: obj({ members: arr(ref('DocMember')) }) },
+  {
+    method: 'post',
+    path: '/documentation/spaces/{id}/rescan',
+    tag: 'Espaces de documentation',
+    permission: 'propriétaire de l’espace',
+    summary: 'Actualiser depuis le disque',
+    description:
+      'Relit le dossier de l’espace sur le serveur (`docs/<id>/`) : les notes (`.md`), images et dossiers ajoutés à la main entrent dans l’espace, les fichiers modifiés hors de FastBoard sont relus (une version garde le texte précédent), et ceux qui ont disparu passent à la corbeille. Les dossiers cachés sont ignorés, sauf `.templates` (modèles).',
+    params: DOC_SPACE_ID,
+    ok: obj({ result: obj({ added: int(), updated: int(), removed: int(), skipped: int('Fichiers ignorés : format non pris en charge, nom refusé, espace plein.') }), nodes: arr(ref('DocNode')), templates: arr(ref('DocNode')) }),
+  },
   { method: 'get', path: '/documentation/spaces/{id}/trash', tag: 'Espaces de documentation', summary: 'Corbeille (15 jours)', params: DOC_SPACE_ID, ok: obj({ nodes: arr(ref('DocNode')) }) },
   { method: 'get', path: '/documentation/spaces/{id}/export', tag: 'Espaces de documentation', summary: 'Exporter un espace en ZIP', description: 'L’archive reproduit exactement l’arbre de l’espace, dossiers vides compris, et se lit comme un coffre Obsidian. Le texte exporté reste sur le serveur pour fusionner au retour.', params: DOC_SPACE_ID, okRaw: { contentType: 'application/zip', description: 'Archive de l’espace.' } },
   {
