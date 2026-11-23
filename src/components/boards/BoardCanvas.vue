@@ -216,6 +216,8 @@ const selectedGroups = computed(() => {
 });
 /** Éléments qui montrent leur propre contour de sélection. */
 const outlined = computed(() => {
+  // Pendant une capture (export, aperçu), rien n'est dessiné comme choisi.
+  if (exporting.value) return new Set<string>();
   const groups = selectedGroups.value;
   if (!groups.size) return selection.value;
   return new Set(
@@ -865,8 +867,10 @@ function nearHovered(world: Point): boolean {
 function updateHover(target: Element | null, world: Point): void {
   if (tool.value !== 'select' && tool.value !== 'connector') return;
   let id = target?.closest<SVGElement>('[data-id]')?.dataset.id ?? null;
-  // Les bulles de liaison sont un peu à l'extérieur de la forme : elle reste survolée tant que le pointeur en est proche.
-  if (!id && hoverId.value && nearHovered(world)) id = hoverId.value;
+  // Les bulles de liaison sont un peu à l'extérieur de la forme : elle reste survolée tant que le pointeur en est proche,
+  // même au-dessus d'un lien qui part déjà de ce côté (ou d'un trait, d'une section) : on peut atteindre la bulle.
+  const under = id ? index.value.get(id) : undefined;
+  if ((!under || !connectable(under)) && hoverId.value && nearHovered(world)) id = hoverId.value;
   if (id !== hoverId.value && !target?.closest('[data-dot]')) hoverId.value = id;
 }
 
@@ -1252,7 +1256,7 @@ const editRect = computed<Rect | null>(() => {
     const mid = geometry(element).mid;
     return { x: mid.x - 90, y: mid.y - 14, w: 180, h: 28 };
   }
-  if (element.type === 'frame') return { x: element.x, y: element.y - 32, w: Math.max(160, element.w), h: 30 };
+  if (element.type === 'frame') return { x: element.x, y: element.y - 32 / view.zoom, w: Math.max(160, element.w * view.zoom), h: 30 };
   if (element.type === 'shape') {
     const inner = box(element);
     return { x: element.x + inner.x, y: element.y + inner.y, w: inner.w, h: inner.h };
@@ -2408,20 +2412,24 @@ watch(
   },
   { flush: 'post' },
 );
+const BAR_GAP = 38;
 /** Au-dessus de la sélection, sans passer sous la barre d'outils ni sortir du tableau. */
 const toolbarScreen = computed(() => {
   const bounds = selectionBounds.value;
   if (!bounds || editing.value?.field === 'cells') return null;
   const top = toScreen({ x: bounds.x + bounds.w / 2, y: bounds.y });
   const half = barWidth.value / 2;
-  const below = toScreen({ x: 0, y: bounds.y + bounds.h }).y + 12;
-  const gap = barHeight.value + 16;
+  // Assez loin pour laisser libre la bulle de liaison du haut (ou du bas), à 16 px de la forme.
+  const below = toScreen({ x: 0, y: bounds.y + bounds.h }).y + BAR_GAP;
+  const gap = barHeight.value + BAR_GAP;
   return { x: Math.max(80 + half, Math.min(top.x, size.width - half - 8)), y: top.y - gap >= 8 ? top.y - gap : Math.min(below, size.height - barHeight.value - 12) };
 });
 const editStyle = computed(() => {
   const rect = editRect.value;
   if (!rect) return null;
-  return { width: `${rect.w}px`, minHeight: `${rect.h}px`, transform: `translate(${view.x + rect.x * view.zoom}px, ${view.y + rect.y * view.zoom}px) scale(${view.zoom})` };
+  // Le titre d'une section s'écrit à sa taille d'écran, comme il s'affiche.
+  const scale = editing.value?.field === 'title' ? 1 : view.zoom;
+  return { width: `${rect.w}px`, minHeight: `${rect.h}px`, transform: `translate(${view.x + rect.x * view.zoom}px, ${view.y + rect.y * view.zoom}px) scale(${scale})` };
 });
 const cursorClass = computed(() => {
   if (spaceDown.value || tool.value === 'hand') return 'cursor-grab';
@@ -2437,6 +2445,8 @@ const zoomOut = () => zoomAt(view.zoom / 1.2, { x: size.width / 2, y: size.heigh
 // --- Export en image -----------------------------------------------------------------------------------------------------
 
 const worldContent = ref<SVGGElement | null>(null);
+/** Échelle du titre des sections : l'inverse du zoom, pour qu'il reste lisible. */
+const titleScale = computed(() => (exporting.value ? 1 : 1 / view.zoom));
 /** Capture en cours : les animations s'arrêtent et les repères de l'éditeur se cachent. */
 const exporting = ref(false);
 const imageExportOpen = ref(false);
@@ -2454,21 +2464,39 @@ async function captureSvg(onlySelection: boolean, transparent: boolean): Promise
   if (!bounds || !content) return null;
   const ids = onlySelection ? new Set(chosen.map((element) => element.id)) : null;
   if (editing.value) commitEdit();
-  const kept = selection.value;
-  const keptEntered = entered.value;
-  select([]);
   hoverId.value = null;
+  captures += 1;
   exporting.value = true;
   await nextTick();
   try {
     const background = transparent ? null : getComputedStyle(root.value!).getPropertyValue('--board-canvas').trim() || '#ffffff';
     return await buildExportSvg(content, bounds, ids, background);
   } finally {
-    exporting.value = false;
-    select(kept);
-    entered.value = keptEntered;
+    captures -= 1;
+    if (!captures) exporting.value = false;
   }
 }
+let captures = 0;
+
+/** Aperçu de l'export dans la fenêtre : l'image de ce qui sera enregistré, et sa taille. */
+const exportPreview = ref<{ url: string; width: number; height: number } | null>(null);
+let previewRun = 0;
+async function previewExport(options: { transparent: boolean; selection: boolean }): Promise<void> {
+  const run = ++previewRun;
+  try {
+    const captured = await captureSvg(options.selection, options.transparent);
+    if (run !== previewRun) return;
+    if (exportPreview.value) URL.revokeObjectURL(exportPreview.value.url);
+    exportPreview.value = captured ? { url: URL.createObjectURL(new Blob([captured.svg], { type: 'image/svg+xml;charset=utf-8' })), width: captured.width, height: captured.height } : null;
+  } catch {
+    if (run === previewRun) exportPreview.value = null;
+  }
+}
+watch(imageExportOpen, (open) => {
+  if (open || !exportPreview.value) return;
+  URL.revokeObjectURL(exportPreview.value.url);
+  exportPreview.value = null;
+});
 
 async function exportImage(options: { format: ExportFormat; scale: number; transparent: boolean; selection: boolean }): Promise<void> {
   exportBusy.value = true;
@@ -2551,8 +2579,9 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
         <g v-for="element in frames" :key="element.id" :data-id="element.id" class="el frame" :class="[`c-${element.color}`, { selected: outlined.has(element.id) }]">
           <template v-if="element.type === 'frame'">
             <rect class="frame-body" :x="element.x" :y="element.y" :width="element.w" :height="element.h" rx="14" />
-            <foreignObject v-if="editingId !== element.id" :x="element.x" :y="element.y - 32" :width="Math.max(160, element.w)" height="30">
-              <div class="frame-title">{{ element.title || $t('Section') }}</div>
+            <!-- Le titre garde sa taille à l'écran, quel que soit le zoom (taille réelle dans un export). -->
+            <foreignObject v-if="editingId !== element.id" :x="element.x" :y="element.y - 32 * titleScale" :width="Math.max(160 * titleScale, element.w)" :height="30 * titleScale">
+              <div class="frame-title" :style="{ width: `${Math.max(160, element.w / titleScale)}px`, transform: `scale(${titleScale})` }">{{ element.title || $t('Section') }}</div>
             </foreignObject>
           </template>
         </g>
@@ -2877,6 +2906,8 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
       v-model:visible="imageExportOpen"
       :selection-count="selected.length"
       :busy="exportBusy"
+      :preview="exportPreview"
+      @preview="previewExport"
       @export="exportImage"
       @copy="copyImage"
       @mermaid="
@@ -3026,6 +3057,9 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
 }
 .frame-title {
   overflow: hidden;
+  box-sizing: border-box;
+  height: 30px;
+  transform-origin: 0 0;
   padding: 4px 6px;
   color: var(--el-text);
   font-size: 15px;

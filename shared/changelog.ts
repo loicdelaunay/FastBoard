@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.12.0';
+export const APP_VERSION = '2.12.1';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,16 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.12.1',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Amélioration', text: 'Tableaux blancs : la fenêtre d’export montre à droite l’aperçu de ce qui sera enregistré (tout le tableau ou la sélection, avec ou sans fond) et la taille du fichier.' },
+      { category: 'Amélioration', text: 'Tableaux blancs : le titre d’une section garde une taille lisible quel que soit le zoom.' },
+      { category: 'Correction', text: 'Tableaux blancs : le point bleu d’un côté d’où part déjà un lien ne disparaît plus quand on s’en approche, on peut en tirer un autre lien.' },
+      { category: 'Correction', text: 'Tableaux blancs : la barre de mise en forme se place plus haut et ne recouvre plus le point bleu du haut de l’élément choisi.' },
+    ],
+  },
   {
     version: '2.12.0',
     date: '2026-11-23',
