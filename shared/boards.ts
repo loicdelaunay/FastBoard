@@ -263,7 +263,12 @@ export interface IconElement extends Placed {
   color: BoardColor;
   /** Épaisseur du trait des icônes intégrées. */
   stroke: number;
+  /** Remplissage d'une icône intégrée : teinté (la couleur, en transparence) ou plein ; absent : au trait seulement. */
+  fill?: IconFill;
 }
+
+export const ICON_FILLS = ['tint', 'solid'] as const;
+export type IconFill = (typeof ICON_FILLS)[number];
 
 /** Image ou SVG envoyé dans l'espace : `asset` est la clé du fichier. */
 export interface ImageElement extends Placed {

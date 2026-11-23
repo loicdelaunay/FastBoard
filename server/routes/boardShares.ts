@@ -1,6 +1,7 @@
 import express, { type Request, type Router } from 'express';
 import { boardPreviewSvg } from '../../shared/boardPreview.ts';
 import { authenticate } from '../auth/authenticate.ts';
+import { previewResources } from '../boards/assets.ts';
 import { readBoardElements } from '../boards/store.ts';
 import { resolveShare, shareInfo, unlockShare } from '../boards/shares.ts';
 import type { AppContext } from '../context.ts';
@@ -44,9 +45,9 @@ export function boardSharesRouter(ctx: AppContext): Router {
   router.get('/board-shares/:slug/preview', (req, res) => {
     const grant = resolveShare(ctx, visitor(req), String(req.params.slug), token(req));
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox");
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.send(boardPreviewSvg(readBoardElements(ctx, { id: grant.boardId }), { maxWidth: 1200 }));
+    res.send(boardPreviewSvg(readBoardElements(ctx, { id: grant.boardId }), { maxWidth: 1200, ...previewResources(ctx) }));
   });
 
   return router;

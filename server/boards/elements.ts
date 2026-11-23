@@ -156,7 +156,7 @@ export function sanitizeElement(value: unknown): BoardElement | null {
     case 'icon': {
       const icon = typeof raw.icon === 'string' ? raw.icon : '';
       if (!ICON_ID.test(icon)) return null;
-      return { ...box, type: 'icon', icon, color: color(raw.color), stroke: num(raw.stroke, 2, 0.5, 4) };
+      return { ...box, type: 'icon', icon, color: color(raw.color), stroke: num(raw.stroke, 2, 0.5, 4), ...(raw.fill === 'tint' || raw.fill === 'solid' ? { fill: raw.fill } : {}) };
     }
     case 'image': {
       const asset = typeof raw.asset === 'string' ? raw.asset : '';

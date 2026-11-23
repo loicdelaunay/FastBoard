@@ -1,5 +1,5 @@
-import { shallowRef } from 'vue';
-import type { BoardIconDTO } from '@shared/boards';
+import { ref, shallowRef } from 'vue';
+import type { BoardColor, BoardIconDTO, IconFill } from '@shared/boards';
 import { api } from '@/api';
 
 /**
@@ -37,3 +37,10 @@ export function libraryMarkup(id: string): string {
   const icon = library?.libraryIcon(id);
   return library && icon ? library.iconMarkup(icon.node) : '';
 }
+
+/** Style et couleur des prochaines icônes posées, choisis dans le sélecteur d'icônes (gardés le temps de la page). */
+export const iconFill = ref<IconFill | null>(null);
+export const iconColor = ref<BoardColor>('default');
+
+/** Couleur CSS d'une icône du tableau : celle du texte par défaut, sinon le trait de la couleur choisie. */
+export const iconCssColor = (color: BoardColor): string => (color === 'default' ? 'var(--board-default-text)' : `var(--board-${color}-stroke)`);

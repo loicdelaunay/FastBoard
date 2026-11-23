@@ -34,7 +34,7 @@ import {
   updateBoardSpace,
   writeBoardElements,
 } from '../boards/store.ts';
-import { addIcon, deleteAsset, deleteIcon, listAssets, listIcons, requireAsset } from '../boards/assets.ts';
+import { addIcon, deleteAsset, deleteIcon, listAssets, listIcons, previewResources, requireAsset } from '../boards/assets.ts';
 import { boardLinks } from '../boards/links.ts';
 import { getBoardShare, removeBoardShare, saveBoardShare } from '../boards/shares.ts';
 import { badRequest } from '../http/errors.ts';
@@ -315,10 +315,10 @@ export function boardsRouter(ctx: AppContext): Router {
     const width = Math.min(1600, Math.max(120, Number(req.query.width) || 640));
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     // Une image, rien d'autre : pas de script, pas de ressource externe.
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox");
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-cache');
-    res.send(boardPreviewSvg(readBoardElements(ctx, node), { maxWidth: width, dark: req.query.theme === 'dark' }));
+    res.send(boardPreviewSvg(readBoardElements(ctx, node), { maxWidth: width, dark: req.query.theme === 'dark', ...previewResources(ctx) }));
   });
 
   return router;

@@ -1636,7 +1636,7 @@ function onKeyUp(event: KeyboardEvent): void {
 // --- Actions de la barre de sélection et du menu -----------------------------------------------------------------------
 
 /** Réglages facultatifs, absents des éléments qui ont la valeur habituelle. */
-const OPTIONAL_FIELDS: Partial<Record<BoardElement['type'], string[]>> = { connector: ['weight', 'waypoints', 'jump', 'animation', 'animationReverse', 'animationColor', 'animationSpeed'] };
+const OPTIONAL_FIELDS: Partial<Record<BoardElement['type'], string[]>> = { icon: ['fill'], connector: ['weight', 'waypoints', 'jump', 'animation', 'animationReverse', 'animationColor', 'animationSpeed'] };
 
 function patchSelection(patch: Record<string, unknown>, filter?: (element: BoardElement) => boolean): void {
   const patches = new Map<string, Record<string, unknown>>();
@@ -2116,7 +2116,7 @@ async function addQuick(pick: QuickPick): Promise<void> {
       openImport();
       return;
     case 'icon': {
-      const element: IconElement = { id: newElementId(), type: 'icon', z: model.nextZ(), x: snap(at.x - 32), y: snap(at.y - 32), w: 64, h: 64, icon: pick.icon, color: 'default', stroke: 2 };
+      const element: IconElement = { id: newElementId(), type: 'icon', z: model.nextZ(), x: snap(at.x - 32), y: snap(at.y - 32), w: 64, h: 64, icon: pick.icon, color: pick.color ?? 'default', stroke: 2, ...(pick.fill && pick.icon.startsWith('lucide:') ? { fill: pick.fill } : {}) };
       place(element, false);
       return;
     }
@@ -2707,7 +2707,7 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
           <g v-else-if="element.type === 'icon'" :data-id="element.id" class="el icon" :class="{ selected: outlined.has(element.id) }">
             <rect class="hit" :x="element.x" :y="element.y" :width="element.w" :height="element.h" />
             <!-- eslint-disable-next-line vue/no-v-html -- icône de la bibliothèque intégrée (attributs échappés). -->
-            <svg v-if="element.icon.startsWith('lucide:')" :x="element.x" :y="element.y" :width="element.w" :height="element.h" viewBox="0 0 24 24" fill="none" :stroke="iconStroke(element)" :stroke-width="element.stroke" stroke-linecap="round" stroke-linejoin="round" v-html="libraryMarkup(element.icon)"></svg>
+            <svg v-if="element.icon.startsWith('lucide:')" :x="element.x" :y="element.y" :width="element.w" :height="element.h" viewBox="0 0 24 24" :fill="element.fill ? iconStroke(element) : 'none'" :fill-opacity="element.fill === 'tint' ? 0.22 : undefined" :stroke="iconStroke(element)" :stroke-width="element.stroke" stroke-linecap="round" stroke-linejoin="round" v-html="libraryMarkup(element.icon)"></svg>
             <image v-else-if="element.color === 'default'" :href="customIconUrl(element)" :x="element.x" :y="element.y" :width="element.w" :height="element.h" preserveAspectRatio="xMidYMid meet" />
             <foreignObject v-else :x="element.x" :y="element.y" :width="element.w" :height="element.h">
               <div class="icon-mask" :style="{ maskImage: `url(${customIconUrl(element)})`, WebkitMaskImage: `url(${customIconUrl(element)})`, backgroundColor: iconStroke(element) }"></div>
@@ -2861,7 +2861,7 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
       <div ref="editBox" class="edit-text" contenteditable="plaintext-only" spellcheck="true" @keydown="onEditKey" @blur="commitEdit" @pointerdown.stop></div>
     </div>
 
-    <BoardToolbar v-model:mode="mode" v-model:tool="tool" v-model:shape="shapeKind" v-model:mockup="mockupKind" v-model:sticky-color="stickyColor" v-model:pen-color="penColor" class="board-ui" :editable="editable" @import="openImport" @fast="pickerOpen = true" @quick="(tab) => openQuick(null, tab)" />
+    <BoardToolbar v-model:mode="mode" v-model:tool="tool" v-model:shape="shapeKind" v-model:mockup="mockupKind" v-model:sticky-color="stickyColor" v-model:pen-color="penColor" class="board-ui" :editable="editable" @import="openImport" @fast="pickerOpen = true" @quick="(tab) => openQuick(null, tab)" @pick="addQuick" />
 
     <BoardSelectionBar
       v-if="toolbarScreen && selected.length && !busy"

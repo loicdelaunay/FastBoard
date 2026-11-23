@@ -1,5 +1,5 @@
 import { shapePath } from '@shared/boardGeometry';
-import type { BoardAssetDTO, BoardColor, FastRefKind, MockupKind, ShapeKind } from '@shared/boards';
+import type { BoardAssetDTO, BoardColor, FastRefKind, IconFill, MockupKind, ShapeKind } from '@shared/boards';
 
 /** Modes et outils de la barre latérale des tableaux blancs. */
 
@@ -31,7 +31,7 @@ export type SelectionAction =
 /** Ce que l'on ajoute depuis l'ajout rapide (clic droit, barre latérale, touche /). */
 export type QuickPick =
   | { kind: 'element'; tool: BoardTool; shape?: ShapeKind; mockup?: MockupKind }
-  | { kind: 'icon'; icon: string }
+  | { kind: 'icon'; icon: string; color?: BoardColor; fill?: IconFill | null }
   | { kind: 'image'; asset: BoardAssetDTO }
   | { kind: 'template'; id: number; name: string }
   | { kind: 'mermaid' };

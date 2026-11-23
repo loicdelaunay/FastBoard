@@ -565,8 +565,19 @@ describe('tableaux blancs', () => {
     const file = await app.client().raw('GET', `/api/board-assets/${asset.key}`);
     assert.equal(file.status, 200);
     assert.equal(file.headers.get('content-type'), 'image/png');
+    // L'aperçu d'un tableau (celui d'un tableau cité dans une note) montre l'image, pas seulement son nom.
+    const picture = { id: 'p', type: 'image', z: 1, x: 0, y: 0, w: 120, h: 80, asset: asset.key, name: 'logo.png' };
+    const filled = { ...icon, id: 'k', fill: 'tint' };
+    const withImage = await newBoard(spaceId, 'Avec image', [picture, filled] as unknown as BoardElement[]);
+    const shown = await bob.raw('GET', `/api/boards/nodes/${withImage.id}/preview`);
+    assert.match(shown.bytes.toString('utf8'), /<image [^>]*href="data:image\/png;base64,iVBORw0KGgo/);
+    assert.match(shown.bytes.toString('utf8'), /fill-opacity="0.22"/, 'icône teintée');
+    assert.match(shown.headers.get('content-security-policy') ?? '', /img-src data:/);
+    assert.equal(((await bob.get(`/api/boards/nodes/${withImage.id}`)).body.elements as Array<{ id: string; fill?: string }>).find((element) => element.id === 'k')?.fill, 'tint');
     assert.equal((await vera.request('DELETE', `/api/boards/assets/${asset.id}`)).status, 403);
     assert.equal((await bob.request('DELETE', `/api/boards/assets/${asset.id}`)).status, 200);
+    // Image retirée de l'espace : l'aperçu en garde la place, avec son nom.
+    assert.doesNotMatch((await bob.raw('GET', `/api/boards/nodes/${withImage.id}/preview`)).bytes.toString('utf8'), /<image /);
     assert.equal((await app.client().raw('GET', `/api/board-assets/${asset.key}`)).status, 404);
   });
 

@@ -83,7 +83,16 @@ function textBlock(text: string, box: Rect, fontSize: number, fill: string, alig
 }
 
 /** Aperçu SVG des éléments d'un tableau ; un tableau vide donne un cadre vide. */
-export function boardPreviewSvg(elements: readonly BoardElement[], options: { maxWidth?: number; dark?: boolean } = {}): string {
+export interface PreviewOptions {
+  maxWidth?: number;
+  dark?: boolean;
+  /** Contenu d'une image de l'espace, en adresse `data:` (l'aperçu ne charge rien d'extérieur) ; `null` : sa place seule. */
+  image?: (assetKey: string) => string | null;
+  /** Contenu d'une icône ajoutée par un administrateur (`custom:12` → 12), en adresse `data:`. */
+  customIcon?: (iconId: number) => string | null;
+}
+
+export function boardPreviewSvg(elements: readonly BoardElement[], options: PreviewOptions = {}): string {
   const palette = options.dark ? BOARD_PALETTE_DARK : BOARD_PALETTE;
   const s = options.dark ? SURFACES.dark : SURFACES.light;
   const index = new Map(elements.map((element) => [element.id, element]));
@@ -168,17 +177,26 @@ export function boardPreviewSvg(elements: readonly BoardElement[], options: { ma
         const stroke = element.color === 'default' ? s.ink : palette[element.color].stroke;
         const box = `x="${n(element.x)}" y="${n(element.y)}" width="${n(element.w)}" height="${n(element.h)}"`;
         if (icon) {
-          parts.push(`<svg ${box} viewBox="0 0 24 24" fill="none" stroke="${stroke}" stroke-width="${element.stroke}" stroke-linecap="round" stroke-linejoin="round">${iconMarkup(icon.node)}</svg>`);
+          const fill = element.fill ? `"${stroke}"${element.fill === 'tint' ? ' fill-opacity="0.22"' : ''}` : '"none"';
+          parts.push(`<svg ${box} viewBox="0 0 24 24" fill=${fill} stroke="${stroke}" stroke-width="${element.stroke}" stroke-linecap="round" stroke-linejoin="round">${iconMarkup(icon.node)}</svg>`);
         } else {
-          // Icône ajoutée : l'aperçu ne charge rien d'extérieur, il en garde la place.
-          parts.push(`<rect ${box} rx="6" fill="${stroke}" fill-opacity="0.18"/>`);
+          // Icône ajoutée : intégrée si on la fournit (l'aperçu ne charge rien d'extérieur), sinon sa place.
+          const data = /^custom:\d+$/.test(element.icon) ? options.customIcon?.(Number(element.icon.slice(7))) : null;
+          if (data) parts.push(`<image ${box} href="${escape(data)}" preserveAspectRatio="xMidYMid meet"/>`);
+          else parts.push(`<rect ${box} rx="6" fill="${stroke}" fill-opacity="0.18"/>`);
         }
         break;
       }
-      case 'image':
-        parts.push(`<rect x="${n(element.x)}" y="${n(element.y)}" width="${n(element.w)}" height="${n(element.h)}" rx="6" fill="${s.surface}" stroke="${s.grid}"/>`);
-        parts.push(textBlock(element.name, element, 12, s.muted));
+      case 'image': {
+        const data = options.image?.(element.asset);
+        if (data) {
+          parts.push(`<image x="${n(element.x)}" y="${n(element.y)}" width="${n(element.w)}" height="${n(element.h)}" href="${escape(data)}" preserveAspectRatio="xMidYMid meet"/>`);
+        } else {
+          parts.push(`<rect x="${n(element.x)}" y="${n(element.y)}" width="${n(element.w)}" height="${n(element.h)}" rx="6" fill="${s.surface}" stroke="${s.grid}"/>`);
+          parts.push(textBlock(element.name, element, 12, s.muted));
+        }
         break;
+      }
       case 'mockup': {
         const paint = {
           ink: palette.default.text,

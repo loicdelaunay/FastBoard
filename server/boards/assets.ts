@@ -103,6 +103,46 @@ export function removeSpaceAssets(ctx: AppContext, spaceId: number): void {
   }
 }
 
+/** Taille maximale d'une image intégrée à un aperçu, et de l'ensemble des images d'un aperçu. */
+const PREVIEW_IMAGE_BYTES = 3 * 1024 * 1024;
+const PREVIEW_TOTAL_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Images et icônes à intégrer dans l'aperçu d'un tableau (en adresses `data:`, l'aperçu ne chargeant rien d'extérieur).
+ * Une image trop lourde, ou au-delà du total permis, garde seulement sa place.
+ */
+export function previewResources(ctx: AppContext): { image: (key: string) => string | null; customIcon: (id: number) => string | null } {
+  const seen = new Map<string, string | null>();
+  let total = 0;
+  const once = (key: string, load: () => { mime: string; data: Buffer } | null): string | null => {
+    if (seen.has(key)) return seen.get(key)!;
+    let result: string | null = null;
+    try {
+      const loaded = load();
+      if (loaded && loaded.data.length <= PREVIEW_IMAGE_BYTES && total + loaded.data.length <= PREVIEW_TOTAL_BYTES) {
+        total += loaded.data.length;
+        result = `data:${loaded.mime};base64,${loaded.data.toString('base64')}`;
+      }
+    } catch {
+      // Fichier manquant : l'aperçu garde la place de l'image.
+    }
+    seen.set(key, result);
+    return result;
+  };
+  return {
+    image: (key) =>
+      once(`a:${key}`, () => {
+        const asset = assetByKey(ctx.db, key);
+        return asset ? { mime: asset.mime, data: fs.readFileSync(assetFile(ctx, asset.key)) } : null;
+      }),
+    customIcon: (id) =>
+      once(`i:${id}`, () => {
+        const svg = iconSvg(ctx.db, id);
+        return svg ? { mime: 'image/svg+xml', data: Buffer.from(svg, 'utf8') } : null;
+      }),
+  };
+}
+
 // --- Icônes ajoutées par les administrateurs --------------------------------------------------------------------------
 
 export function listIcons(db: Db): BoardIconDTO[] {

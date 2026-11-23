@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.13.0';
+export const APP_VERSION = '2.14.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,16 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.14.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Tableaux blancs : les outils Forme et Composant de maquette ouvrent une palette en colonne où chaque élément se voit tel qu’il sera posé. Une recherche en tête filtre le bloc ouvert et propose, en petit, ce qui correspond ailleurs (autres éléments, icônes).' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : dans le choix d’une icône, on règle son style (contour, teinté ou plein) et sa couleur avant de la poser ; le style se change aussi dans la barre de mise en forme.' },
+      { category: 'Correction', text: 'Documentation : un tableau blanc cité dans une note montre ses images et ses icônes ajoutées, au lieu d’un cadre avec leur nom.' },
+      { category: 'Correction', text: 'Tableaux blancs : les onglets de l’ajout rapide et du menu des icônes ne sont plus écrasés.' },
+    ],
+  },
   {
     version: '2.13.0',
     date: '2026-11-23',

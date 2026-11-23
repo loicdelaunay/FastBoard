@@ -43,6 +43,9 @@ function weightIcon(weight: ConnectorWeight): string {
   const head = { s: 3, m: 3.6, l: 4.4, xl: 5.4 }[weight];
   return `<svg viewBox="0 0 28 14" width="28" height="14"><path d="M2,7 H${24 - head * 1.2}" stroke="currentColor" stroke-width="${line}"/><path d="M26,7 L${26 - head * 1.8},${7 - head} L${26 - head * 1.8},${7 + head} Z" fill="currentColor"/></svg>`;
 }
+/** Remplissage d'une icône au trait : contour seul, teinté, ou plein. */
+const ICON_FILL_CHOICES = ['none', 'tint', 'solid'] as const;
+const ICON_FILL_LABELS = { none: 'Contour', tint: 'Teinté', solid: 'Plein' } as const;
 const JUMP_LABELS: Record<ConnectorJump | 'none', string> = { none: 'Croisement simple', arc: 'Saut en arc', gap: 'Coupure', sharp: 'Saut en pointe' };
 /** Aperçu d'un croisement : le lien horizontal passe par-dessus le lien vertical. */
 function jumpIcon(jump: ConnectorJump | 'none'): string {
@@ -123,6 +126,12 @@ function toggle(menu: Menu): void {
         <div v-if="open === 'color'" class="menu row">
           <button v-for="value in BOARD_COLORS" :key="value" v-tooltip.top="$t(COLOR_LABELS[value])" type="button" class="swatch" :class="[`s-${value}`, { active: value === color }]" :aria-label="$t(COLOR_LABELS[value])" @click="patch({ color: value })"></button>
         </div>
+      </div>
+
+      <div v-if="strokable" class="group segmented">
+        <button v-for="fill in ICON_FILL_CHOICES" :key="fill" v-tooltip.top="$t(ICON_FILL_LABELS[fill])" type="button" class="item" :class="{ active: (firstOf('icon')?.fill ?? 'none') === fill }" :aria-label="$t(ICON_FILL_LABELS[fill])" @click="patch({ fill: fill === 'none' ? undefined : fill })">
+          <span class="fill-icon" :class="`i-${fill}`"></span>
+        </button>
       </div>
 
       <div v-if="strokable" class="group segmented">
@@ -513,6 +522,12 @@ function toggle(menu: Menu): void {
 .fill-icon.f-none {
   border-style: dashed;
   opacity: 0.6;
+}
+.fill-icon.i-tint {
+  background: color-mix(in srgb, currentColor 28%, transparent);
+}
+.fill-icon.i-solid {
+  background: currentColor;
 }
 .fill-icon.v-primary {
   background: currentColor;

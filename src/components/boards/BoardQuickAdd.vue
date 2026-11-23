@@ -4,14 +4,14 @@ import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
 import InputText from 'primevue/inputtext';
 import { useConfirm } from 'primevue/useconfirm';
-import { boardAssetUrl, boardIconUrl, MOCKUP_KINDS, SHAPE_KINDS, type BoardAssetDTO, type BoardNodeDTO } from '@shared/boards';
+import { BOARD_COLORS, boardAssetUrl, boardIconUrl, MOCKUP_KINDS, SHAPE_KINDS, type BoardAssetDTO, type BoardNodeDTO } from '@shared/boards';
 import { MOCKUP_LABELS } from '@shared/boardMockup';
 import { api } from '@/api';
 import { t } from '@/i18n';
 import { darkMode } from '@/theme/themeManager';
 import { notifyError } from '@/utils/notify';
-import { customIcons, iconLibrary, libraryMarkup, loadCustomIcons, loadIconLibrary } from './editor/icons';
-import { MOCKUP_ICONS, SHAPE_LABELS, shapeIcon, type BoardTool, type QuickPick } from './editor/tools';
+import { customIcons, iconColor, iconCssColor, iconFill, iconLibrary, libraryMarkup, loadCustomIcons, loadIconLibrary } from './editor/icons';
+import { COLOR_LABELS, MOCKUP_ICONS, SHAPE_LABELS, shapeIcon, type BoardTool, type QuickPick } from './editor/tools';
 
 /**
  * Ajout rapide : une recherche sur tout ce qui se pose sur un tableau (formes, textes, post-it, sections, cartes
@@ -127,8 +127,17 @@ watch(active, async () => {
   list.value?.querySelector('.active')?.scrollIntoView({ block: 'nearest' });
 });
 
+/** Style des icônes posées : au trait (contour), teintées ou pleines, dans la couleur choisie. */
+const ICON_FILLS = [
+  { value: null, label: 'Contour' },
+  { value: 'tint', label: 'Teinté' },
+  { value: 'solid', label: 'Plein' },
+] as const;
+
 function choose(entry: Entry | undefined): void {
-  if (entry) emit('pick', entry.pick);
+  if (!entry) return;
+  // Une icône part avec le style et la couleur choisis en tête de la liste.
+  emit('pick', entry.pick.kind === 'icon' ? { ...entry.pick, color: iconColor.value, fill: iconFill.value } : entry.pick);
 }
 
 function onKey(event: KeyboardEvent): void {
@@ -256,10 +265,20 @@ const style = computed(() => {
 
       <section v-if="shownIcons.length" class="group">
         <h5>{{ $t('Icônes') }}</h5>
-        <div class="grid icons">
+        <div class="icon-style" role="group" :aria-label="$t('Style et couleur des icônes')">
+          <div class="segmented">
+            <button v-for="choice in ICON_FILLS" :key="choice.label" v-tooltip.top="$t(choice.label)" type="button" class="style" :class="{ active: iconFill === choice.value }" :aria-label="$t(choice.label)" :aria-pressed="iconFill === choice.value" @click="iconFill = choice.value">
+              <svg viewBox="0 0 24 24" :fill="choice.value ? 'currentColor' : 'none'" :fill-opacity="choice.value === 'tint' ? 0.22 : undefined" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6 .8-4.4 4.2 1.1 6-5.3-3-5.3 3 1.1-6L3.4 9.4l6-.8z" /></svg>
+            </button>
+          </div>
+          <div class="swatches">
+            <button v-for="color in BOARD_COLORS" :key="color" v-tooltip.top="$t(COLOR_LABELS[color])" type="button" class="swatch" :class="{ active: iconColor === color }" :style="{ background: iconCssColor(color) }" :aria-label="$t(COLOR_LABELS[color])" :aria-pressed="iconColor === color" @click="iconColor = color"></button>
+          </div>
+        </div>
+        <div class="grid icons" :style="{ color: iconCssColor(iconColor) }">
           <button v-for="entry in shownIcons" :key="entry.key" v-tooltip.top="entry.label" type="button" class="tile icon" :class="{ active: position(entry) === active }" :aria-label="entry.label" @click="choose(entry)" @pointerenter="active = position(entry)">
             <!-- eslint-disable-next-line vue/no-v-html -- icône de la bibliothèque intégrée (attributs échappés). -->
-            <svg v-if="entry.svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="entry.svg"></svg>
+            <svg v-if="entry.svg" viewBox="0 0 24 24" :fill="iconFill ? 'currentColor' : 'none'" :fill-opacity="iconFill === 'tint' ? 0.22 : undefined" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" v-html="entry.svg"></svg>
             <img v-else :src="entry.image" alt="" loading="lazy" draggable="false" />
           </button>
         </div>
@@ -285,10 +304,13 @@ const style = computed(() => {
   box-shadow: 0 16px 40px rgb(0 0 0 / 0.22);
 }
 .search {
+  flex: none;
   margin: 0.6rem 0.6rem 0.4rem;
 }
 .tabs {
   display: flex;
+  /* Ne se tasse pas quand la liste est longue (les onglets étaient écrasés). */
+  flex: none;
   gap: 0.15rem;
   padding: 0 0.6rem 0.4rem;
   border-bottom: 1px solid var(--fb-border);
@@ -400,6 +422,61 @@ const style = computed(() => {
 .tile.icon {
   padding: 0.45rem;
   background: none;
+  color: inherit;
+}
+.tile.icon.active {
+  color: inherit;
+}
+.icon-style {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0.1rem 0.35rem 0.45rem;
+}
+.segmented {
+  display: flex;
+  gap: 0.1rem;
+  padding: 0.12rem;
+  border-radius: 8px;
+  background: var(--fb-panel-alt);
+}
+.style {
+  display: grid;
+  place-items: center;
+  width: 1.8rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fb-muted);
+  cursor: pointer;
+}
+.style svg {
+  width: 1rem;
+  height: 1rem;
+}
+.style.active {
+  background: var(--fb-panel);
+  color: var(--fb-accent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.14);
+}
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.swatch {
+  width: 1.05rem;
+  height: 1.05rem;
+  padding: 0;
+  border: 2px solid var(--fb-panel);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.swatch.active {
+  box-shadow: 0 0 0 2px var(--fb-accent);
 }
 .tile svg,
 .tile img {
