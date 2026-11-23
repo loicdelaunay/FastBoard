@@ -3,10 +3,11 @@ import { after, before, describe, it } from 'node:test';
 import * as Y from 'yjs';
 import { attachAt, connectorGeometry, connectorStroke, crossingsOf, layoutMind, shapePath, shiftSegment } from '../../shared/boardGeometry.ts';
 import { boardPreviewSvg } from '../../shared/boardPreview.ts';
-import { MOCKUP_KINDS, shiftConnector, type BoardElement, type BoardNodeDTO, type ConnectorElement, type MindElement, type MockupElement, type ShapeElement } from '../../shared/boards.ts';
+import { diffElements, MOCKUP_KINDS, shiftConnector, type BoardElement, type BoardNodeDTO, type BoardVersionDTO, type ConnectorElement, type MindElement, type MockupElement, type ShapeElement } from '../../shared/boards.ts';
 import { base64ToBytes, bytesToBase64 } from '../../shared/docs.ts';
 import type { ServerMessage } from '../../shared/realtime.ts';
 import { sanitizeElements } from '../boards/elements.ts';
+import { elementsHash } from '../boards/versions.ts';
 import { WebSocket } from 'ws';
 import { bootServer, SocketProbe, TestClient } from './helpers.ts';
 
@@ -99,6 +100,15 @@ describe('géométrie des tableaux blancs', () => {
     );
     for (const key of ['waypoints', 'jump', 'animation', 'animationReverse']) assert.ok(!(key in cleaned!), key);
     assert.deepEqual(shiftConnector(kept!, 10, 5).waypoints, [{ x: 11, y: 7 }]);
+  });
+
+  it('compare deux états d’un tableau et regroupe les versions rapprochées', () => {
+    const before = [shape('a', 0, 0, 'Un'), shape('b', 300, 0, 'Deux'), shape('c', 600, 0)];
+    const after = [shape('a', 0, 0, 'Un'), shape('b', 320, 0, 'Deux'), shape('d', 900, 0)];
+    assert.deepEqual(diffElements(before, after), { added: ['d'], changed: ['b'], removed: ['c'] });
+    // L'empreinte ne dépend pas de l'ordre des éléments (une salle d'édition a le sien).
+    assert.equal(elementsHash(JSON.stringify(before)), elementsHash(JSON.stringify([...before].reverse())));
+    assert.notEqual(elementsHash(JSON.stringify(before)), elementsHash(JSON.stringify(after)));
   });
 
   it('range les enfants d’une carte mentale à droite de leur parent, sans chevauchement', () => {
@@ -268,6 +278,62 @@ describe('tableaux blancs', () => {
     const copy = (await bob.post(`/api/boards/nodes/${board.id}/duplicate`)).body.node as BoardNodeDTO;
     assert.equal(copy.path, 'Architecture (copie)');
     assert.equal(copy.elementCount, 1);
+  });
+
+  it('gardent leur historique : versions, restauration et copie d’une version', async () => {
+    const spaceId = await newSpace('Historique');
+    await bob.post(`/api/boards/spaces/${spaceId}/members`, { userId: ids.vera, role: 'editor' });
+    const board = await newBoard(spaceId, 'Projets/Suivi', [shape('a', 0, 0, 'Un')]);
+    const put = (who: TestClient, elements: BoardElement[]) => who.request('PUT', `/api/boards/nodes/${board.id}/elements`, { elements });
+    const history = async (who: TestClient = bob) => (await who.get(`/api/boards/nodes/${board.id}/versions`)).body as { versions: BoardVersionDTO[]; currentVersionId: number | null };
+
+    await put(vera, [shape('a', 0, 0, 'Un'), shape('b', 300, 0, 'Deux')]);
+    await put(bob, [shape('a', 0, 0, 'Un'), shape('b', 300, 0, 'Deux'), shape('c', 600, 0, 'Trois')]);
+    // Bob continue aussitôt : sa version garde son dernier état, sans en créer une autre.
+    await put(bob, [shape('a', 0, 0, 'Un'), shape('b', 300, 0, 'Deux'), shape('c', 600, 0, 'Trois'), shape('d', 900, 0, 'Quatre')]);
+    let { versions, currentVersionId } = await history();
+    assert.deepEqual(
+      versions.map((version) => [version.userId, version.kind, version.elementCount]),
+      [
+        [ids.bob, 'edit', 1],
+        [ids.vera, 'edit', 2],
+        [ids.bob, 'edit', 4],
+      ],
+    );
+    assert.equal(currentVersionId, versions[2]!.id, 'la dernière version est l’état actuel');
+    const first = (await vera.get(`/api/boards/nodes/${board.id}/versions/${versions[0]!.id}`)).body as { elements: BoardElement[] };
+    assert.deepEqual(first.elements.map((element) => element.id), ['a']);
+    assert.equal((await eve.get(`/api/boards/nodes/${board.id}/versions`)).status, 404, 'jamais hors de ses espaces');
+    assert.equal((await bob.get(`/api/boards/nodes/${board.id}/versions/999999`)).status, 404);
+
+    // Un lecteur parcourt l'historique sans pouvoir restaurer ni copier.
+    await bob.post(`/api/boards/spaces/${spaceId}/members`, { userId: ids.eve, role: 'reader' });
+    assert.equal((await history(eve)).versions.length, 3);
+    assert.equal((await eve.post(`/api/boards/nodes/${board.id}/versions/${versions[0]!.id}/restore`)).status, 403);
+    assert.equal((await eve.post(`/api/boards/nodes/${board.id}/versions/${versions[0]!.id}/fork`, {})).status, 403);
+
+    // Restaurer : le tableau reprend la version, l'état d'avant reste dans l'historique.
+    assert.equal((await vera.post(`/api/boards/nodes/${board.id}/versions/${versions[1]!.id}/restore`)).body.count, 2);
+    assert.deepEqual((await bob.get(`/api/boards/nodes/${board.id}`)).body.elements.map((element: BoardElement) => element.id), ['a', 'b']);
+    ({ versions, currentVersionId } = await history());
+    assert.deepEqual(
+      versions.map((version) => [version.userId, version.kind, version.elementCount]).slice(2),
+      [
+        [ids.bob, 'edit', 4],
+        [ids.vera, 'restore', 2],
+      ],
+    );
+    assert.equal(currentVersionId, versions[3]!.id);
+    // Ce qui suit une restauration a sa propre version, même de la même personne.
+    await put(vera, [shape('a', 0, 0, 'Un'), shape('z', 0, 200, 'Après')]);
+    assert.equal((await history()).versions.length, 5);
+
+    // Copier une version dans un nouveau tableau, à côté de l'original.
+    const fork = (await bob.post(`/api/boards/nodes/${board.id}/versions/${versions[2]!.id}/fork`, {})).body.node as BoardNodeDTO;
+    assert.deepEqual([fork.path, fork.elementCount], ['Projets/Suivi (version)', 4]);
+    const named = (await vera.post(`/api/boards/nodes/${board.id}/versions/${versions[0]!.id}/fork`, { name: 'Avant refonte' })).body.node as BoardNodeDTO;
+    assert.deepEqual([named.path, named.elementCount], ['Projets/Avant refonte', 1]);
+    assert.equal((await history()).versions.length, 5, 'copier ne touche pas à l’historique');
   });
 
   it('gardent les groupes d’éléments, par l’API comme par un modèle', async () => {

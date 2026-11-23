@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.12.1';
+export const APP_VERSION = '2.13.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,15 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.13.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Tableaux blancs : mode « Historique », à côté d’Annuler, comme la frise de Whimsical. On parcourt les versions du tableau (curseur, flèches ou lecture automatique), il s’affiche tel qu’il était et ce que chaque version ajoute ou modifie est entouré.' },
+      { category: 'Nouveauté', text: 'Tableaux blancs : depuis l’historique, une version se restaure ou se copie dans un nouveau tableau, après confirmation. L’état d’avant une restauration reste dans l’historique.' },
+      { category: 'Amélioration', text: 'Les fenêtres de confirmation gardent une largeur lisible, même avec un long message.' },
+    ],
+  },
   {
     version: '2.12.1',
     date: '2026-11-23',

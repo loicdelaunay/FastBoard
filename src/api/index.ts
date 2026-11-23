@@ -2,7 +2,7 @@ import { FILE_NAME_HEADER, type NotificationLevel, type TicketStatus } from '@sh
 import type { RoleScope, PermissionDef } from '@shared/permissions';
 import type { DocBookmarkDTO, DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocNodeInfoDTO, DocRescanResultDTO, DocRole, DocSearchHitDTO, DocSiteDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, WikiDTO, WikiPageDTO, WikiSearchHitDTO } from '@shared/docs';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
-import type { BoardAssetDTO, BoardElement, BoardIconDTO, BoardLinksDTO, BoardMemberDTO, BoardNodeDTO, BoardNodeKind, BoardRole, BoardSearchHitDTO, BoardShareAudience, BoardShareDTO, BoardShareInfoDTO, BoardShareRole, BoardSpaceDTO } from '@shared/boards';
+import type { BoardAssetDTO, BoardElement, BoardIconDTO, BoardLinksDTO, BoardMemberDTO, BoardNodeDTO, BoardNodeKind, BoardRole, BoardSearchHitDTO, BoardShareAudience, BoardShareDTO, BoardShareInfoDTO, BoardShareRole, BoardSpaceDTO, BoardVersionDTO } from '@shared/boards';
 import type { LdapFields, LdapSettingsDTO, LdapTestResultDTO } from '@shared/ldap';
 import type { Locale } from '@shared/locales';
 import type { ProjectSettingsDTO } from '@shared/settings';
@@ -357,6 +357,10 @@ export const api = {
   boardDeleteNode: (nodeId: number) => http<{ ok: true }>('DELETE', `/boards/nodes/${nodeId}`),
   boardRestoreNode: (nodeId: number) => http<{ node: BoardNodeDTO }>('POST', `/boards/nodes/${nodeId}/restore`, { body: {} }),
   boardDuplicate: (nodeId: number) => http<{ node: BoardNodeDTO }>('POST', `/boards/nodes/${nodeId}/duplicate`, { body: {} }),
+  boardVersions: (nodeId: number) => http<{ versions: BoardVersionDTO[]; currentVersionId: number | null }>('GET', `/boards/nodes/${nodeId}/versions`),
+  boardVersion: (nodeId: number, versionId: number) => http<{ version: BoardVersionDTO; elements: BoardElement[] }>('GET', `/boards/nodes/${nodeId}/versions/${versionId}`),
+  boardRestoreVersion: (nodeId: number, versionId: number) => http<{ count: number }>('POST', `/boards/nodes/${nodeId}/versions/${versionId}/restore`, { body: {} }),
+  boardForkVersion: (nodeId: number, versionId: number, name?: string) => http<{ node: BoardNodeDTO }>('POST', `/boards/nodes/${nodeId}/versions/${versionId}/fork`, { body: name ? { name } : {} }),
   board: (nodeId: number) => http<{ node: BoardNodeDTO; space: { id: number; name: string }; role: BoardRole; elements: BoardElement[] }>('GET', `/boards/nodes/${nodeId}`),
   boardSearch: (q: string, limit = 10) => http<{ boards: BoardSearchHitDTO[] }>('GET', `/boards/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   boardShare: (nodeId: number) => http<{ share: BoardShareDTO | null }>('GET', `/boards/nodes/${nodeId}/share`),

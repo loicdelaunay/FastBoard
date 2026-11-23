@@ -90,3 +90,39 @@ export class BoardSession {
     }
   };
 }
+
+/** Ce que l'éditeur lit d'une session : celle d'un tableau ouvert, ou une version figée de son historique. */
+export type BoardSessionLike = Pick<BoardSession, 'boardId' | 'doc' | 'elements' | 'awareness' | 'synced' | 'canWrite' | 'savedAt' | 'closed'>;
+
+/**
+ * Tableau figé : une version de l'historique, affichée par le même éditeur, sans serveur ni écriture. `show` remplace
+ * son contenu (on parcourt les versions sans recréer l'éditeur : la vue reste où elle est).
+ */
+export class BoardSnapshotSession implements BoardSessionLike {
+  readonly boardId: number;
+  readonly doc = new Y.Doc();
+  readonly elements = this.doc.getMap<BoardElement>('elements');
+  readonly awareness = new Awareness(this.doc);
+  readonly synced = ref(true);
+  readonly canWrite = ref(false);
+  readonly savedAt = ref<string | null>(null);
+  readonly closed = ref<'deleted' | 'revoked' | null>(null);
+
+  constructor(boardId: number, elements: readonly BoardElement[] = []) {
+    this.boardId = boardId;
+    this.show(elements);
+  }
+
+  show(elements: readonly BoardElement[]): void {
+    const next = new Map(elements.map((element) => [element.id, element]));
+    this.doc.transact(() => {
+      for (const key of [...this.elements.keys()]) if (!next.has(key)) this.elements.delete(key);
+      for (const [id, element] of next) if (JSON.stringify(this.elements.get(id)) !== JSON.stringify(element)) this.elements.set(id, element);
+    });
+  }
+
+  close(): void {
+    this.awareness.destroy();
+    this.doc.destroy();
+  }
+}

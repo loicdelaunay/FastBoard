@@ -765,6 +765,22 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
   (db) => {
     db.exec('ALTER TABLE doc_spaces ADD COLUMN image_folder TEXT;');
   },
+  // 28 — Tableaux blancs : historique des versions (éléments compressés), parcouru par le mode « Historique ».
+  (db) => {
+    db.exec(`
+      CREATE TABLE board_versions (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        board_id      INTEGER NOT NULL REFERENCES board_nodes(id) ON DELETE CASCADE,
+        user_id       INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        kind          TEXT NOT NULL DEFAULT 'edit',
+        element_count INTEGER NOT NULL DEFAULT 0,
+        hash          TEXT NOT NULL,
+        elements      BLOB NOT NULL,
+        created_at    TEXT NOT NULL
+      );
+      CREATE INDEX idx_board_versions_board ON board_versions (board_id, id);
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

@@ -38,7 +38,8 @@ const shell = computed(() => auth.isAuthenticated && !route.meta.bare);
     </template>
     <UpdatePrompt />
     <Toast position="bottom-right" :base-z-index="1250" />
-    <ConfirmDialog />
+    <!-- Un long message de confirmation se lit sur plusieurs lignes, pas sur toute la largeur de l'écran. -->
+    <ConfirmDialog :style="{ maxWidth: 'min(36rem, calc(100vw - 2rem))' }" />
   </div>
 </template>
 

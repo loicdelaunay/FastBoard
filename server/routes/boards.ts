@@ -3,13 +3,16 @@ import { boardPreviewSvg } from '../../shared/boardPreview.ts';
 import type { DocRole } from '../../shared/docs.ts';
 import type { AppContext } from '../context.ts';
 import {
+  boardHistory,
   boardNodeDTO,
+  boardVersion,
   boardsEnabled,
   createBoardNode,
   createBoardSpace,
   deleteBoardNode,
   deleteBoardSpace,
   duplicateBoard,
+  forkBoardVersion,
   getBoardSpace,
   listBoardMembers,
   listBoardNodes,
@@ -24,6 +27,7 @@ import {
   requireBoardSpace,
   requireBoardsEnabled,
   restoreBoardNode,
+  restoreBoardVersion,
   searchBoards,
   setBoardMember,
   setBoardsEnabled,
@@ -38,6 +42,7 @@ import { actorOf, currentUser, sessionOnly } from '../http/middleware.ts';
 import {
   boardElementsPatchSchema,
   boardElementsSchema,
+  boardForkSchema,
   boardIconSchema,
   boardMemberRoleSchema,
   boardMemberSchema,
@@ -237,6 +242,29 @@ export function boardsRouter(ctx: AppContext): Router {
     const { node } = requireBoard(ctx, currentUser(res), idParam(req.params.id), 'editor');
     const elements = writeBoardElements(ctx, actorOf(req, res), node, parse(boardElementsSchema, req.body).elements);
     res.json({ count: elements.length });
+  });
+
+  // --- Historique d'un tableau ---------------------------------------------------------------------------------------
+
+  router.get('/boards/nodes/:id/versions', (req, res) => {
+    const { node } = requireBoard(ctx, currentUser(res), idParam(req.params.id));
+    res.json(boardHistory(ctx, node));
+  });
+
+  router.get('/boards/nodes/:id/versions/:versionId', (req, res) => {
+    const { node } = requireBoard(ctx, currentUser(res), idParam(req.params.id));
+    res.json(boardVersion(ctx, node, idParam(req.params.versionId)));
+  });
+
+  router.post('/boards/nodes/:id/versions/:versionId/restore', (req, res) => {
+    const { node } = requireBoard(ctx, currentUser(res), idParam(req.params.id), 'editor');
+    const elements = restoreBoardVersion(ctx, actorOf(req, res), node, idParam(req.params.versionId));
+    res.json({ count: elements.length });
+  });
+
+  router.post('/boards/nodes/:id/versions/:versionId/fork', (req, res) => {
+    const { node } = requireBoard(ctx, currentUser(res), idParam(req.params.id), 'editor');
+    res.status(201).json({ node: forkBoardVersion(ctx, actorOf(req, res), node, idParam(req.params.versionId), parse(boardForkSchema, req.body ?? {}).name) });
   });
 
   // --- Partage d'un tableau (propriétaires de l'espace) -------------------------------------------------------------

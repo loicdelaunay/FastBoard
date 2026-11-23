@@ -41,7 +41,7 @@ import {
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import { t } from '@/i18n';
-import type { BoardSession } from '@/realtime/boardSession';
+import type { BoardSessionLike } from '@/realtime/boardSession';
 import { useAuthStore } from '@/stores/auth';
 import { notify, notifyError } from '@/utils/notify';
 import BoardChart from './BoardChart.vue';
@@ -66,7 +66,7 @@ import { MIND_COLORS, MODE_TOOLS, type BoardMode, type BoardTool, type FastPick,
  * sections, cartes mentales, dessin, Fast Elements, tableaux et graphiques ; tout est partagé en direct.
  */
 const props = defineProps<{
-  session: BoardSession;
+  session: BoardSessionLike;
   canEdit: boolean;
   users: UserSummaryDTO[];
   boardTitle: string;
@@ -76,8 +76,12 @@ const props = defineProps<{
   templates?: BoardNodeDTO[];
   /** Le tableau ouvert est lui-même un modèle. */
   isTemplate?: boolean;
+  /** Montre le bouton « Historique » à côté d'Annuler (membres de l'espace). */
+  history?: boolean;
+  /** Mode historique : éléments ajoutés ou modifiés par la version affichée, à entourer. */
+  changes?: { added: ReadonlySet<string>; changed: ReadonlySet<string> } | null;
 }>();
-const emit = defineEmits<{ 'open-template': [id: number] }>();
+const emit = defineEmits<{ 'open-template': [id: number]; history: [] }>();
 
 const auth = useAuthStore();
 const model = new BoardModel(props.session);
@@ -2444,6 +2448,16 @@ const zoomOut = () => zoomAt(view.zoom / 1.2, { x: size.width / 2, y: size.heigh
 
 // --- Export en image -----------------------------------------------------------------------------------------------------
 
+/** Cadres des éléments ajoutés ou modifiés par la version de l'historique affichée. */
+const changeMarks = computed(() => {
+  const changes = props.changes;
+  if (!changes) return [];
+  return elements.value.flatMap((element) => {
+    const kind = changes.added.has(element.id) ? 'added' : changes.changed.has(element.id) ? 'changed' : null;
+    const bounds = kind ? boundsOf([element], index.value) : null;
+    return kind && bounds ? [{ id: element.id, kind, bounds }] : [];
+  });
+});
 const worldContent = ref<SVGGElement | null>(null);
 /** Échelle du titre des sections : l'inverse du zoom, pour qu'il reste lisible. */
 const titleScale = computed(() => (exporting.value ? 1 : 1 / view.zoom));
@@ -2714,6 +2728,20 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
 
         </g>
 
+        <!-- Historique : ce que la version affichée ajoute (vert) ou modifie (orange) -->
+        <rect
+          v-for="mark in changeMarks"
+          :key="`c${mark.id}`"
+          class="change-mark"
+          :class="mark.kind"
+          :x="mark.bounds.x - 6 / view.zoom"
+          :y="mark.bounds.y - 6 / view.zoom"
+          :width="mark.bounds.w + 12 / view.zoom"
+          :height="mark.bounds.h + 12 / view.zoom"
+          :rx="8 / view.zoom"
+          :stroke-width="2 / view.zoom"
+        />
+
         <!-- Copies de modèles : nom au survol, point quand le modèle a changé -->
         <g v-for="mark in instanceMarks" :key="`i${mark.inst}`" class="instance-mark" :class="mark.state">
           <rect v-if="mark.shown" class="instance-frame" :x="mark.frame.x - 10 / view.zoom" :y="mark.frame.y - 10 / view.zoom" :width="mark.frame.w + 20 / view.zoom" :height="mark.frame.h + 20 / view.zoom" :rx="6 / view.zoom" :stroke-width="1.5 / view.zoom" :stroke-dasharray="`${5 / view.zoom} ${4 / view.zoom}`" />
@@ -2887,6 +2915,7 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
     <div class="zoom board-ui">
       <button v-tooltip.top="$t('Annuler (Ctrl Z)')" type="button" :disabled="!model.canUndo.value || !editable" :aria-label="$t('Annuler')" @click="model.undo()"><i class="pi pi-undo"></i></button>
       <button v-tooltip.top="$t('Rétablir (Ctrl Y)')" type="button" :disabled="!model.canRedo.value || !editable" :aria-label="$t('Rétablir')" @click="model.redo()"><i class="pi pi-refresh"></i></button>
+      <button v-if="history" v-tooltip.top="$t('Historique : parcourir les versions du tableau')" type="button" :aria-label="$t('Historique')" @click="emit('history')"><i class="pi pi-history"></i></button>
       <span class="sep"></span>
       <button v-tooltip.top="$t('Dézoomer')" type="button" :aria-label="$t('Dézoomer')" @click="zoomOut"><i class="pi pi-minus"></i></button>
       <button v-tooltip.top="$t('Zoom à 100 %')" type="button" class="percent" @click="zoomAt(1, { x: size.width / 2, y: size.height / 2 })">{{ percent }}</button>
@@ -3152,6 +3181,18 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
   .connector .line.flowing {
     stroke-opacity: 1;
   }
+}
+.change-mark {
+  fill: none;
+  pointer-events: none;
+}
+.change-mark.added {
+  stroke: #16a34a;
+  fill: rgb(22 163 74 / 0.08);
+}
+.change-mark.changed {
+  stroke: #f59e0b;
+  stroke-dasharray: 6 4;
 }
 .segment-handle {
   fill: var(--board-canvas);

@@ -256,6 +256,13 @@ export const componentSchemas: Record<string, Schema> = {
     createdAt: dateTime(),
     updatedAt: dateTime(),
   }),
+  BoardVersion: obj({
+    id: int(),
+    createdAt: dateTime(),
+    userId: nullable(int('Auteur du dernier enregistrement de cette version.')),
+    kind: str('`restore` : créée en restaurant une version plus ancienne.', { enum: ['edit', 'restore'] }),
+    elementCount: int(),
+  }),
   BoardNode: obj({
     id: int('Identifiant stable : il survit aux renommages et déplacements.'),
     spaceId: int(),

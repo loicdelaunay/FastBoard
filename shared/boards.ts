@@ -28,6 +28,35 @@ export const BOARD_LIMITS = {
   retentionDays: 15,
 } as const;
 
+/** Historique d'un tableau : nombre de versions gardées, et délai sous lequel les enregistrements d'une personne se regroupent. */
+export const BOARD_VERSION_LIMITS = { perBoard: 300, mergeMs: 60_000 } as const;
+/** `restore` : version créée en restaurant une version plus ancienne. */
+export type BoardVersionKind = 'edit' | 'restore';
+
+/** Une version de l'historique d'un tableau (ses éléments se lisent à part). */
+export interface BoardVersionDTO {
+  id: number;
+  createdAt: string;
+  /** Auteur du dernier enregistrement de cette version ; `null` : inconnu (compte supprimé, jeton d'API retiré…). */
+  userId: number | null;
+  kind: BoardVersionKind;
+  elementCount: number;
+}
+
+/** Ce qui change entre deux états d'un tableau : identifiants ajoutés, modifiés et retirés. */
+export function diffElements(before: readonly BoardElement[], after: readonly BoardElement[]): { added: string[]; changed: string[]; removed: string[] } {
+  const previous = new Map(before.map((element) => [element.id, JSON.stringify(element)]));
+  const added: string[] = [];
+  const changed: string[] = [];
+  for (const element of after) {
+    const old = previous.get(element.id);
+    if (old === undefined) added.push(element.id);
+    else if (old !== JSON.stringify(element)) changed.push(element.id);
+    previous.delete(element.id);
+  }
+  return { added, changed, removed: [...previous.keys()] };
+}
+
 export interface BoardSpaceDTO {
   id: number;
   name: string;

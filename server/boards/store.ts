@@ -1,4 +1,18 @@
-import { BOARD_LIMITS, boardSearchText, boardTitle, type BoardElement, type BoardMemberDTO, type BoardNodeDTO, type BoardNodeKind, type BoardRole, type BoardSearchHitDTO, type BoardShareAudience, type BoardSpaceDTO } from '../../shared/boards.ts';
+import {
+  BOARD_LIMITS,
+  boardSearchText,
+  boardTitle,
+  type BoardElement,
+  type BoardMemberDTO,
+  type BoardNodeDTO,
+  type BoardNodeKind,
+  type BoardRole,
+  type BoardSearchHitDTO,
+  type BoardShareAudience,
+  type BoardSpaceDTO,
+  type BoardVersionDTO,
+  type BoardVersionKind,
+} from '../../shared/boards.ts';
 import { docRoleAtLeast, normalizeDocPath } from '../../shared/docs.ts';
 import { hasPermission } from '../../shared/permissions.ts';
 import type { Actor, AppContext } from '../context.ts';
@@ -9,6 +23,7 @@ import { readSetting, writeSetting } from '../services/appSettings.ts';
 import { foldText } from '../services/tickets.ts';
 import { removeSpaceAssets } from './assets.ts';
 import { sanitizeElements, stateOf, withoutTemplateLink } from './elements.ts';
+import { listBoardVersions, matchingVersion, readBoardVersion, recordBoardBaseline, recordBoardVersion } from './versions.ts';
 
 /** Tableaux blancs : espaces (droits), arbre de dossiers et de tableaux, éléments de chaque tableau. Tout est en base. */
 
@@ -348,10 +363,13 @@ export function readBoardState(db: Db, nodeId: number): Uint8Array | null {
 }
 
 /** Enregistre les éléments d'un tableau : état Yjs, copie lisible et texte cherchable. */
-export function storeElements(db: Db, nodeId: number, elements: readonly BoardElement[], state: Uint8Array | null, userId: number | null): void {
+export function storeElements(db: Db, nodeId: number, elements: readonly BoardElement[], state: Uint8Array | null, userId: number | null, kind: BoardVersionKind = 'edit'): void {
   const json = JSON.stringify(elements);
   if (Buffer.byteLength(json) > BOARD_LIMITS.jsonBytes) throw badRequest('Tableau trop volumineux.');
-  const node = db.get<{ space_id: number }>('SELECT space_id FROM board_nodes WHERE id = ?', nodeId);
+  const node = db.get<{ space_id: number; elements: string; element_count: number; updated_by: number | null; updated_at: string }>('SELECT space_id, elements, element_count, updated_by, updated_at FROM board_nodes WHERE id = ?', nodeId);
+  // Historique : le contenu d'avant (pour un tableau plus ancien que l'historique), puis ce nouvel état.
+  if (node) recordBoardBaseline(db, nodeId, node.elements, node.element_count, node.updated_by, node.updated_at);
+  recordBoardVersion(db, nodeId, json, elements.length, userId, kind);
   db.run(
     'UPDATE board_nodes SET state = ?, elements = ?, element_count = ?, search_text = ?, updated_at = ?, updated_by = ? WHERE id = ?',
     state ?? stateOf(elements),
@@ -384,6 +402,45 @@ export function writeBoardElements(ctx: AppContext, actor: Actor, node: BoardNod
   if (!ctx.boardRooms.replaceElements(node.id, elements, actor.userId)) storeElements(ctx.db, node.id, elements, null, actor.userId);
   ctx.boardRooms.publishTree(node.space_id);
   return elements;
+}
+
+// --- Historique ------------------------------------------------------------------------------------------------------
+
+/** Versions d'un tableau, de la plus ancienne à la plus récente, et celle qui est son état actuel (si elle est notée). */
+export function boardHistory(ctx: AppContext, node: BoardNodeRow): { versions: BoardVersionDTO[]; currentVersionId: number | null } {
+  return { versions: listBoardVersions(ctx.db, node.id), currentVersionId: matchingVersion(ctx.db, node.id, JSON.stringify(readBoardElements(ctx, node))) };
+}
+
+export function boardVersion(ctx: AppContext, node: BoardNodeRow, versionId: number): { version: BoardVersionDTO; elements: BoardElement[] } {
+  const found = readBoardVersion(ctx.db, node.id, versionId);
+  if (!found) throw notFound('Version introuvable.');
+  return found;
+}
+
+/**
+ * Remet un tableau dans l'état d'une version. L'état d'avant reste dans l'historique (on peut y revenir), et la
+ * restauration y a sa propre version.
+ */
+export function restoreBoardVersion(ctx: AppContext, actor: Actor, node: BoardNodeRow, versionId: number): BoardElement[] {
+  const { elements } = boardVersion(ctx, node, versionId);
+  const current = readBoardElements(ctx, node);
+  ctx.db.transaction(() => {
+    // Ce qui est à l'écran, même pas encore enregistré, entre dans l'historique avant d'être remplacé.
+    recordBoardVersion(ctx.db, node.id, JSON.stringify(current), current.length, node.updated_by);
+    recordBoardVersion(ctx.db, node.id, JSON.stringify(elements), elements.length, actor.userId, 'restore');
+  });
+  if (!ctx.boardRooms.replaceElements(node.id, elements, actor.userId)) storeElements(ctx.db, node.id, elements, null, actor.userId, 'restore');
+  ctx.boardRooms.publishTree(node.space_id);
+  return elements;
+}
+
+/** Nouveau tableau (ou modèle) à partir d'une version, à côté de l'original. */
+export function forkBoardVersion(ctx: AppContext, actor: Actor, node: BoardNodeRow, versionId: number, name: string | undefined): BoardNodeDTO {
+  const { elements } = boardVersion(ctx, node, versionId);
+  const folder = node.path.includes('/') ? node.path.slice(0, node.path.lastIndexOf('/') + 1) : '';
+  const template = node.kind === 'template';
+  const wanted = name?.trim() ? `${template ? '' : folder}${name.trim().replace(/\//g, ' ')}` : `${node.path} (version)`;
+  return createBoardNode(ctx, actor, node.space_id, { path: freePath(ctx.db, node.space_id, wanted, template), kind: template ? 'template' : 'board', elements });
 }
 
 // --- Recherche et corbeille ------------------------------------------------------------------------------------------

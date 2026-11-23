@@ -15,6 +15,7 @@ import { api } from '@/api';
 import { darkMode } from '@/theme/themeManager';
 import BoardCanvas from '@/components/boards/BoardCanvas.vue';
 import BoardLinksPanel from '@/components/boards/BoardLinksPanel.vue';
+import BoardTimeline from '@/components/boards/BoardTimeline.vue';
 import BoardMembersDialog from '@/components/boards/BoardMembersDialog.vue';
 import BoardShareDialog from '@/components/boards/BoardShareDialog.vue';
 import BoardSpaceDialog from '@/components/boards/BoardSpaceDialog.vue';
@@ -322,6 +323,16 @@ const spaceMenuItems = computed<MenuItem[]>(() => [
 ]);
 
 const canvas = ref<InstanceType<typeof BoardCanvas> | null>(null);
+// --- Historique : la frise des versions remplace le tableau le temps de la consulter ---
+const timelineOpen = ref(false);
+watch(boardId, () => (timelineOpen.value = false));
+/** Une version copiée dans un nouveau tableau : on l'ouvre. */
+function onForked(node: BoardNodeDTO): void {
+  timelineOpen.value = false;
+  store.nodes = [...store.nodes.filter((entry) => entry.id !== node.id), node];
+  // Un modèle copié reste rangé avec les modèles ; un tableau s'ouvre.
+  if (node.kind === 'board') open(node);
+}
 const importMenu = ref<InstanceType<typeof Menu> | null>(null);
 const importItems = computed<MenuItem[]>(() => [
   { label: t('Depuis Mermaid…'), icon: 'pi pi-share-alt', command: () => canvas.value?.openImport() },
@@ -409,7 +420,8 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
       </header>
 
       <div v-if="board && session" class="board-area">
-        <BoardCanvas :key="board.id" ref="canvas" :session="session" :can-edit="store.canEdit" :users="users" :board-title="boardTitle(board.path)" :space-id="spaceId" :templates="templates" :is-template="isTemplate" @open-template="openTemplate" />
+        <BoardTimeline v-if="timelineOpen" :key="`h${board.id}`" :board-id="board.id" :title="boardTitle(board.path)" :session="session" :can-edit="store.canEdit && session.canWrite.value" :users="users" :is-template="isTemplate" @close="timelineOpen = false" @forked="onForked" />
+        <BoardCanvas v-else :key="board.id" ref="canvas" :session="session" :can-edit="store.canEdit" :users="users" :board-title="boardTitle(board.path)" :space-id="spaceId" :templates="templates" :is-template="isTemplate" history @open-template="openTemplate" @history="timelineOpen = true" />
         <BoardLinksPanel v-if="linksOpen && !isTemplate" :links="links" :loading="linksLoading" @close="linksOpen = false" />
       </div>
 

@@ -604,6 +604,7 @@ export const boardIconSchema = z.object({
 });
 export const boardMoveSchema = z.object({ path: z.string().min(1).max(BOARD_LIMITS.pathMax).describe('Nouveau chemin (renommage ou déplacement).') });
 export const boardElementsSchema = z.object({ elements: boardElements });
+export const boardForkSchema = z.object({ name: z.string().trim().min(1).max(BOARD_LIMITS.nameMax).optional().describe('Nom du nouveau tableau ; absent : celui du tableau, suivi de « (version) ».') });
 export const boardElementsPatchSchema = z.object({
   upsert: boardElements.default([]).describe('Éléments ajoutés, ou remplacés s’ils ont le même `id`.'),
   remove: z.array(z.string().min(1).max(40)).max(BOARD_LIMITS.elements).default([]).describe('Identifiants des éléments à retirer (les liens accrochés partent avec eux).'),

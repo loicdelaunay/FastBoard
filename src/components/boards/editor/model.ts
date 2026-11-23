@@ -2,7 +2,7 @@ import { computed, shallowRef } from 'vue';
 import * as Y from 'yjs';
 import { contains, layoutMind, mindRoot } from '@shared/boardGeometry';
 import { elementGroup, isPlaced, newElementId, shiftConnector, TEXT_SIZE_PX, withGroup, type BoardElement, type MindElement, type PlacedElement } from '@shared/boards';
-import type { BoardSession } from '@/realtime/boardSession';
+import type { BoardSessionLike } from '@/realtime/boardSession';
 
 /** Origine des écritures faites ici : seules elles s'annulent avec Ctrl Z. */
 export const LOCAL = Symbol('local');
@@ -15,7 +15,7 @@ type Patch = object;
  * et les opérations d'écriture (une transaction Yjs chacune, annulable).
  */
 export class BoardModel {
-  readonly session: BoardSession;
+  readonly session: BoardSessionLike;
   readonly elements = shallowRef<BoardElement[]>([]);
   readonly index = computed(() => new Map(this.elements.value.map((element) => [element.id, element])));
   readonly undoManager: Y.UndoManager;
@@ -23,7 +23,7 @@ export class BoardModel {
   readonly canRedo = shallowRef(false);
   #frame = 0;
 
-  constructor(session: BoardSession) {
+  constructor(session: BoardSessionLike) {
     this.session = session;
     this.undoManager = new Y.UndoManager(session.elements, { trackedOrigins: new Set([LOCAL]), captureTimeout: 400 });
     const stacks = (): void => {
