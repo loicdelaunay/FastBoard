@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.15.0';
+export const APP_VERSION = '2.16.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.16.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Amélioration', text: 'Les images envoyées (pièces jointes des tickets, images des notes et des tableaux blancs) sont converties automatiquement en WebP, qualité 80 %, pour prendre moins de place. Les GIF, les SVG et les autres fichiers partent tels quels.' },
+      { category: 'Amélioration', text: 'Tableaux blancs : l’import draw.io reprend aussi les images intégrées au diagramme, envoyées dans l’espace et posées à leur place ; une image hébergée sur un autre site garde un cadre à son nom.' },
+    ],
+  },
   {
     version: '2.15.0',
     date: '2026-11-23',

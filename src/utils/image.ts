@@ -81,3 +81,36 @@ export async function imageToDataUrl(file: Blob, max = 1568): Promise<string> {
     bitmap.close();
   }
 }
+
+/** Qualité des images converties en WebP à l'envoi. */
+export const UPLOAD_WEBP_QUALITY = 0.8;
+/** Formats convertis : images matricielles fixes. Un GIF (souvent animé), un SVG (vectoriel) et un WebP restent tels quels. */
+const CONVERTED = new Set(['image/png', 'image/jpeg', 'image/bmp', 'image/tiff']);
+
+/**
+ * Allège une image avant son envoi (pièce jointe, image d'une note ou d'un tableau blanc) : convertie en WebP, qualité
+ * 80 %, sans changer ses dimensions. L'original est gardé si la conversion n'est pas possible (navigateur sans WebP,
+ * image trop grande) ou ne fait rien gagner.
+ */
+export async function compressImage(file: File): Promise<File> {
+  if (!CONVERTED.has(file.type) || typeof createImageBitmap !== 'function') return file;
+  let bitmap: ImageBitmap | null = null;
+  try {
+    // L'orientation notée par l'appareil photo est appliquée : l'image convertie n'a plus ces métadonnées.
+    bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) return file;
+    context.drawImage(bitmap, 0, 0);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/webp', UPLOAD_WEBP_QUALITY));
+    if (!blob || blob.type !== 'image/webp' || blob.size >= file.size) return file;
+    const base = file.name.replace(/\.[^./\\]+$/, '') || 'image';
+    return new File([blob], `${base}.webp`, { type: 'image/webp', lastModified: file.lastModified });
+  } catch {
+    return file;
+  } finally {
+    bitmap?.close();
+  }
+}

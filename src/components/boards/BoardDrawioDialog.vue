@@ -4,7 +4,7 @@ import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
 import Select from 'primevue/select';
 import Textarea from 'primevue/textarea';
-import { drawioPages, drawioToElements, type DrawioPage } from '@shared/boardDrawio';
+import { drawioPages, drawioToElements, type DrawioImage, type DrawioPage } from '@shared/boardDrawio';
 import type { BoardElement } from '@shared/boards';
 import { t } from '@/i18n';
 
@@ -12,8 +12,8 @@ import { t } from '@/i18n';
  * Import d'un diagramme draw.io (diagrams.net) : un fichier `.drawio` ou `.xml`, ou le XML collé (Fichier → Exporter
  * en → XML, ou Ctrl C dans draw.io). Un fichier de plusieurs pages laisse choisir la page.
  */
-const props = defineProps<{ zStart: number; text?: string }>();
-const emit = defineEmits<{ import: [elements: BoardElement[]] }>();
+const props = defineProps<{ zStart: number; text?: string; busy?: boolean; canUpload?: boolean }>();
+const emit = defineEmits<{ import: [elements: BoardElement[], images: DrawioImage[]] }>();
 const visible = defineModel<boolean>('visible', { required: true });
 
 const draft = ref('');
@@ -62,7 +62,17 @@ const summary = computed(() => {
   if (!result.value) return '';
   const shapes = result.value.elements.filter((element) => element.type !== 'connector').length;
   const links = result.value.elements.length - shapes;
-  return t('{shapes} forme(s) et {links} lien(s) à poser sur le tableau.', { shapes, links }) + (result.value.skipped ? ` ${t('{n} élément(s) non repris (images…).', { n: result.value.skipped })}` : '');
+  // Seules les images intégrées au fichier (data:) s'importent ; celles hébergées sur un autre site gardent un cadre.
+  const embedded = props.canUpload ? result.value.images.filter((image) => image.source.startsWith('data:')).length : 0;
+  const framed = result.value.images.length - embedded;
+  return [
+    t('{shapes} forme(s) et {links} lien(s) à poser sur le tableau.', { shapes, links }),
+    embedded ? t('{n} image(s) seront envoyées dans l’espace.', { n: embedded }) : '',
+    framed ? t('{n} image(s) hébergée(s) ailleurs ne sont pas importées : un cadre gardera leur place.', { n: framed }) : '',
+    result.value.skipped ? t('{n} élément(s) non repris.', { n: result.value.skipped }) : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 });
 const pageOptions = computed(() => pages.value.map((entry, position) => ({ value: position, label: entry.name || t('Page {n}', { n: position + 1 }) })));
 
@@ -73,7 +83,7 @@ async function pickFile(event: Event): Promise<void> {
 }
 
 function run(): void {
-  if (result.value?.elements.length) emit('import', result.value.elements);
+  if (result.value?.elements.length) emit('import', result.value.elements, result.value.images);
 }
 </script>
 
@@ -81,6 +91,7 @@ function run(): void {
   <Dialog v-model:visible="visible" modal :header="$t('Importer depuis draw.io')" :style="{ width: 'min(44rem, calc(100vw - 2rem))' }">
     <p class="muted small intro">
       {{ $t('Choisissez un fichier .drawio ou .xml, ou collez le XML du diagramme (dans draw.io : Fichier → Exporter en → XML, ou copiez les formes avec Ctrl C).') }}
+      {{ $t('Les images intégrées au diagramme sont importées avec lui.') }}
     </p>
     <div class="actions">
       <Button :label="$t('Choisir un fichier…')" icon="pi pi-folder-open" severity="secondary" outlined size="small" @click="fileInput?.click()" />
@@ -92,7 +103,7 @@ function run(): void {
     <p v-else-if="summary" class="muted small">{{ summary }}</p>
     <template #footer>
       <Button :label="$t('Annuler')" severity="secondary" text @click="visible = false" />
-      <Button :label="$t('Importer')" icon="pi pi-download" :disabled="!result?.elements.length" @click="run" />
+      <Button :label="$t('Importer')" icon="pi pi-download" :loading="busy" :disabled="!result?.elements.length" @click="run" />
     </template>
   </Dialog>
 </template>

@@ -7,6 +7,7 @@ import {
   type ConnectorEnd,
   type FillStyle,
   type FrameElement,
+  type ImageElement,
   type ShapeElement,
   type ShapeKind,
   type Side,
@@ -238,10 +239,50 @@ interface Cell {
   geometry: XmlNode | undefined;
 }
 
+/** Image d'un diagramme draw.io, à envoyer dans l'espace avant de poser son élément. */
+export interface DrawioImage {
+  /** Élément `image` qui l'affichera (sa clé `asset` est vide tant que l'image n'est pas envoyée). */
+  elementId: string;
+  /** Adresse `data:` (image intégrée au fichier) ou URL de l'image. */
+  source: string;
+  name: string;
+}
+
 export interface DrawioImport {
   elements: BoardElement[];
-  /** Cellules non reprises (images, formes inconnues reprises en rectangles ne comptent pas). */
+  /** Images du diagramme : chacune s'envoie dans l'espace, puis sa clé va dans l'élément `elementId`. */
+  images: DrawioImage[];
+  /** Cellules non reprises (liens sans extrémité…). */
   skipped: number;
+}
+
+/**
+ * Contenu d'une image intégrée à un fichier draw.io. draw.io écrit `data:image/png,<base64>` (sans « ;base64 », le
+ * point-virgule séparant les réglages d'un style) ; un SVG peut aussi être encodé en URL. `null` : ce n'est pas une
+ * adresse `data:` lisible.
+ */
+export function drawioImageData(source: string): { mime: string; bytes: Uint8Array } | null {
+  const match = /^data:(image\/[a-z0-9.+-]+)((?:;[^,;]*)*),(.*)$/is.exec(source.trim());
+  if (!match) return null;
+  const mime = match[1]!.toLowerCase();
+  const body = match[3]!;
+  const base64 = /;base64/i.test(match[2]!) || /^[A-Za-z0-9+/=\s]+$/.test(body);
+  try {
+    if (base64) {
+      const binary = atob(body.replace(/\s+/g, ''));
+      return { mime, bytes: Uint8Array.from(binary, (char) => char.charCodeAt(0)) };
+    }
+    return { mime, bytes: new TextEncoder().encode(decodeURIComponent(body)) };
+  } catch {
+    return null;
+  }
+}
+
+const IMAGE_EXTENSIONS: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg' };
+/** Nom de fichier d'une image importée, d'après son libellé (ou « image ») et son type. */
+export function drawioImageName(label: string, mime: string): string {
+  const base = label.replace(/[\\/:*?"<>|\s]+/g, ' ').trim().slice(0, 60) || 'image';
+  return `${base}.${IMAGE_EXTENSIONS[mime] ?? 'png'}`;
 }
 
 /** Convertit une page draw.io (`mxGraphModel`) en éléments du tableau, aux coordonnées de draw.io. */
@@ -286,6 +327,7 @@ export function drawioToElements(model: string, options: { zStart?: number } = {
   const ids = new Map<string, string>();
   const groups = new Map<string, string>();
   const elements: BoardElement[] = [];
+  const images: DrawioImage[] = [];
   const edgeLabels = new Map<string, string[]>();
 
   for (const cell of cells) {
@@ -314,14 +356,20 @@ export function drawioToElements(model: string, options: { zStart?: number } = {
     const fromStroke = nearestColor(stroke, 44);
     const color = fromFill && fromFill !== 'gray' && fromFill !== 'default' ? fromFill : (fromStroke ?? fromFill ?? 'default');
     let element: BoardElement | null = null;
-    if (base === 'text' || shape === 'text' || (fillColor === 'none' && stroke === 'none' && !SHAPES[shape])) {
+    if (values.image && (shape === 'image' || base === 'image' || values.imageAspect !== undefined || !SHAPES[shape])) {
+      // Image : un élément `image`, dont le fichier s'envoie dans l'espace à l'import (clé `asset` remplie alors).
+      const name = text || 'image';
+      element = { id, type: 'image', z: z++, ...box, asset: '', name: name.slice(0, 200) } satisfies ImageElement;
+      images.push({ elementId: id, source: values.image, name });
+    } else if (base === 'text' || shape === 'text' || (fillColor === 'none' && stroke === 'none' && !SHAPES[shape])) {
       element = { id, type: 'text', z: z++, ...box, text, color: nearestColor(values.fontColor) ?? 'default', size: textSize(values.fontSize), align: values.align === 'center' ? 'center' : values.align === 'right' ? 'right' : 'left' } satisfies TextElement;
     } else if (base === 'swimlane' || values.swimlane === '1' || (values.container === '1' && !SHAPES[shape])) {
       element = { id, type: 'frame', z: z++, ...box, title: text, color: nearestColor(fillColor) ?? nearestColor(stroke) ?? 'gray' } satisfies FrameElement;
     } else if (shape === 'note' || base === 'note') {
       const sticky = nearestColor(fillColor);
       element = { id, type: 'sticky', z: z++, ...box, text, color: sticky && sticky !== 'default' && sticky !== 'gray' ? sticky : 'yellow', votes: [] } satisfies StickyElement;
-    } else if (values.image || shape === 'image' || base === 'image') {
+    } else if (shape === 'image' || base === 'image') {
+      // Cadre d'image sans image.
       skipped += 1;
       continue;
     } else {
@@ -382,5 +430,7 @@ export function drawioToElements(model: string, options: { zStart?: number } = {
     elements.push(connector);
   }
 
-  return { elements: elements.slice(0, BOARD_LIMITS.elements), skipped };
+  const kept = elements.slice(0, BOARD_LIMITS.elements);
+  const keptIds = new Set(kept.map((element) => element.id));
+  return { elements: kept, images: images.filter((image) => keptIds.has(image.elementId)), skipped };
 }

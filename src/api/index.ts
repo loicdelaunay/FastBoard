@@ -46,6 +46,7 @@ import { ApiError, http, httpHeaders } from './http';
 
 import { t } from '@/i18n';
 import { translateServerMessage } from '@/i18n/server';
+import { compressImage } from '@/utils/image';
 export interface TicketInput {
   title?: string;
   description?: string;
@@ -172,7 +173,9 @@ async function uploadDocFile<T>(path: string, file: File): Promise<T> {
 }
 
 /** Envoie un fichier en corps brut (XMLHttpRequest : seul moyen d'obtenir la progression de l'envoi). */
-export function uploadAttachment(ticketId: number, file: File, onProgress?: (ratio: number) => void): Promise<AttachmentDTO> {
+export async function uploadAttachment(ticketId: number, original: File, onProgress?: (ratio: number) => void): Promise<AttachmentDTO> {
+  // Une image est allégée (WebP) avant l'envoi ; tout autre fichier part tel quel.
+  const file = await compressImage(original);
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open('POST', `/api/tickets/${ticketId}/attachments`);
@@ -373,7 +376,7 @@ export const api = {
   boardPatchElements: (nodeId: number, upsert: BoardElement[], remove: string[]) => http<{ count: number }>('PATCH', `/boards/nodes/${nodeId}/elements`, { body: { upsert, remove } }),
   boardSaveElements: (nodeId: number, elements: BoardElement[]) => http<{ count: number }>('PUT', `/boards/nodes/${nodeId}/elements`, { body: { elements } }),
   boardAssets: (spaceId: number) => http<{ assets: BoardAssetDTO[] }>('GET', `/boards/spaces/${spaceId}/assets`),
-  boardUploadAsset: (spaceId: number, file: File) => uploadDocFile<{ asset: BoardAssetDTO }>(`/boards/spaces/${spaceId}/assets`, file),
+  boardUploadAsset: async (spaceId: number, file: File) => uploadDocFile<{ asset: BoardAssetDTO }>(`/boards/spaces/${spaceId}/assets`, await compressImage(file)),
   boardDeleteAsset: (assetId: number) => http<{ ok: true }>('DELETE', `/boards/assets/${assetId}`),
   boardIcons: () => http<{ icons: BoardIconDTO[] }>('GET', '/boards/icons'),
   adminAddBoardIcon: (name: string, svg: string) => http<{ icon: BoardIconDTO }>('POST', '/admin/board-icons', { body: { name, svg } }),
@@ -423,7 +426,7 @@ export const api = {
   docResolveComment: (commentId: number, resolved: boolean) => http<{ comment: DocCommentDTO }>('PATCH', `/documentation/comments/${commentId}`, { body: { resolved } }),
   docDeleteComment: (commentId: number) => http<{ ok: true }>('DELETE', `/documentation/comments/${commentId}`),
   docRescan: (spaceId: number) => http<{ result: DocRescanResultDTO; nodes: DocNodeDTO[]; templates: DocNodeDTO[] }>('POST', `/documentation/spaces/${spaceId}/rescan`, { body: {} }),
-  docUploadImage: (spaceId: number, folder: string, file: File) => uploadDocFile<{ node: DocNodeDTO }>(`/documentation/spaces/${spaceId}/images?folder=${encodeURIComponent(folder)}`, file),
+  docUploadImage: async (spaceId: number, folder: string, file: File) => uploadDocFile<{ node: DocNodeDTO }>(`/documentation/spaces/${spaceId}/images?folder=${encodeURIComponent(folder)}`, await compressImage(file)),
 
   adminAuth: () => http<{ ldap: LdapSettingsDTO }>('GET', '/admin/auth'),
   adminSaveAuth: (input: LdapFields & { bindPassword?: string }) => http<{ ldap: LdapSettingsDTO; app: AppInfoDTO }>('PUT', '/admin/auth', { body: input }),

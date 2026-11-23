@@ -7,9 +7,10 @@ import InputText from 'primevue/inputtext';
 import type { MenuItem } from 'primevue/menuitem';
 import { anchor, anchorOf, attachAt, boundsOf, connectorGeometry, connectorStroke, crossingsOf, lineLength, shiftSegment, waypointRank, intersects, mindLink, mindRoot, shapePath, sideToward, textBox, type ConnectorGeometry, type Point, type Rect } from '@shared/boardGeometry';
 import { exportMermaid, mermaidToElements } from '@shared/boardMermaid';
-import { looksLikeDrawio } from '@shared/boardDrawio';
+import { drawioImageData, drawioImageName, looksLikeDrawio, type DrawioImage } from '@shared/boardDrawio';
 import { MOCKUP_SPECS, mockupSvg } from '@shared/boardMockup';
 import {
+  BOARD_ASSET_LIMITS,
   boardAssetUrl,
   boardIconUrl,
   elementGroup,
@@ -1982,7 +1983,55 @@ function openDrawio(text = '', at: Point | null = null): void {
 }
 
 /** Pose le diagramme importé, centré sur le point du clic droit (ou à droite de ce qui existe). */
-function importDrawio(created: BoardElement[]): void {
+const drawioBusy = ref(false);
+
+/**
+ * Fichier d'une image d'un diagramme draw.io, quand elle est intégrée au fichier (adresse `data:`). Une image hébergée
+ * ailleurs n'est pas téléchargée (FastBoard ne se connecte pas à d'autres sites) : `null`.
+ */
+function drawioImageFile(image: DrawioImage): File | null {
+  const data = drawioImageData(image.source);
+  return data ? new File([data.bytes as BlobPart], drawioImageName(image.name, data.mime), { type: data.mime }) : null;
+}
+
+/**
+ * Envoie les images du diagramme dans l'espace et donne leur clé aux éléments `image`. Une image qu'on ne peut pas
+ * envoyer (pas d'espace, image hébergée ailleurs, fichier trop lourd) laisse un cadre à son nom : les liens restent accrochés.
+ */
+async function withDrawioImages(created: BoardElement[], images: DrawioImage[]): Promise<{ elements: BoardElement[]; missing: number }> {
+  const keys = new Map<string, string>();
+  for (const image of images.slice(0, 60)) {
+    if (!props.spaceId) break;
+    try {
+      const file = drawioImageFile(image);
+      if (!file || file.size > BOARD_ASSET_LIMITS.bytes) continue;
+      keys.set(image.elementId, (await api.boardUploadAsset(props.spaceId, file)).asset.key);
+    } catch {
+      // Image illisible ou refusée : son cadre la remplace.
+    }
+  }
+  let missing = 0;
+  const elements = created.map((element): BoardElement => {
+    if (element.type !== 'image' || element.asset) return element;
+    const key = keys.get(element.id);
+    if (key) return { ...element, asset: key };
+    missing += 1;
+    const { asset: _asset, name, ...box } = element;
+    return { ...box, type: 'shape', shape: 'rect', text: name, color: 'gray', fill: 'outline', size: 's' };
+  });
+  return { elements, missing };
+}
+
+async function importDrawio(raw: BoardElement[], images: DrawioImage[] = []): Promise<void> {
+  drawioBusy.value = true;
+  let created = raw;
+  try {
+    const result = await withDrawioImages(raw, images);
+    created = result.elements;
+    if (result.missing) notify('warn', t('Images non importées'), t('{n} image n’a pas pu être importée : un cadre à son nom la remplace.|{n} images n’ont pas pu être importées : un cadre à leur nom les remplace.', { n: result.missing }));
+  } finally {
+    drawioBusy.value = false;
+  }
   const bounds = boundsOf(created, new Map(created.map((element) => [element.id, element])));
   if (!bounds) return;
   const rect = root.value!.getBoundingClientRect();
@@ -2930,7 +2979,7 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
     </div>
 
     <ContextMenu ref="menu" :model="menuItems" />
-    <BoardDrawioDialog v-model:visible="drawioOpen" :text="drawioText" :z-start="model.nextZ()" @import="importDrawio" />
+    <BoardDrawioDialog v-model:visible="drawioOpen" :text="drawioText" :z-start="model.nextZ()" :busy="drawioBusy" :can-upload="Boolean(spaceId)" @import="importDrawio" />
     <BoardExportDialog
       v-model:visible="imageExportOpen"
       :selection-count="selected.length"
