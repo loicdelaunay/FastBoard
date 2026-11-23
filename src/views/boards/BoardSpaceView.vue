@@ -24,6 +24,7 @@ import BoardTree from '@/components/boards/BoardTree.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { t } from '@/i18n';
 import { BoardSession } from '@/realtime/boardSession';
+import { useFollow } from '@/composables/useFollow';
 import { useAuthStore } from '@/stores/auth';
 import { useBoardsStore } from '@/stores/boards';
 import { copyText } from '@/utils/docRender';
@@ -86,23 +87,26 @@ onBeforeUnmount(() => {
 
 // --- Tableau ouvert et sa salle ---
 const session = shallowRef<BoardSession | null>(null);
-const presence = ref<Array<{ id: number; name: string; color: string }>>([]);
+/** Personnes sur ce tableau ; un clic sur l'une d'elles la suit (sa vue, puis les tableaux où elle va). */
+const follow = useFollow({
+  self: () => auth.user?.id,
+  goTo: (target) => {
+    if (!store.nodes.some((node) => node.id === target && (node.kind === 'board' || node.kind === 'template'))) return false;
+    if (target !== boardId.value) void router.push({ query: { ...route.query, board: String(target) } });
+    return true;
+  },
+});
+const presence = follow.people;
 watch(
   boardId,
   (id) => {
+    // Ceux qui nous suivent apprennent où l'on va avant que notre présence ne quitte ce tableau.
+    follow.detach(id);
     session.value?.close();
     session.value = null;
-    presence.value = [];
     if (id === null || !auth.user) return;
     const next = new BoardSession(id, { id: auth.user.id, name: auth.user.name });
-    next.awareness.on('change', () => {
-      const seen = new Map<number, { id: number; name: string; color: string }>();
-      next.awareness.getStates().forEach((state, clientId) => {
-        const user = state.user as { id: number; name: string; color: string } | undefined;
-        if (user && clientId !== next.doc.clientID && user.id !== auth.user?.id) seen.set(user.id, user);
-      });
-      presence.value = [...seen.values()];
-    });
+    follow.attach(next.awareness, next.doc.clientID);
     session.value = next;
   },
   { immediate: true },
@@ -325,6 +329,8 @@ const spaceMenuItems = computed<MenuItem[]>(() => [
 const canvas = ref<InstanceType<typeof BoardCanvas> | null>(null);
 // --- Historique : la frise des versions remplace le tableau le temps de la consulter ---
 const timelineOpen = ref(false);
+// L'historique montre des versions figées : on n'y suit personne.
+watch(timelineOpen, (open) => open && follow.stop());
 watch(boardId, () => (timelineOpen.value = false));
 /** Une version copiée dans un nouveau tableau : on l'ouvre. */
 function onForked(node: BoardNodeDTO): void {
@@ -390,9 +396,21 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
         <span v-if="isTemplate" class="muted small template-hint">{{ $t('Les copies posées sur les tableaux proposeront de se mettre à jour.') }}</span>
         <Button v-if="isTemplate" :label="returnTo ? $t('Revenir au tableau') : $t('Fermer le modèle')" icon="pi pi-arrow-left" size="small" severity="secondary" outlined @click="leaveTemplate" />
         <div v-if="presence.length" class="people">
-          <span v-for="person in presence" :key="person.id" v-tooltip.bottom="$t('{name} est sur ce tableau', { name: person.name })" class="person" :style="{ '--ring': person.color }">
+          <button
+            v-for="person in presence"
+            :key="person.id"
+            v-tooltip.bottom="follow.label(person, $t('{name} est sur ce tableau', { name: person.name }))"
+            type="button"
+            class="person"
+            :class="{ followed: follow.following.value === person.id }"
+            :style="{ '--ring': person.color }"
+            :aria-label="follow.label(person, $t('{name} est sur ce tableau', { name: person.name }))"
+            :aria-pressed="follow.following.value === person.id"
+            @click="follow.toggle(person)"
+          >
             <UserAvatar :user="presenceUser(person)" size="small" />
-          </span>
+            <i v-if="follow.following.value === person.id || person.followsMe" class="pi pi-eye watch" :class="{ me: person.followsMe && follow.following.value !== person.id }" aria-hidden="true"></i>
+          </button>
         </div>
         <template v-if="board && session">
           <span v-if="session.savedAt.value" v-tooltip.bottom="formatDateTime(session.savedAt.value)" class="muted small saved"><i class="pi pi-check"></i> {{ $t('Enregistré') }}</span>
@@ -421,7 +439,7 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
 
       <div v-if="board && session" class="board-area">
         <BoardTimeline v-if="timelineOpen" :key="`h${board.id}`" :board-id="board.id" :title="boardTitle(board.path)" :session="session" :can-edit="store.canEdit && session.canWrite.value" :users="users" :is-template="isTemplate" @close="timelineOpen = false" @forked="onForked" />
-        <BoardCanvas v-else :key="board.id" ref="canvas" :session="session" :can-edit="store.canEdit" :users="users" :board-title="boardTitle(board.path)" :space-id="spaceId" :templates="templates" :is-template="isTemplate" history @open-template="openTemplate" @history="timelineOpen = true" />
+        <BoardCanvas v-else :key="board.id" ref="canvas" :session="session" :can-edit="store.canEdit" :users="users" :board-title="boardTitle(board.path)" :space-id="spaceId" :templates="templates" :is-template="isTemplate" history v-model:follow="follow.following.value" @open-template="openTemplate" @history="timelineOpen = true" />
         <BoardLinksPanel v-if="linksOpen && !isTemplate" :links="links" :loading="linksLoading" @close="linksOpen = false" />
       </div>
 
@@ -618,13 +636,45 @@ button.crumb:hover {
 }
 .people {
   display: flex;
-  gap: 0.2rem;
+  gap: 0.45rem;
 }
 .person {
+  position: relative;
   display: inline-flex;
   padding: 1px;
+  border: 0;
   border-radius: 999px;
+  background: none;
   box-shadow: 0 0 0 2px var(--ring);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.person:hover,
+.person:focus-visible {
+  transform: translateY(-1px);
+}
+.person.followed {
+  box-shadow: 0 0 0 2px var(--fb-panel), 0 0 0 4px var(--ring);
+}
+/* Œil : on suit cette personne (à sa couleur), ou elle nous suit (discret). */
+.person .watch {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--ring);
+  color: #fff;
+  font-size: 9px;
+  box-shadow: 0 0 0 1.5px var(--fb-panel);
+}
+.person .watch.me {
+  background: var(--fb-panel);
+  color: var(--fb-muted);
+  box-shadow: 0 0 0 1px var(--fb-border);
 }
 .share-button {
   margin-left: 0.25rem;

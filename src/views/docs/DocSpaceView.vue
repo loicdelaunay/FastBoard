@@ -17,6 +17,7 @@ import { searchHasMarkdown } from '@shared/noteSearch';
 import { applyDocTemplate, DOC_TEMPLATE_VARIABLES } from '@shared/docTemplates';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
+import FollowPill from '@/components/common/FollowPill.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import DocEditor from '@/components/docs/DocEditor.vue';
 import DocHistoryDialog from '@/components/docs/DocHistoryDialog.vue';
@@ -34,8 +35,9 @@ import DocWebView from '@/components/docs/DocWebView.vue';
 import DocFindBar from '@/components/docs/find/DocFindBar.vue';
 import { useDocFind } from '@/composables/useDocFind';
 import { useDocTabs } from '@/composables/useDocTabs';
+import { useFollow } from '@/composables/useFollow';
 import { useReadingShift } from '@/composables/useReadingShift';
-import { DocSession, type DocPresence } from '@/realtime/docSession';
+import { DocSession } from '@/realtime/docSession';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
 import { downloadFrom } from '@/utils/files';
@@ -159,7 +161,16 @@ function openTabMenu(event: MouseEvent, id: string): void {
 // --- Session d'édition du fichier ouvert ---
 const session = shallowRef<DocSession | null>(null);
 const content = ref('');
-const presence = ref<DocPresence[]>([]);
+/** Personnes sur cette note ; un clic sur l'une d'elles la suit (là où elle lit, puis les notes où elle va). */
+const follow = useFollow({
+  self: () => auth.user?.id,
+  goTo: (target) => {
+    if (!allNodes.value.some((node) => node.id === target)) return false;
+    if (selected.value?.id !== target) tabsState.navigate(target);
+    return true;
+  },
+});
+const presence = follow.people;
 const synced = computed(() => session.value?.synced.value ?? false);
 const canWrite = computed(() => store.canEdit && (session.value?.canWrite.value ?? false));
 const savedAt = computed(() => session.value?.savedAt.value ?? null);
@@ -274,7 +285,10 @@ function onPreviewScroll(): void {
     spyFrame = 0;
     const pane = previewPane.value;
     // En lecture, la ligne du haut est celle que l'on retrouvera en passant en écriture.
-    if (pane && !writing.value && !restoringPosition) topLine = previewTopLine() ?? topLine;
+    if (pane && !writing.value && !restoringPosition) {
+      topLine = previewTopLine() ?? topLine;
+      shareLine();
+    }
     if (!pane || !showOutline.value || Date.now() < followAfter) return;
     const elements = renderedHeadings();
     const limit = pane.getBoundingClientRect().top + 24;
@@ -284,7 +298,10 @@ function onPreviewScroll(): void {
 }
 
 function onEditorLine(line: number, fraction = 0): void {
-  if (!restoringPosition) topLine = line + fraction;
+  if (!restoringPosition) {
+    topLine = line + fraction;
+    shareLine();
+  }
   // Défilement de l'éditeur sans déplacer le curseur : l'aperçu suit le haut de l'éditeur.
   if (Date.now() > cursorSyncedAt + 400) syncPreview(line, 0);
   if (Date.now() < followAfter) return;
@@ -395,39 +412,75 @@ watch([mode, writing], async () => {
 // Une autre note repart du haut.
 watch(() => selected.value?.id, () => (topLine = 1));
 
+// --- Suivre quelqu'un : notre page défile là où il lit ---
+let lineSharedAt = 0;
+let lineShareTimer = 0;
+/** Publie la ligne du haut de l'écran (8 fois par seconde au plus) : ceux qui nous suivent s'y calent. */
+function shareLine(): void {
+  window.clearTimeout(lineShareTimer);
+  const wait = 120 - (Date.now() - lineSharedAt);
+  if (wait > 0) {
+    lineShareTimer = window.setTimeout(shareLine, wait);
+    return;
+  }
+  lineSharedAt = Date.now();
+  session.value?.awareness.setLocalStateField('view', { line: Math.round(topLine * 100) / 100, at: lineSharedAt });
+}
+
+/** Ligne du source en haut de l'écran de la personne suivie. */
+const followLine = computed(() => {
+  const line = (follow.followedState.value?.view as { line?: unknown } | undefined)?.line;
+  return typeof line === 'number' && Number.isFinite(line) ? line : null;
+});
+function followScroll(): void {
+  const line = followLine.value;
+  if (line === null || follow.following.value === null) return;
+  if (writing.value) editor.value?.scrollToSourceLine(line);
+  else if (previewPane.value) scrollPreviewToLine(line, 0);
+}
+watch(followLine, followScroll);
+// Note qui vient de s'ouvrir, mode changé : le rendu arrive un peu après, on se recale dessus.
+let followTimers: number[] = [];
+watch([() => follow.following.value, synced, mode, writing, () => selected.value?.id], () => {
+  followTimers.forEach((timer) => window.clearTimeout(timer));
+  followTimers = follow.following.value === null ? [] : [0, 300, 900].map((delay) => window.setTimeout(followScroll, delay));
+});
+
+/** Notre première action dans la note (clic, molette, touche) nous rend la main. */
+function onFollowAction(event: Event): void {
+  if (follow.following.value === null) return;
+  if (event instanceof KeyboardEvent && ['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
+  follow.stop();
+}
+
 // Le rendu change avec le texte : on recale l'aperçu sur le curseur une fois l'aperçu redessiné.
 watch(content, () => {
   if (!lastCursor || !splitView.value) return;
   void nextTick(() => requestAnimationFrame(() => lastCursor && syncPreview(lastCursor.line, lastCursor.ratio)));
 });
 
-function closeSession(): void {
+/** `next` : le fichier où l'on va, annoncé à ceux qui nous suivent avant que notre présence ne quitte la note. */
+function closeSession(next: number | null = null): void {
+  follow.detach(next);
   session.value?.close();
   session.value = null;
   content.value = '';
-  presence.value = [];
   activeHeading.value = 0;
 }
 
 function openSession(nodeId: number): void {
-  closeSession();
+  closeSession(nodeId);
   if (!auth.user) return;
   const next = new DocSession(nodeId, { id: auth.user.id, name: auth.user.name });
   next.text.observe(() => (content.value = next.text.toString()));
-  next.awareness.on('change', () => {
-    const people = new Map<number, DocPresence>();
-    for (const state of next.awareness.getStates().values()) {
-      const user = state.user as DocPresence | undefined;
-      if (user && user.id !== auth.user?.id) people.set(user.id, user);
-    }
-    presence.value = [...people.values()];
-  });
+  follow.attach(next.awareness, next.doc.clientID);
   session.value = next;
+  shareLine();
 }
 
 watch(
   () => (isText(selected.value) ? selected.value!.id : null),
-  (nodeId) => (nodeId === null ? closeSession() : openSession(nodeId)),
+  (nodeId) => (nodeId === null ? closeSession(selected.value?.id ?? null) : openSession(nodeId)),
   { immediate: true },
 );
 
@@ -534,6 +587,8 @@ watch(closed, (reason) => {
 
 onBeforeUnmount(() => {
   window.clearTimeout(linksTimer);
+  window.clearTimeout(lineShareTimer);
+  followTimers.forEach((timer) => window.clearTimeout(timer));
   cancelAnimationFrame(spyFrame);
   closeSession();
   void store.loadComments(null);
@@ -910,10 +965,22 @@ const recent = computed(() =>
             <span v-else-if="docParent(selected.path)" class="muted">{{ docParent(selected.path).replaceAll('/', ' / ') }} / </span>
             <strong>{{ isText(selected) ? docTitle(selected.path) : docBaseName(selected.path) }}</strong>
           </div>
-          <div class="people">
-            <span v-for="person in presence" :key="person.id" v-tooltip.bottom="$t('{name} est sur cette note', { name: person.name })" class="person" :style="{ '--ring': person.color }">
+          <div class="people" @keydown.esc="follow.stop()">
+            <button
+              v-for="person in presence"
+              :key="person.id"
+              v-tooltip.bottom="follow.label(person, $t('{name} est sur cette note', { name: person.name }))"
+              type="button"
+              class="person"
+              :class="{ followed: follow.following.value === person.id }"
+              :style="{ '--ring': person.color }"
+              :aria-label="follow.label(person, $t('{name} est sur cette note', { name: person.name }))"
+              :aria-pressed="follow.following.value === person.id"
+              @click="follow.toggle(person)"
+            >
               <UserAvatar :user="users.find((user) => user.id === person.id) ?? { id: person.id, name: person.name, avatarVersion: 0 }" size="small" />
-            </span>
+              <i v-if="follow.following.value === person.id || person.followsMe" class="pi pi-eye watch" :class="{ me: person.followsMe && follow.following.value !== person.id }" aria-hidden="true"></i>
+            </button>
           </div>
           <template v-if="isText(selected)">
             <span v-if="writing && savedAt" v-tooltip.bottom="formatDateTime(savedAt)" class="muted small saved"><i class="pi pi-check"></i> {{ $t('Enregistré') }}</span>
@@ -959,7 +1026,12 @@ const recent = computed(() =>
           <div v-if="!synced" class="waiting muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
           <div v-else class="note-body" :class="{ 'with-outline': showOutline }">
             <DocOutline v-if="showOutline" class="outline" :headings="headings" :active="activeHeading" @go="goToHeading" @close="outlineOpen = false" />
-            <div ref="panes" class="panes" :class="{ split: writing && !live && showPreview, writing }">
+            <div ref="panes" class="panes" :class="{ split: writing && !live && showPreview, writing }" @pointerdown.capture="onFollowAction" @wheel.capture.passive="onFollowAction" @keydown.capture="onFollowAction">
+              <!-- Suivi d'une personne : cadre à sa couleur et rappel, tant que l'on ne reprend pas la main -->
+              <template v-if="follow.followed.value">
+                <div class="follow-frame" :style="{ '--follow': follow.followed.value.color }"></div>
+                <FollowPill class="follow-banner" :name="follow.followed.value.name" :color="follow.followed.value.color" @stop="follow.stop()" />
+              </template>
               <DocFindBar
                 v-if="find.open.value"
                 :ref="setFindBar"
@@ -1283,12 +1355,61 @@ const recent = computed(() =>
 }
 .people {
   display: flex;
-  gap: 0.15rem;
+  gap: 0.45rem;
 }
 .person {
+  position: relative;
   display: inline-flex;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
+  background: none;
   box-shadow: 0 0 0 2px var(--ring);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.person:hover,
+.person:focus-visible {
+  transform: translateY(-1px);
+}
+.person.followed {
+  box-shadow: 0 0 0 2px var(--fb-panel), 0 0 0 4px var(--ring);
+}
+/* Œil : on suit cette personne (à sa couleur), ou elle nous suit (discret). */
+.person .watch {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--ring);
+  color: #fff;
+  font-size: 9px;
+  box-shadow: 0 0 0 1.5px var(--fb-panel);
+}
+.person .watch.me {
+  background: var(--fb-panel);
+  color: var(--fb-muted);
+  box-shadow: 0 0 0 1px var(--fb-border);
+}
+.follow-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  border: 3px solid var(--follow);
+  pointer-events: none;
+}
+/* En bas, au-dessus de la barre des liens et du compte des mots ; le haut est pris par les outils de l'éditeur. */
+.follow-banner {
+  position: absolute;
+  bottom: 3.1rem;
+  left: 50%;
+  z-index: 8;
+  width: max-content;
+  transform: translateX(-50%);
 }
 .saved {
   margin: 0 0.35rem;

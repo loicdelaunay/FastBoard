@@ -10,6 +10,7 @@ import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import { ApiError } from '@/api/http';
 import BoardCanvas from '@/components/boards/BoardCanvas.vue';
+import { useFollow } from '@/composables/useFollow';
 import { t } from '@/i18n';
 import { BoardSession } from '@/realtime/boardSession';
 import { realtime } from '@/realtime/socket';
@@ -54,8 +55,10 @@ const busy = ref(false);
 const guestName = ref(read(NAME_KEY) ?? '');
 const users = ref<UserSummaryDTO[]>([]);
 const session = shallowRef<BoardSession | null>(null);
-const presence = ref<Array<{ id: number; name: string; color: string }>>([]);
 const guestId = 900_000 + Math.floor(Math.random() * 99_999);
+/** Personnes sur ce tableau ; un clic sur l'une d'elles suit ce qu'elle regarde. */
+const follow = useFollow({ self: () => auth.user?.id ?? guestId });
+const presence = follow.people;
 
 // Les droits suivent le partage en direct : une fois raccordé, c'est le serveur qui dit si l'on peut écrire.
 const canEdit = computed(() => (session.value?.synced.value ? session.value.canWrite.value : Boolean(info.value && docRoleAtLeast(info.value.role, 'editor'))));
@@ -85,16 +88,10 @@ function start(): void {
   if (!auth.isAuthenticated) realtime.connect({ guest: true });
   else void api.directory().then((result) => (users.value = result.users), () => undefined);
   const user = auth.user ? { id: auth.user.id, name: auth.user.name } : { id: guestId, name: guestName.value.trim().slice(0, BOARD_SHARE_LIMITS.guestNameMax) };
+  follow.detach();
   session.value?.close();
   const next = new BoardSession(info.value.boardId, user, { slug: slug.value, token: token.value });
-  next.awareness.on('change', () => {
-    const seen = new Map<number, { id: number; name: string; color: string }>();
-    next.awareness.getStates().forEach((value, clientId) => {
-      const person = value.user as { id: number; name: string; color: string } | undefined;
-      if (person && clientId !== next.doc.clientID) seen.set(person.id, person);
-    });
-    presence.value = [...seen.values()];
-  });
+  follow.attach(next.awareness, next.doc.clientID);
   session.value = next;
   state.value = 'ready';
 }
@@ -138,9 +135,9 @@ watch(
   () => session.value?.closed.value,
   (reason) => {
     if (!reason) return;
+    follow.detach();
     session.value?.close();
     session.value = null;
-    presence.value = [];
     if (!auth.isAuthenticated) realtime.disconnect();
     void load();
   },
@@ -171,14 +168,28 @@ onBeforeUnmount(() => {
       </span>
       <span class="spacer"></span>
       <div v-if="presence.length" class="people">
-        <span v-for="person in presence" :key="person.id" class="person" :style="{ backgroundColor: person.color }" :title="person.name">{{ person.name.slice(0, 1).toUpperCase() }}</span>
+        <button
+          v-for="person in presence"
+          :key="person.id"
+          v-tooltip.bottom="follow.label(person, person.name)"
+          type="button"
+          class="person"
+          :class="{ followed: follow.following.value === person.id }"
+          :style="{ backgroundColor: person.color, '--ring': person.color }"
+          :aria-label="follow.label(person, person.name)"
+          :aria-pressed="follow.following.value === person.id"
+          @click="follow.toggle(person)"
+        >
+          {{ person.name.slice(0, 1).toUpperCase() }}
+          <i v-if="follow.following.value === person.id || person.followsMe" class="pi pi-eye watch" :class="{ me: person.followsMe && follow.following.value !== person.id }" aria-hidden="true"></i>
+        </button>
       </div>
       <Button v-if="state === 'ready' && !auth.isAuthenticated" v-tooltip.bottom="$t('Changer de nom')" :label="guestName" icon="pi pi-user" size="small" severity="secondary" text @click="rename" />
       <Button v-if="info?.member && info.spaceId" :label="$t('Ouvrir dans {name}', { name: app.name })" icon="pi pi-external-link" size="small" severity="secondary" outlined @click="router.push({ name: 'board-space', params: { spaceId: info.spaceId }, query: { board: String(info.boardId) } })" />
       <Button v-else-if="!auth.isAuthenticated" :label="$t('Se connecter')" icon="pi pi-sign-in" size="small" severity="secondary" text @click="login" />
     </header>
 
-    <BoardCanvas v-if="state === 'ready' && session && info" :key="session.boardId" :session="session" :can-edit="canEdit" :users="users" :board-title="info.title" />
+    <BoardCanvas v-if="state === 'ready' && session && info" :key="session.boardId" :session="session" :can-edit="canEdit" :users="users" :board-title="info.title" v-model:follow="follow.following.value" />
 
     <div v-else class="gate">
       <div v-if="state === 'loading'" class="muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
@@ -264,15 +275,41 @@ onBeforeUnmount(() => {
   display: flex;
 }
 .person {
+  position: relative;
   display: grid;
   place-items: center;
   width: 1.8rem;
   height: 1.8rem;
+  padding: 0;
   border: 2px solid var(--fb-panel);
   border-radius: 999px;
   color: #fff;
+  font: inherit;
   font-size: 0.75rem;
   font-weight: 700;
+  cursor: pointer;
+}
+.person.followed {
+  z-index: 1;
+  box-shadow: 0 0 0 2px var(--ring);
+}
+.person .watch {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ring);
+  color: #fff;
+  font-size: 9px;
+  box-shadow: 0 0 0 1.5px var(--fb-panel);
+}
+.person .watch.me {
+  background: var(--fb-panel);
+  color: var(--fb-muted);
 }
 .person + .person {
   margin-left: -0.4rem;

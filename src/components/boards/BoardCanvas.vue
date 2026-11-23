@@ -5,6 +5,7 @@ import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import type { MenuItem } from 'primevue/menuitem';
+import FollowPill from '@/components/common/FollowPill.vue';
 import { anchor, anchorOf, attachAt, boundsOf, connectorGeometry, connectorStroke, crossingsOf, lineLength, shiftSegment, waypointRank, intersects, mindLink, mindRoot, shapePath, sideToward, textBox, type ConnectorGeometry, type Point, type Rect } from '@shared/boardGeometry';
 import { exportMermaid, mermaidToElements } from '@shared/boardMermaid';
 import { drawioImageData, drawioImageName, looksLikeDrawio, type DrawioImage } from '@shared/boardDrawio';
@@ -83,6 +84,8 @@ const props = defineProps<{
   changes?: { added: ReadonlySet<string>; changed: ReadonlySet<string> } | null;
 }>();
 const emit = defineEmits<{ 'open-template': [id: number]; history: [] }>();
+/** Personne suivie (son identifiant) : la vue montre ce qu'elle regarde, jusqu'à notre première action. */
+const follow = defineModel<number | null>('follow', { default: null });
 
 const auth = useAuthStore();
 const model = new BoardModel(props.session);
@@ -458,21 +461,30 @@ const editingId = computed(() => editing.value?.id ?? null);
 
 interface Peer {
   clientId: number;
+  userId: number | null;
   name: string;
   color: string;
   pointer: Point | null;
   /** Éléments que la personne a sélectionnés (ou qu'elle écrit). */
   selection: string[];
+  /** Ce qu'elle regarde : la partie du tableau visible chez elle, et quand elle a bougé pour la dernière fois. */
+  view: (Rect & { at: number }) | null;
+}
+function readView(value: unknown): Peer['view'] {
+  const rect = value as Partial<Rect & { at: number }> | null | undefined;
+  const numbers = [rect?.x, rect?.y, rect?.w, rect?.h];
+  if (!rect || !numbers.every((number) => typeof number === 'number' && Number.isFinite(number)) || rect.w! <= 0 || rect.h! <= 0) return null;
+  return { x: rect.x!, y: rect.y!, w: rect.w!, h: rect.h!, at: typeof rect.at === 'number' ? rect.at : 0 };
 }
 const peers = shallowRef<Peer[]>([]);
 function readPeers(): void {
   const list: Peer[] = [];
   props.session.awareness.getStates().forEach((state, clientId) => {
     if (clientId === props.session.doc.clientID) return;
-    const user = state.user as { name?: string; color?: string } | undefined;
+    const user = state.user as { id?: number; name?: string; color?: string } | undefined;
     const pointer = state.pointer as Point | null | undefined;
     const chosen = Array.isArray(state.selection) ? (state.selection as unknown[]).filter((id): id is string => typeof id === 'string') : [];
-    if (user) list.push({ clientId, name: user.name ?? '', color: user.color ?? '#4f8cff', pointer: pointer ?? null, selection: chosen });
+    if (user) list.push({ clientId, userId: typeof user.id === 'number' ? user.id : null, name: user.name ?? '', color: user.color ?? '#4f8cff', pointer: pointer ?? null, selection: chosen, view: readView(state.view) });
   });
   peers.value = list;
 }
@@ -498,6 +510,60 @@ function sharePointer(point: Point | null): void {
   }
   pointerSent = now;
   props.session.awareness.setLocalStateField('pointer', point);
+}
+
+// --- Suivre quelqu'un : notre vue cadre ce qu'il regarde ---------------------------------------------------------------
+
+let viewSharedAt = 0;
+let viewShareTimer = 0;
+/** Publie la partie du tableau visible ici (12 fois par seconde au plus) : ceux qui nous suivent la cadrent chez eux. */
+function shareView(): void {
+  window.clearTimeout(viewShareTimer);
+  const wait = 80 - (Date.now() - viewSharedAt);
+  if (wait > 0) {
+    viewShareTimer = window.setTimeout(shareView, wait);
+    return;
+  }
+  viewSharedAt = Date.now();
+  const round = (value: number): number => Math.round(value * 10) / 10;
+  props.session.awareness.setLocalStateField('view', { x: round(-view.x / view.zoom), y: round(-view.y / view.zoom), w: round(size.width / view.zoom), h: round(size.height / view.zoom), at: viewSharedAt });
+}
+watch(() => [view.x, view.y, view.zoom, size.width, size.height], shareView, { immediate: true });
+
+/** La personne suivie ; avec plusieurs onglets ouverts, celui dont la vue a bougé en dernier. */
+const followed = computed(() => (follow.value === null ? null : (peers.value.filter((peer) => peer.userId === follow.value).sort((a, b) => (b.view?.at ?? 0) - (a.view?.at ?? 0))[0] ?? null)));
+let followFrame = 0;
+/** Rapproche notre vue de celle de la personne suivie (son écran tient en entier dans le nôtre), image par image. */
+function followStep(): void {
+  followFrame = 0;
+  const rect = followed.value?.view;
+  if (!rect) return;
+  const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(size.width / rect.w, size.height / rect.h)));
+  const target = { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
+  const center = { x: (size.width / 2 - view.x) / view.zoom, y: (size.height / 2 - view.y) / view.zoom };
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const arrived = still || (Math.abs(Math.log(zoom / view.zoom)) < 0.002 && Math.abs(target.x - center.x) * zoom < 0.5 && Math.abs(target.y - center.y) * zoom < 0.5);
+  const ease = 0.3;
+  const nextZoom = arrived ? zoom : view.zoom * Math.exp(Math.log(zoom / view.zoom) * ease);
+  const next = arrived ? target : { x: center.x + (target.x - center.x) * ease, y: center.y + (target.y - center.y) * ease };
+  view.zoom = nextZoom;
+  view.x = size.width / 2 - next.x * nextZoom;
+  view.y = size.height / 2 - next.y * nextZoom;
+  if (!arrived) followFrame = requestAnimationFrame(followStep);
+}
+watch([() => followed.value?.view, () => size.width, () => size.height], () => {
+  if (followed.value?.view && !followFrame) followFrame = requestAnimationFrame(followStep);
+});
+// Le clavier revient au tableau : Échap (comme toute action) arrête le suivi.
+watch(follow, (id) => {
+  if (id !== null) root.value?.focus({ preventScroll: true });
+});
+
+/** Notre première action dans le tableau (clic, molette, touche) nous rend la main. */
+function onUserAction(event: Event): void {
+  if (follow.value === null) return;
+  if (event instanceof KeyboardEvent && ['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
+  follow.value = null;
 }
 
 // --- Création ----------------------------------------------------------------------------------------------------------
@@ -606,6 +672,14 @@ const drawing = ref<Point[] | null>(null);
 const creating = ref<Rect | null>(null);
 const erasing = shallowRef<Set<string>>(new Set());
 const hoverId = ref<string | null>(null);
+/**
+ * Élément dont on montre les bulles de liaison au survol. Il suit `hoverId` avec un délai dès que des bulles sont déjà
+ * affichées : entre deux formes qui se chevauchent, on a le temps d'aller sur une bulle avant qu'elle ne laisse la place
+ * à celles de la forme d'à côté (ou ne disparaisse).
+ */
+const dotsId = ref<string | null>(null);
+const DOTS_DELAY_MS = 450;
+let dotsTimer = 0;
 const dropTarget = ref<string | null>(null);
 const spaceDown = ref(false);
 
@@ -860,12 +934,19 @@ function eraseAt(clientX: number, clientY: number): void {
   }
 }
 
-/** Le pointeur est autour de la forme survolée, assez près pour atteindre ses bulles de liaison. */
-function nearHovered(world: Point): boolean {
-  const element = hoverId.value ? index.value.get(hoverId.value) : undefined;
+/** Le pointeur est autour de cette forme, assez près pour atteindre ses bulles de liaison. */
+function nearElement(id: string | null, world: Point): boolean {
+  const element = id ? index.value.get(id) : undefined;
   if (!element || !isPlaced(element)) return false;
   const margin = 30 / view.zoom;
   return world.x >= element.x - margin && world.x <= element.x + element.w + margin && world.y >= element.y - margin && world.y <= element.y + element.h + margin;
+}
+
+/** Plus rien n'est survolé, et les bulles du survol partent tout de suite (fin d'un geste, capture d'image). */
+function clearHover(): void {
+  window.clearTimeout(dotsTimer);
+  hoverId.value = null;
+  dotsId.value = null;
 }
 
 /** L'élément sous le pointeur devient l'élément survolé, celui dont on montre les bulles de liaison. */
@@ -875,8 +956,11 @@ function updateHover(target: Element | null, world: Point): void {
   // Les bulles de liaison sont un peu à l'extérieur de la forme : elle reste survolée tant que le pointeur en est proche,
   // même au-dessus d'un lien qui part déjà de ce côté (ou d'un trait, d'une section) : on peut atteindre la bulle.
   const under = id ? index.value.get(id) : undefined;
-  if ((!under || !connectable(under)) && hoverId.value && nearHovered(world)) id = hoverId.value;
-  if (id !== hoverId.value && !target?.closest('[data-dot]')) hoverId.value = id;
+  if (!under || !connectable(under)) id = [dotsId.value, hoverId.value].find((kept) => kept && nearElement(kept, world)) ?? id;
+  // Sur une bulle, c'est sa forme qui est survolée : ses bulles ne laissent pas la place à celles d'une autre.
+  const dot = target?.closest<SVGElement>('[data-dot]');
+  if (dot) id = dot.dataset.of ?? hoverId.value;
+  if (id !== hoverId.value) hoverId.value = id;
 }
 
 function onPointerMove(event: PointerEvent): void {
@@ -1073,7 +1157,7 @@ function onPointerUp(event: PointerEvent): void {
       marquee.value = null;
       break;
     case 'end':
-      hoverId.value = null;
+      clearHover();
       model.stopCapturing();
       break;
     case 'waypoint':
@@ -1138,7 +1222,7 @@ function isDescendant(id: string, ancestor: string): boolean {
 /** Fin d'un lien tiré : sur un élément, il s'y accroche ; dans le vide, il crée une forme pareille au départ. */
 function finishConnect(from: { id: string | null; side: Side | null; point: Point }, event: PointerEvent, world: Point): void {
   draft.value = null;
-  hoverId.value = null;
+  clearHover();
   const target = elementAt(event.clientX, event.clientY, (candidate) => connectable(candidate) && candidate.id !== from.id);
   const source = from.id ? index.value.get(from.id) : undefined;
   const connector = (to: ConnectorElement['to']): ConnectorElement => ({
@@ -2409,6 +2493,9 @@ onBeforeUnmount(() => {
   props.session.awareness.off('change', readPeers);
   window.clearTimeout(viewTimer);
   window.clearTimeout(pointerTimer);
+  window.clearTimeout(viewShareTimer);
+  window.clearTimeout(dotsTimer);
+  cancelAnimationFrame(followFrame);
   cancelAnimationFrame(frame);
   model.destroy();
 });
@@ -2428,9 +2515,22 @@ const dotPoint = (element: PlacedElement, side: Side): Point => {
   const offset = 16 / view.zoom;
   return { x: point.x + (side === 'right' ? offset : side === 'left' ? -offset : 0), y: point.y + (side === 'bottom' ? offset : side === 'top' ? -offset : 0) };
 };
+/** Cette forme peut montrer ses bulles de liaison (pour tirer un lien depuis l'un de ses côtés). */
+const offersDots = (element: BoardElement | null | undefined): element is PlacedElement =>
+  Boolean(element && connectable(element) && editable.value && (tool.value === 'select' || tool.value === 'connector') && !busy.value && !element.locked);
+/** La forme sélectionnée garde ses bulles affichées, même quand le pointeur passe sur une forme voisine. */
+const pinned = computed(() => (offersDots(single.value) ? single.value : null));
 const hovered = computed(() => {
-  const element = hoverId.value ? index.value.get(hoverId.value) : undefined;
-  return element && connectable(element) && editable.value && (tool.value === 'select' || tool.value === 'connector') && !busy.value && !element.locked ? (element as PlacedElement) : null;
+  const element = dotsId.value ? index.value.get(dotsId.value) : undefined;
+  return offersDots(element) && element.id !== pinned.value?.id ? element : null;
+});
+watch(hoverId, (id) => {
+  window.clearTimeout(dotsTimer);
+  if (id === dotsId.value) return;
+  // Aucune bulle à l'écran (ou un geste en cours, qui les cache) : rien à attendre.
+  const shown = Boolean(pinned.value) || offersDots(dotsId.value ? index.value.get(dotsId.value) : undefined);
+  if (!shown) dotsId.value = id;
+  else dotsTimer = window.setTimeout(() => (dotsId.value = hoverId.value), DOTS_DELAY_MS);
 });
 /**
  * Cadres en pointillés des groupes : sélectionné avec d'autres éléments (seul, le cadre de la sélection est le sien),
@@ -2527,7 +2627,7 @@ async function captureSvg(onlySelection: boolean, transparent: boolean): Promise
   if (!bounds || !content) return null;
   const ids = onlySelection ? new Set(chosen.map((element) => element.id)) : null;
   if (editing.value) commitEdit();
-  hoverId.value = null;
+  clearHover();
   captures += 1;
   exporting.value = true;
   await nextTick();
@@ -2610,6 +2710,9 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
     class="board"
     :class="[cursorClass, { readonly: !editable }]"
     tabindex="0"
+    @pointerdown.capture="onUserAction"
+    @wheel.capture="onUserAction"
+    @keydown.capture="onUserAction"
     @pointerdown="onPointerDown"
     @pointermove="onPointerMove"
     @pointerup="onPointerUp"
@@ -2879,6 +2982,10 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
         <template v-if="hovered">
           <circle v-for="side in sides" :key="side" class="link-dot" :data-dot="side" :data-of="hovered.id" :cx="dotPoint(hovered, side).x" :cy="dotPoint(hovered, side).y" :r="6 / view.zoom" :stroke-width="2 / view.zoom" />
         </template>
+        <!-- Ceux de la forme sélectionnée restent affichés, par-dessus ceux du survol -->
+        <template v-if="pinned">
+          <circle v-for="side in sides" :key="side" class="link-dot pinned" :data-dot="side" :data-of="pinned.id" :cx="dotPoint(pinned, side).x" :cy="dotPoint(pinned, side).y" :r="6 / view.zoom" :stroke-width="2 / view.zoom" />
+        </template>
 
         <!-- Sélections des autres -->
         <g v-for="chosen in peerSelections" :key="`s${chosen.clientId}`" class="peer-selection">
@@ -2960,6 +3067,12 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
         <Button :label="$t('Créer le modèle')" icon="pi pi-clone" :loading="savingTemplate" :disabled="!templateName?.trim()" @click="createTemplate" />
       </template>
     </Dialog>
+
+    <!-- Suivi d'une personne : cadre à sa couleur et rappel, tant que l'on ne reprend pas la main -->
+    <template v-if="followed">
+      <div class="follow-frame" :style="{ '--follow': followed.color }"></div>
+      <FollowPill class="follow-banner board-ui" :name="followed.name" :color="followed.color" @stop="follow = null" />
+    </template>
 
     <div class="zoom board-ui">
       <button v-tooltip.top="$t('Annuler (Ctrl Z)')" type="button" :disabled="!model.canUndo.value || !editable" :aria-label="$t('Annuler')" @click="model.undo()"><i class="pi pi-undo"></i></button>
@@ -3442,6 +3555,21 @@ polygon.block-fill {
 .link-dot:hover {
   opacity: 1;
   r: 8;
+}
+.follow-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border: 3px solid var(--follow);
+  pointer-events: none;
+}
+.follow-banner {
+  position: absolute;
+  top: 0.6rem;
+  left: 50%;
+  z-index: 7;
+  width: max-content;
+  transform: translateX(-50%);
 }
 .marquee {
   fill: color-mix(in srgb, var(--board-select) 10%, transparent);

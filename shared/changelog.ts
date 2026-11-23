@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.16.1';
+export const APP_VERSION = '2.17.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.17.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Suivre une personne, comme dans Figma : sur une note ou un tableau blanc, cliquez sur l’avatar de quelqu’un pour voir ce qu’il regarde. Votre vue le suit (défilement, zoom, et même quand il ouvre une autre note ou un autre tableau de l’espace) jusqu’à votre première action ; un œil sur votre avatar lui indique que vous le suivez.' },
+      { category: 'Amélioration', text: 'Tableaux blancs : les points de liaison de l’élément sélectionné restent affichés, et ceux du survol attendent un instant avant de changer ou de disparaître : entre deux formes qui se chevauchent, on a le temps d’aller dessus.' },
+    ],
+  },
   {
     version: '2.16.1',
     date: '2026-11-23',
