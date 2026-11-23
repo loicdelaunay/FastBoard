@@ -529,6 +529,12 @@ export interface AppInfoDTO {
   /** 0 = logo par défaut ; sinon `GET /api/app/logo?v=<version>`. */
   logoVersion: number;
   version: string;
+  /**
+   * Version de l'interface que le serveur sert : différente de `version`, l'interface doit être reconstruite sur le
+   * serveur (recharger la page n'y change rien). `null` : ce serveur ne sert pas l'interface (développement) ; vide :
+   * interface construite avant la 2.16.1.
+   */
+  interfaceVersion: string | null;
   /** Message de maintenance actif ou annoncé (absent une fois terminé ou désactivé). */
   maintenance: MaintenanceDTO | null;
   /** L'assistant IA est activé sur le site. */

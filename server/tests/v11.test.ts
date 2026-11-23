@@ -7,6 +7,7 @@ import { nextScheduledRun, parseRetentionRules, selectRetained } from '../../sha
 import { APP_VERSION, CHANGELOG } from '../../shared/changelog.ts';
 import type { ActivityDTO, HistoryEntryDTO, TicketDTO } from '../../shared/types.ts';
 import { readZip } from '../backup/zip.ts';
+import { interfaceVersionOf, servedInterfaceVersion, serveInterfaceFrom } from '../services/interfaceVersion.ts';
 import { bootServer, TestClient, patchPart } from './helpers.ts';
 
 type Booted = Awaited<ReturnType<typeof bootServer>>;
@@ -20,6 +21,48 @@ describe('version et journal des modifications', () => {
     for (const release of CHANGELOG) {
       assert.match(release.date, /^\d{4}-\d{2}-\d{2}$/);
       assert.ok(release.changes.length > 0);
+    }
+  });
+});
+
+describe('version de l’interface servie', () => {
+  const page = (version: string) => `<!doctype html><html><head><meta name="fastboard-version" content="${version}"></head><body></body></html>`;
+
+  it('se lit dans la page d’accueil ; vide pour une page construite avant qu’on la note', () => {
+    assert.equal(interfaceVersionOf(page('2.16.1')), '2.16.1');
+    assert.equal(interfaceVersionOf('<!doctype html><html><head><title>FastBoard</title></head></html>'), '');
+  });
+
+  it('suit le fichier servi (relu après une reconstruction), ou vaut null sans interface', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fastboard-ui-'));
+    const file = path.join(dir, 'index.html');
+    try {
+      fs.writeFileSync(file, page('2.16.0'));
+      serveInterfaceFrom({ file });
+      assert.equal(servedInterfaceVersion(), '2.16.0');
+      fs.writeFileSync(file, page('2.16.1'));
+      fs.utimesSync(file, new Date(), new Date(Date.now() + 5000));
+      assert.equal(servedInterfaceVersion(), '2.16.1', 'la reconstruction est vue sans redémarrer');
+      serveInterfaceFrom({ html: page('3.0.0') });
+      assert.equal(servedInterfaceVersion(), '3.0.0');
+      serveInterfaceFrom(null);
+      assert.equal(servedInterfaceVersion(), null);
+    } finally {
+      serveInterfaceFrom(null);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('est annoncée par /api/app (null quand le serveur ne sert pas l’interface)', async () => {
+    const booted = await bootServer();
+    try {
+      const response = await booted.client().get('/api/app');
+      assert.equal(response.status, 200);
+      const info = response.body as { version: string; interfaceVersion: string | null };
+      assert.equal(info.version, APP_VERSION);
+      assert.ok(info.interfaceVersion === null || typeof info.interfaceVersion === 'string');
+    } finally {
+      await booted.running.close();
     }
   });
 });

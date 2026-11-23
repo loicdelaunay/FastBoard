@@ -20,6 +20,8 @@ npm run build
 npm run start:prod   # http://localhost:3000
 ```
 
+Pour mettre à jour : récupérez la nouvelle version, relancez `npm install` et `npm run build`, puis redémarrez le serveur. Les deux étapes comptent : si l'interface n'est pas reconstruite (ou le serveur pas redémarré), les navigateurs affichent « Mise à jour incomplète sur le serveur » (ou « Le serveur n'a pas redémarré ») avec les deux numéros de version, et le serveur le signale dans son journal au démarrage.
+
 ### Exécutable autonome (Windows)
 
 Un seul fichier `FastBoard.exe` embarque Node, le serveur et l'interface : aucune installation requise.

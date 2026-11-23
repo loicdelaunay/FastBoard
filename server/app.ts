@@ -25,7 +25,9 @@ import { HttpError, notFound } from './http/errors.ts';
 import { csrfGuard, requireAuth } from './http/middleware.ts';
 import { embeddedFrontend } from './http/embedded.ts';
 import { requestMonitor } from './http/monitor.ts';
-import { runningAsExecutable } from './runtime.ts';
+import { APP_VERSION } from '../shared/changelog.ts';
+import { readAsset, runningAsExecutable } from './runtime.ts';
+import { servedInterfaceVersion, serveInterfaceFrom } from './services/interfaceVersion.ts';
 import { HttpsManager } from './system/https.ts';
 import { Logger } from './monitoring/logger.ts';
 import { Metrics } from './monitoring/metrics.ts';
@@ -170,6 +172,12 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   app.use('/api', api);
 
   const indexFile = path.join(config.distDir, 'index.html');
+  serveInterfaceFrom(runningAsExecutable ? { html: readAsset('dist/index.html')?.toString('utf8') ?? '' } : fs.existsSync(indexFile) ? { file: indexFile } : null);
+  const served = servedInterfaceVersion();
+  if (served !== null && served !== APP_VERSION) {
+    // Mise à jour à moitié faite : les navigateurs recevraient une interface d'une autre version que le serveur.
+    ctx.logger.warn('system', `L'interface servie est en version ${served || 'antérieure à la 2.16.1'}, le serveur en ${APP_VERSION} : reconstruisez l'interface (npm run build) puis redémarrez.`, { interface: served, server: APP_VERSION });
+  }
   if (runningAsExecutable) {
     app.use(embeddedFrontend());
   } else if (fs.existsSync(indexFile)) {

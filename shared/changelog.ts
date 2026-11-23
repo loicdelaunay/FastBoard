@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.16.0';
+export const APP_VERSION = '2.16.1';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,13 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.16.1',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Correction', text: 'Le message « Mise à jour disponible » ne revient plus en boucle : quand recharger la page ne peut rien changer, il explique quoi faire (reconstruire l’interface sur le serveur, redémarrer le serveur ou vider le cache) au lieu de reproposer la mise à jour. L’exécutable refuse aussi d’embarquer une interface d’une autre version.' },
+    ],
+  },
   {
     version: '2.16.0',
     date: '2026-11-23',

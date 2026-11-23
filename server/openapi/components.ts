@@ -496,6 +496,7 @@ export const componentSchemas: Record<string, Schema> = {
     name: str("Nom affiché de l'application."),
     logoVersion: int('0 = logo par défaut ; sinon `GET /app/logo?v=<version>`.'),
     version: str('Version de FastBoard.'),
+    interfaceVersion: nullable(str('Version de l’interface servie par ce serveur ; différente de `version` : l’interface est à reconstruire. `null` : interface servie ailleurs (développement).')),
     maintenance: nullable(ref('Maintenance')),
     ai: bool("L'assistant IA est activé sur le site."),
     ldap: nullable(obj({ loginLabel: str('Libellé du champ d’identifiant (vide : « Identifiant »).') })),

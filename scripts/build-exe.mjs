@@ -45,6 +45,12 @@ if (!skipFront) {
 if (!fs.existsSync(path.join(root, 'dist', 'index.html'))) {
   throw new Error("dist/index.html est introuvable : lancez « npm run build » d'abord.");
 }
+// L'interface embarquée doit être celle de cette version : sinon l'exécutable proposerait sans fin une mise à jour.
+const wanted = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
+const built = /<meta\s+name="fastboard-version"\s+content="([^"]*)"/i.exec(fs.readFileSync(path.join(root, 'dist', 'index.html'), 'utf8'))?.[1] ?? '';
+if (built !== wanted) {
+  throw new Error(`dist/ contient l'interface ${built ? `de la version ${built}` : "d'une ancienne version"}, pas celle de la ${wanted} : relancez sans --skip-front (ou « npm run build »).`);
+}
 
 console.log('2/5  Serveur (esbuild)…');
 fs.rmSync(workDir, { recursive: true, force: true });

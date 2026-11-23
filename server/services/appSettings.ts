@@ -1,4 +1,5 @@
 import { APP_VERSION } from '../../shared/changelog.ts';
+import { servedInterfaceVersion } from './interfaceVersion.ts';
 import type { AppInfoDTO, MaintenanceDTO } from '../../shared/types.ts';
 import type { AppContext } from '../context.ts';
 import { nowIso, type Db } from '../db/database.ts';
@@ -64,6 +65,7 @@ export function appInfo(db: Db): AppInfoDTO {
     name: branding.name,
     logoVersion: branding.logo ? branding.logoVersion : 0,
     version: APP_VERSION,
+    interfaceVersion: servedInterfaceVersion(),
     maintenance: visible ? maintenance : null,
     ai: ai?.enabled === true,
     ldap: ldap?.enabled === true ? { loginLabel: ldap.loginLabel ?? '' } : null,
