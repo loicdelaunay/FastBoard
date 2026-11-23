@@ -3,6 +3,7 @@ import type { MenuItem } from 'primevue/menuitem';
 import type { DocQuote } from '@shared/docComments';
 import { t } from '@/i18n';
 import type { MarkdownBlock } from '@/utils/markdown';
+import { boardViewChoices, setBoardMentionView, shownBoardView, type BoardMention } from './boardMention';
 import { addTableColumn, addTableRow, deleteBlock, duplicateBlock, isTaskDone, swapBlocks, toggleTask, type TextRange } from './commands';
 import { openLightbox } from '@/utils/lightbox';
 import { editRaw } from './live';
@@ -30,6 +31,8 @@ export interface MenuTarget {
   cell: { dom: HTMLElement; row: number; col: number } | null;
   /** Image sous le clic ; `edit` sélectionne son Markdown quand elle est affichée seule. */
   image: { src: string; alt: string; edit: (() => void) | null } | null;
+  /** Tableau blanc cité sous le clic : on peut choisir son affichage. */
+  board: BoardMention | null;
 }
 
 export interface MenuHandlers extends ToolHandlers {
@@ -58,6 +61,15 @@ export function editorMenu(view: EditorView, target: MenuTarget, handlers: MenuH
     if (link.address !== null) items.push({ label: t('Copier le lien'), icon: 'pi pi-copy', command: () => handlers.copy(link.address!) });
   }
   if (target.selected) items.push({ label: t('Copier'), icon: 'pi pi-copy', command: () => handlers.copy(target.selected) });
+  if (target.board) {
+    const board = target.board;
+    const current = shownBoardView(board);
+    items.push({
+      label: t('Afficher le tableau en'),
+      icon: 'pi pi-objects-column',
+      items: boardViewChoices().map((choice) => ({ label: choice.label, icon: choice.view === current ? 'pi pi-check' : choice.icon, command: () => setBoardMentionView(view, board, choice.view) })),
+    });
+  }
   if (items.length) items.push({ separator: true });
 
   if (selection) items.push(...inlineTools().map((tool) => toItem(view, tool, selection)), { separator: true });

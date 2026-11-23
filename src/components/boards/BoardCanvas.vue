@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, shallowRef, watch } from 'vue';
 import Button from 'primevue/button';
 import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
@@ -45,6 +45,7 @@ import { api } from '@/api';
 import { t } from '@/i18n';
 import type { BoardSessionLike } from '@/realtime/boardSession';
 import { useAuthStore } from '@/stores/auth';
+import { themeScope, type ThemeScope } from '@/theme/themeManager';
 import { notify, notifyError } from '@/utils/notify';
 import BoardChart from './BoardChart.vue';
 import BoardChartDialog from './BoardChartDialog.vue';
@@ -60,6 +61,7 @@ import BoardToolbar from './BoardToolbar.vue';
 import { BoardModel, measureText, mindSize, textPx } from './editor/model';
 import { buildExportSvg, download, exportFileName, rasterize, toPdf, type ExportFormat } from './editor/exportImage';
 import { iconLibrary, libraryMarkup, loadIconLibrary } from './editor/icons';
+import { BOARD_REPAINT } from './editor/paint';
 import { fingerprint, frameOf, instancesOf, instantiate, templateKey, templateSource, unlinked, type InstanceState } from './editor/templates';
 import { MIND_COLORS, MODE_TOOLS, type BoardMode, type BoardTool, type FastPick, type QuickPick, type SelectionAction } from './editor/tools';
 
@@ -2619,8 +2621,42 @@ function openExportImage(): void {
   imageExportOpen.value = true;
 }
 
-/** L'image du tableau (ou de la sélection), sans sélection ni survol affichés le temps de la capture. */
-async function captureSvg(onlySelection: boolean, transparent: boolean): Promise<{ svg: string; width: number; height: number } | null> {
+/** Change quand le tableau est dessiné dans un autre thème le temps d'une capture : les graphiques se redessinent. */
+const repaint = ref(0);
+provide(BOARD_REPAINT, repaint);
+let themedCaptures = 0;
+
+/**
+ * Pose les couleurs d'un thème sur ce tableau seul (la page garde le sien) et renvoie de quoi les retirer. Tout se fait
+ * sans rendre la main au navigateur entre la pose et le retrait : rien ne s'affiche dans ce thème.
+ */
+function paintScope(scope: ThemeScope): () => void {
+  const element = root.value!;
+  const classes = ['board-theme-scope', scope.dark ? 'board-theme-dark' : 'board-theme-light'];
+  themedCaptures += 1;
+  // Sans transition : les couleurs lues sont celles du thème, pas un état intermédiaire.
+  element.classList.add('board-capturing', ...classes);
+  for (const [name, value] of Object.entries(scope.vars)) element.style.setProperty(name, value);
+  repaint.value += 1;
+  return () => {
+    element.classList.remove(...classes);
+    for (const name of Object.keys(scope.vars)) element.style.removeProperty(name);
+    repaint.value += 1;
+    // Les transitions reviennent une fois les couleurs de la page recalculées (sinon elles s'animeraient au retour).
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        themedCaptures -= 1;
+        if (!themedCaptures) element.classList.remove('board-capturing');
+      }),
+    );
+  };
+}
+
+/**
+ * L'image du tableau (ou de la sélection), sans sélection ni survol affichés le temps de la capture. `themeId` : le thème
+ * dans lequel le dessiner ; `null` : celui de la page.
+ */
+async function captureSvg(onlySelection: boolean, transparent: boolean, themeId: string | null = null): Promise<{ svg: string; width: number; height: number } | null> {
   const chosen = onlySelection ? selected.value : elements.value;
   const bounds = boundsOf(chosen, index.value);
   const content = worldContent.value;
@@ -2632,8 +2668,17 @@ async function captureSvg(onlySelection: boolean, transparent: boolean): Promise
   exporting.value = true;
   await nextTick();
   try {
-    const background = transparent ? null : getComputedStyle(root.value!).getPropertyValue('--board-canvas').trim() || '#ffffff';
-    return await buildExportSvg(content, bounds, ids, background);
+    const scope = themeId ? themeScope(themeId) : null;
+    const restore = scope ? paintScope(scope) : null;
+    let pending: ReturnType<typeof buildExportSvg>;
+    try {
+      const background = transparent ? null : getComputedStyle(root.value!).getPropertyValue('--board-canvas').trim() || '#ffffff';
+      // Les styles sont lus dès l'appel : le thème de la capture peut être retiré juste après, sans attendre le fichier.
+      pending = buildExportSvg(content, bounds, ids, background, scope ? scope.dark : null);
+    } finally {
+      restore?.();
+    }
+    return await pending;
   } finally {
     captures -= 1;
     if (!captures) exporting.value = false;
@@ -2644,10 +2689,10 @@ let captures = 0;
 /** Aperçu de l'export dans la fenêtre : l'image de ce qui sera enregistré, et sa taille. */
 const exportPreview = ref<{ url: string; width: number; height: number } | null>(null);
 let previewRun = 0;
-async function previewExport(options: { transparent: boolean; selection: boolean }): Promise<void> {
+async function previewExport(options: { transparent: boolean; selection: boolean; theme: string | null }): Promise<void> {
   const run = ++previewRun;
   try {
-    const captured = await captureSvg(options.selection, options.transparent);
+    const captured = await captureSvg(options.selection, options.transparent, options.theme);
     if (run !== previewRun) return;
     if (exportPreview.value) URL.revokeObjectURL(exportPreview.value.url);
     exportPreview.value = captured ? { url: URL.createObjectURL(new Blob([captured.svg], { type: 'image/svg+xml;charset=utf-8' })), width: captured.width, height: captured.height } : null;
@@ -2661,10 +2706,10 @@ watch(imageExportOpen, (open) => {
   exportPreview.value = null;
 });
 
-async function exportImage(options: { format: ExportFormat; scale: number; transparent: boolean; selection: boolean }): Promise<void> {
+async function exportImage(options: { format: ExportFormat; scale: number; transparent: boolean; selection: boolean; theme: string | null }): Promise<void> {
   exportBusy.value = true;
   try {
-    const captured = await captureSvg(options.selection, options.transparent);
+    const captured = await captureSvg(options.selection, options.transparent, options.theme);
     if (!captured) return;
     const name = exportFileName(props.boardTitle || t('Tableau blanc'), options.format);
     if (options.format === 'svg') {
@@ -2685,10 +2730,10 @@ async function exportImage(options: { format: ExportFormat; scale: number; trans
   }
 }
 
-async function copyImage(options: { scale: number; transparent: boolean; selection: boolean }): Promise<void> {
+async function copyImage(options: { scale: number; transparent: boolean; selection: boolean; theme: string | null }): Promise<void> {
   exportBusy.value = true;
   try {
-    const captured = await captureSvg(options.selection, options.transparent);
+    const captured = await captureSvg(options.selection, options.transparent, options.theme);
     if (!captured) return;
     const image = await rasterize(captured.svg, captured.width, captured.height, options.scale, 'image/png');
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': image.blob })]);

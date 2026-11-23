@@ -334,8 +334,12 @@ button {
   }
 }
 
-/* Tableaux blancs : teintes des éléments, en thème clair puis sombre. */
-:root {
+/*
+ * Tableaux blancs : teintes des éléments, en thème clair puis sombre. Les classes `board-theme-light` et
+ * `board-theme-dark` posent les mêmes teintes sur un tableau seul, pour l'exporter dans un autre thème que celui de la page.
+ */
+:root,
+.board-theme-light {
   --board-canvas: #f8fafc;
   --board-dot: #cbd5e1;
   --board-select: #3b82f6;
@@ -380,7 +384,8 @@ button {
   --fb-reading-width: 100%;
 }
 
-:root.app-dark {
+:root.app-dark,
+.board-theme-dark {
   --board-canvas: #111827;
   --board-dot: #334155;
   --board-select: #60a5fa;
@@ -411,6 +416,79 @@ button {
   --board-pink-fill: #3d1a31;
   --board-pink-stroke: #f472b6;
   --board-pink-text: #fbcfe8;
+}
+/* Tableau dessiné aux couleurs d'un autre thème (export) : ses polices et son texte, sans transition de couleur. */
+.board-theme-scope {
+  color: var(--fb-text);
+  font-family: var(--fb-font, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
+}
+.board-capturing,
+.board-capturing * {
+  transition: none !important;
+}
+/*
+ * Tableau blanc intégré dans une note : un cadre où l'on se déplace et où l'on zoome (voir `utils/boardEmbed.ts`). Tant que
+ * le script ne l'a pas pris en main, l'image s'y affiche en entier.
+ */
+.fb-board-view {
+  position: relative;
+  display: block;
+  height: min(28rem, 60vh);
+  overflow: hidden;
+  background: var(--board-canvas);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.fb-board-view.dragging {
+  cursor: grabbing;
+}
+.fb-board-view img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 0;
+  box-sizing: border-box;
+  object-fit: contain;
+  pointer-events: none;
+}
+.fb-board-view.ready img {
+  position: absolute;
+  padding: 0;
+  object-fit: fill;
+}
+.fb-board-zoom {
+  display: inline-flex;
+  flex: none;
+  gap: 0.1rem;
+}
+.fb-board-zoom button {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fb-muted);
+  cursor: pointer;
+}
+.fb-board-zoom button:hover:not(:disabled) {
+  background: var(--fb-panel-alt);
+  color: var(--fb-text);
+}
+.fb-board-zoom button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.fb-board-zoom button .pi {
+  color: inherit;
+  font-size: 0.8rem;
 }
 /* Aperçu d'un tableau blanc dans le texte : l'image du thème en cours. */
 :root:not(.app-dark) .md-board-preview.dark,

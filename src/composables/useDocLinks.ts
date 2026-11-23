@@ -12,11 +12,11 @@ export function wantsNewTab(event: Event): boolean {
 }
 
 /**
- * Suivre un lien d'une note : mention, fichier de l'espace ou adresse externe. Avec `openUrl`, une adresse web s'ouvre
- * dans un onglet de la documentation, et Ctrl clic dans une nouvelle page du navigateur ; une note s'ouvre dans l'onglet
- * actif, ou dans un nouvel onglet avec Ctrl clic.
+ * Suivre un lien d'une note : mention, fichier de l'espace ou adresse externe. Une note s'ouvre dans l'onglet actif de la
+ * documentation, ou dans un nouvel onglet avec Ctrl clic ; une adresse web (http, https) s'ouvre toujours dans un autre
+ * onglet du navigateur, jamais dans la documentation.
  */
-export function useDocLinks(nodes: () => readonly DocNodeDTO[], open: (node: DocNodeDTO, newTab?: boolean) => void, openUrl?: (url: string) => void) {
+export function useDocLinks(nodes: () => readonly DocNodeDTO[], open: (node: DocNodeDTO, newTab?: boolean) => void) {
   const router = useRouter();
 
   /** Un ticket se trouve par son identifiant, quel que soit son projet. */
@@ -70,10 +70,10 @@ export function useDocLinks(nodes: () => readonly DocNodeDTO[], open: (node: Doc
       openNode(Number(link.dataset.node), wantsNewTab(event));
     } else if (link.classList.contains('broken')) {
       event.preventDefault();
-    } else if (openUrl && /^https?:/i.test(href)) {
+    } else if (/^https?:/i.test(href)) {
+      // Adresse web : un autre onglet du navigateur (même si le lien rendu a perdu son `target`).
       event.preventDefault();
-      if (wantsNewTab(event)) window.open(link.href, '_blank', 'noopener');
-      else openUrl(link.href);
+      window.open(link.href, '_blank', 'noopener');
     }
     return true;
   }

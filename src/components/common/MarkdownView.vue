@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useTicketRoute } from '@/composables/useTicketRoute';
 import { useProjectStore } from '@/stores/project';
+import { mountBoardEmbeds } from '@/utils/boardEmbed';
 import { highlightCodeBlocks } from '@/utils/codeHighlight';
 import { renderMarkdown, renderMermaid, type MentionResolver } from '@/utils/markdown';
 import { ticketKey } from '@/utils/tickets';
@@ -42,6 +43,7 @@ async function drawDiagrams(): Promise<void> {
   await nextTick();
   if (!root.value) return;
   void highlightCodeBlocks(root.value);
+  mountBoardEmbeds(root.value);
   await renderMermaid(root.value, document.documentElement.classList.contains('app-dark'));
 }
 onMounted(drawDiagrams);
@@ -325,6 +327,34 @@ function onClick(event: MouseEvent): void {
   padding: 0.75rem;
   border-radius: 0;
   object-fit: contain;
+}
+/* Affiché en image : l'image seule, sans cadre ni titre. */
+.markdown .md-board.md-board-image {
+  border: 0;
+  border-radius: 8px;
+  background: none;
+}
+.markdown .md-board-image .md-board-preview {
+  max-height: none;
+  padding: 0;
+  border-radius: 8px;
+}
+/* Intégré : l'en-tête ouvre le tableau, le cadre se parcourt. */
+.markdown .md-board-embed .md-board-head {
+  color: inherit;
+  text-decoration: none;
+}
+.markdown .md-board-embed .md-board-head:hover .md-board-title {
+  color: var(--fb-accent);
+}
+.markdown .md-board-head .md-board-tools {
+  display: inline-flex;
+}
+.markdown .md-board-head .fb-board-zoom .pi {
+  color: inherit;
+}
+.markdown .md-board-embed .fb-board-view img {
+  max-height: none;
 }
 .markdown .md-mention.gone {
   opacity: 0.6;

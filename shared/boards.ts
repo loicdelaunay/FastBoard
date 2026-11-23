@@ -99,6 +99,22 @@ export type BoardShareAudience = (typeof BOARD_SHARE_AUDIENCES)[number];
 export const BOARD_SHARE_ROLES = ['reader', 'editor'] as const;
 export type BoardShareRole = (typeof BOARD_SHARE_ROLES)[number];
 
+/**
+ * Affichage d'un tableau cité dans une note ou un ticket, écrit après son numéro : `@[Architecture](board:7#image)`.
+ * `link` : un simple lien ; `card` : son nom et son aperçu ; `image` : son image seule ; `embed` : une vue où l'on se
+ * déplace et où l'on zoome. Sans rien, le tableau s'affiche en carte s'il est seul sur sa ligne, en lien sinon.
+ */
+export const BOARD_MENTION_VIEWS = ['link', 'card', 'image', 'embed'] as const;
+export type BoardMentionView = (typeof BOARD_MENTION_VIEWS)[number];
+
+/** Affichage demandé par le suffixe d'une mention (`image`, `embed`…), ou `null` s'il est absent ou inconnu. */
+export function boardMentionView(suffix: string | null | undefined): BoardMentionView | null {
+  return (BOARD_MENTION_VIEWS as readonly string[]).includes(suffix ?? '') ? (suffix as BoardMentionView) : null;
+}
+
+/** Suffixe d'affichage d'une mention (source d'expression régulière) : `#image`, facultatif. */
+export const MENTION_VIEW_SUFFIX = '(?:#([a-z]{1,12}))?';
+
 export const BOARD_SHARE_LIMITS = {
   passwordMin: 4,
   passwordMax: 200,

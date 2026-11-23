@@ -2,11 +2,14 @@ import { syntaxTree } from '@codemirror/language';
 import type { EditorState, Extension, Range } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import katex from 'katex';
+import { boardMentionView, type BoardMentionView } from '@shared/boards';
 import { imageSize } from '@shared/docLinks';
 import { highlightColor, highlightMarker } from '@shared/docObsidian';
 import { docBaseName } from '@shared/docs';
 import { t } from '@/i18n';
+import { mountBoardEmbed } from '@/utils/boardEmbed';
 import { openLightbox } from '@/utils/lightbox';
+import { boardMentionAt, boardViewChoices, setBoardMentionView } from './boardMention';
 import { toggleTask, type TextRange } from './commands';
 import { findField, findMatches, overlapsMatch } from './findState';
 
@@ -146,29 +149,79 @@ class ImageWidget extends WidgetType {
   }
 }
 
-/** Tableau blanc cité seul sur sa ligne : son aperçu, qui l'ouvre ; le crayon rend le Markdown. */
+/**
+ * Tableau blanc cité seul sur sa ligne, dans l'affichage choisi : carte (son nom et son aperçu, qui l'ouvre), image
+ * seule, ou vue intégrée où l'on se déplace. Au survol : le choix de l'affichage, et le crayon qui rend le Markdown.
+ */
 class BoardWidget extends WidgetType {
   readonly id: number;
   readonly label: string;
   readonly length: number;
+  readonly shown: Exclude<BoardMentionView, 'link'>;
 
-  constructor(id: number, label: string, length: number) {
+  constructor(id: number, label: string, length: number, shown: Exclude<BoardMentionView, 'link'>) {
     super();
     this.id = id;
     this.label = label;
     this.length = length;
+    this.shown = shown;
   }
 
   override eq(other: BoardWidget): boolean {
-    return other.id === this.id && other.label === this.label && other.length === this.length;
+    return other.id === this.id && other.label === this.label && other.length === this.length && other.shown === this.shown;
   }
 
   override toDOM(view: EditorView): HTMLElement {
     const card = document.createElement('span');
-    card.className = 'cm-lp-board';
+    card.className = `cm-lp-board ${this.shown}`;
     card.dataset.kind = 'board';
     card.dataset.id = String(this.id);
     card.dataset.length = String(this.length);
+    const button = (icon: string, label: string, run: () => void, active = false): HTMLButtonElement => {
+      const element = document.createElement('button');
+      element.type = 'button';
+      element.title = label;
+      element.setAttribute('aria-label', label);
+      if (active) element.className = 'active';
+      element.innerHTML = `<i class="${icon}"></i>`;
+      element.addEventListener('mousedown', (event) => event.preventDefault());
+      element.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        run();
+      });
+      return element;
+    };
+    const tools = document.createElement('span');
+    tools.className = 'cm-lp-board-tools';
+    for (const choice of boardViewChoices()) {
+      tools.append(
+        button(choice.icon, t('Afficher en : {name}', { name: choice.label.toLowerCase() }), () => {
+          const mention = boardMentionAt(view.state, view.posAtDOM(card));
+          if (mention) setBoardMentionView(view, mention, choice.view);
+        }, choice.view === this.shown),
+      );
+    }
+    const separator = document.createElement('span');
+    separator.className = 'cm-lp-board-sep';
+    tools.append(separator, button('pi pi-pencil', t('Modifier le Markdown'), () => editImageSource(view, card)));
+    // Les deux thèmes : la feuille de style montre le bon, même après un changement de thème.
+    const width = this.shown === 'card' ? 960 : 1600;
+    const images = (['light', 'dark'] as const).map((theme) => {
+      const image = document.createElement('img');
+      image.className = `cm-lp-board-preview ${theme}`;
+      image.src = `/api/boards/nodes/${this.id}/preview?width=${width}${theme === 'dark' ? '&theme=dark' : ''}`;
+      image.alt = this.label;
+      image.loading = 'lazy';
+      image.draggable = false;
+      image.addEventListener('load', () => view.requestMeasure());
+      return image;
+    });
+    if (this.shown === 'image') {
+      card.title = this.label;
+      card.append(...images, tools);
+      return card;
+    }
     const head = document.createElement('span');
     head.className = 'cm-lp-board-head';
     const icon = document.createElement('i');
@@ -176,34 +229,21 @@ class BoardWidget extends WidgetType {
     const title = document.createElement('span');
     title.className = 'cm-lp-board-title';
     title.textContent = this.label;
-    const tools = document.createElement('span');
-    tools.className = 'cm-lp-board-tools';
-    const edit = document.createElement('button');
-    edit.type = 'button';
-    edit.title = t('Modifier le Markdown');
-    edit.setAttribute('aria-label', edit.title);
-    edit.innerHTML = '<i class="pi pi-pencil"></i>';
-    edit.addEventListener('mousedown', (event) => event.preventDefault());
-    edit.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      editImageSource(view, card);
-    });
     const open = document.createElement('i');
     open.className = 'pi pi-external-link cm-lp-board-open';
-    tools.append(edit);
     head.append(icon, title, tools, open);
-    // Les deux thèmes : la feuille de style montre le bon, même après un changement de thème.
-    const images = (['light', 'dark'] as const).map((theme) => {
-      const image = document.createElement('img');
-      image.className = `cm-lp-board-preview ${theme}`;
-      image.src = `/api/boards/nodes/${this.id}/preview?width=960${theme === 'dark' ? '&theme=dark' : ''}`;
-      image.alt = this.label;
-      image.loading = 'lazy';
-      image.draggable = false;
-      image.addEventListener('load', () => view.requestMeasure());
-      return image;
-    });
+    if (this.shown === 'embed') {
+      // L'en-tête ouvre le tableau ; le cadre se parcourt sans l'ouvrir.
+      const frame = document.createElement('span');
+      frame.className = 'fb-board-view';
+      frame.append(...images);
+      const zoom = document.createElement('span');
+      zoom.className = 'cm-lp-board-zoom';
+      head.insertBefore(zoom, tools);
+      card.append(head, frame);
+      mountBoardEmbed(frame, zoom, () => view.requestMeasure());
+      return card;
+    }
     card.append(head, ...images);
     return card;
   }
@@ -237,7 +277,7 @@ const hidden = Decoration.replace({});
 const mark = (className: string, attributes?: Record<string, string>) => Decoration.mark({ class: className, ...(attributes ? { attributes } : {}) });
 const line = (className: string) => Decoration.line({ class: className });
 
-const MENTION_URL = /^(user|ticket|doc|board):(\d+)$/;
+const MENTION_URL = /^(user|ticket|doc|board):(\d+)(?:#([a-z]{1,12}))?$/;
 const WIKI = /(!?)\[\[([^\]\n]+?)\]\]/g;
 const HIGHLIGHT = /==(?!=)(?=\S)(.+?\S)\s*==/g;
 const COMMENT = /%%.*?%%/g;
@@ -395,9 +435,10 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
               code.push([from - 1, to]);
               if (!touches(from - 1, to)) {
                 const label = doc.sliceString(from + 1, marks[1]?.from ?? from + 1);
-                // Un tableau blanc seul sur sa ligne s'affiche en aperçu.
-                if (mention[1] === 'board' && doc.lineAt(from).text.trim() === doc.sliceString(from - 1, to)) {
-                  swap(from - 1, to, new BoardWidget(Number(mention[2]), label, to - from + 1));
+                // Un tableau blanc seul sur sa ligne s'affiche en bloc (carte, image ou vue intégrée), sauf demandé en lien.
+                const shown = boardMentionView(mention[3]) ?? 'card';
+                if (mention[1] === 'board' && shown !== 'link' && doc.lineAt(from).text.trim() === doc.sliceString(from - 1, to)) {
+                  swap(from - 1, to, new BoardWidget(Number(mention[2]), label, to - from + 1, shown));
                   return false;
                 }
                 swap(from - 1, to, new TextWidget(options.mentionLabel(mention[1]!, Number(mention[2]), label), `cm-lp-mention ${mention[1]}`, { 'data-kind': mention[1]!, 'data-id': mention[2]!, ...(mention[1] === 'ticket' ? { 'data-ticket': mention[2]! } : {}), ...(mention[1] === 'board' ? { 'data-board': mention[2]! } : {}) }));
@@ -589,7 +630,8 @@ export function liveInline(options: LiveInlineOptions): Extension {
         toggleTask(view, view.state.doc.lineAt(view.posAtDOM(target)).from);
         return true;
       }
-      if (target.closest('.cm-lp-board-tools')) return false;
+      // Outils d'un tableau cité, et vue intégrée (on s'y déplace) : ni suivi du lien, ni curseur déplacé.
+      if (target.closest('.cm-lp-board-tools, .cm-lp-board-zoom, .fb-board-view')) return false;
       const link = target.closest<HTMLElement>('.cm-lp-link, .cm-lp-mention, .cm-lp-embed, .cm-lp-board');
       if (link && options.follow(link, event)) {
         event.preventDefault();

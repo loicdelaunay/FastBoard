@@ -151,7 +151,8 @@ export function extractDocLinks(text: string): DocLinkTargets {
   for (const match of plain.matchAll(/(?<![!@])\[[^\]\n]*\]\(([^)\s]+)(?:\s+"[^"\n]*")?\)/g)) {
     if (!/^([a-z][a-z0-9+.-]*:|#)/i.test(match[1]!)) paths.add(match[1]!);
   }
-  const mentioned = (kind: string): number[] => [...new Set([...plain.matchAll(new RegExp(`@\\[[^\\]\\n]{1,80}\\]\\(${kind}:(\\d+)\\)`, 'g'))].map((match) => Number(match[1])))];
+  // Un tableau blanc peut porter son affichage après son numéro : `board:7#image`.
+  const mentioned = (kind: string): number[] => [...new Set([...plain.matchAll(new RegExp(`@\\[[^\\]\\n]{1,80}\\]\\(${kind}:(\\d+)(?:#[a-z]{1,12})?\\)`, 'g'))].map((match) => Number(match[1])))];
   return { paths: [...paths], docs: mentioned('doc'), tickets: mentioned('ticket'), boards: mentioned('board') };
 }
 

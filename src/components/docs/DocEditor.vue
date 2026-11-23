@@ -27,6 +27,7 @@ import { markdownBlocks } from '@/utils/markdown';
 import { mentionToken, type MentionKind } from '@/utils/mentions';
 import { notifyError } from '@/utils/notify';
 import { matchesQuery, normalizeText } from '@/utils/search';
+import { boardChoice, boardMentionAt, showBoardChoice } from './editor/boardMention';
 import { taskLine, toggleTask } from './editor/commands';
 import { docComments, setDocComments } from './editor/comments';
 import { docHighlight, docLiveHighlight } from './editor/highlight';
@@ -59,8 +60,6 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   open: [node: DocNodeDTO, newTab?: boolean];
-  /** Adresse web à montrer dans un onglet de la documentation. */
-  'open-url': [url: string];
   comment: [quote: DocQuote];
   'focus-comment': [commentId: number];
   /** Ligne du source en haut de l'éditeur, et la part déjà défilée de cette ligne (0–1) quand elle est longue. */
@@ -80,13 +79,11 @@ const app = useAppStore();
 const { follow, openNode, openTicket } = useDocLinks(
   () => props.nodes,
   (node, newTab) => emit('open', node, newTab),
-  (url) => emit('open-url', url),
 );
 
-/** Adresse web : dans un onglet de la documentation, ou dans une nouvelle page du navigateur avec Ctrl clic. */
-function openAddress(url: string, event?: Event): void {
-  if (event && wantsNewTab(event)) window.open(url, '_blank', 'noopener');
-  else emit('open-url', url);
+/** Adresse web : toujours dans un autre onglet du navigateur, pas dans la documentation. */
+function openAddress(url: string): void {
+  window.open(url, '_blank', 'noopener');
 }
 
 /** `@` propose les personnes, les tickets et les fichiers de documentation. */
@@ -95,7 +92,19 @@ async function mentions(context: CompletionContext): Promise<CompletionResult | 
   if (!match) return null;
   const at = match.text.indexOf('@');
   const query = match.text.slice(at + 1);
-  const option = (kind: MentionKind, id: number, label: string, detail: string, type: string): Completion => ({ label, detail, type, apply: `${mentionToken(kind, id, label)} ` });
+  const option = (kind: MentionKind, id: number, label: string, detail: string, type: string): Completion => ({
+    label,
+    detail,
+    type,
+    apply:
+      kind !== 'board'
+        ? `${mentionToken(kind, id, label)} `
+        : (editor, completion, from, to) => {
+            // Un tableau blanc : la petite barre sous la mention propose son affichage (lien, carte, image, intégré).
+            const insert = `${mentionToken(kind, id, label)} `;
+            editor.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, effects: showBoardChoice.of(from), annotations: pickedCompletion.of(completion), userEvent: 'input.complete' });
+          },
+  });
   const people = props.users
     .filter((user) => user.isActive && (!query || matchesQuery(query, [user.name, user.email])))
     .slice(0, 5)
@@ -288,7 +297,7 @@ function followRendered(element: HTMLElement, event: MouseEvent): boolean {
     return true;
   }
   if (href && /^https?:/i.test(href)) {
-    openAddress(href, event);
+    openAddress(href);
     return true;
   }
   if (href && /^mailto:/i.test(href)) {
@@ -370,7 +379,7 @@ function onClick(event: MouseEvent): void {
 /** Lien écrit sous une position du source : mention, lien wiki ou lien Markdown. */
 function sourceLink(editor: EditorView, position: number): MenuTarget['link'] {
   const line = editor.state.doc.lineAt(position);
-  for (const match of line.text.matchAll(/@\[[^\]\n]*\]\((user|ticket|doc|board):(\d+)\)|\[\[([^\]|#\n]+)[^\]\n]*\]\]|\[[^\]\n]*\]\(([^)\s]+)[^)\n]*\)/g)) {
+  for (const match of line.text.matchAll(/@\[[^\]\n]*\]\((user|ticket|doc|board):(\d+)(?:#[a-z]{1,12})?\)|\[\[([^\]|#\n]+)[^\]\n]*\]\]|\[[^\]\n]*\]\(([^)\s]+)[^)\n]*\)/g)) {
     if (position < line.from + match.index || position > line.from + match.index + match[0].length) continue;
     if (match[1] === 'ticket') return { address: null, open: () => void openTicket(Number(match[2])) };
     if (match[1] === 'doc') return { address: null, open: () => openNode(Number(match[2])) };
@@ -396,6 +405,8 @@ function targetOf(editor: EditorView, event: MouseEvent): MenuTarget {
   const element = event.target as HTMLElement;
   const box = element.closest<HTMLElement>('.cm-live-block, .cm-table-editor');
   const figure = element.closest<HTMLElement>('.cm-lp-figure');
+  /** Tableau blanc cité, affiché rendu (pastille, carte, image ou vue intégrée). */
+  const boardBox = element.closest<HTMLElement>('.cm-lp-board, .cm-lp-mention.board');
   const picture = element.closest<HTMLImageElement>('img');
   const text = editor.state.doc.toString();
   const blocks = markdownBlocks(text);
@@ -409,9 +420,9 @@ function targetOf(editor: EditorView, event: MouseEvent): MenuTarget {
     quote = selectionQuote(editor.contentDOM);
     selection = quote && findQuote(text, quote, true);
     selected = quote ? (window.getSelection()?.toString() ?? '') : '';
-  } else if (figure) {
-    // Le curseur ne bouge pas : il ferait réapparaître le Markdown de l'image sous le menu.
-    position = editor.posAtDOM(figure);
+  } else if (figure || boardBox) {
+    // Le curseur ne bouge pas : il ferait réapparaître le Markdown de l'image (ou du tableau cité) sous le menu.
+    position = editor.posAtDOM((figure ?? boardBox)!);
   } else {
     const at = editor.posAtCoords({ x: event.clientX, y: event.clientY }) ?? main.head;
     if (!main.empty && at >= main.from && at <= main.to) {
@@ -441,6 +452,7 @@ function targetOf(editor: EditorView, event: MouseEvent): MenuTarget {
     rendered,
     cell: box ? tableCellAt(element) : null,
     image: picture && (figure || box) ? { src: picture.currentSrc || picture.src, alt: picture.alt, edit: figure ? () => editImageSource(editor, figure) : null } : null,
+    board: box ? null : boardMentionAt(editor.state, position),
   };
 }
 
@@ -698,6 +710,7 @@ onMounted(() => {
         autocompletion({ override: [mentions, wikiLinks, slashCommands(handlers), highlightColors(() => props.obsidian)], addToOptions: [{ render: completionIcon, position: 20 }] }),
         // Recherche (Ctrl F) : résultats surlignés, et révélés dans le rendu « Lecture et écriture ».
         findField,
+        boardChoice,
         yCollab(text, awareness, { undoManager: new Y.UndoManager(text) }),
         keymap.of([
           { key: 'Mod-b', run: shortcut(t('Gras')) },
@@ -760,6 +773,14 @@ onMounted(() => {
           '.cm-completionIcon-doc-image, .cm-completionIcon-doc-note, .cm-completionIcon-highlight': { display: 'none' },
           '.cm-file-thumb': { width: '2.2rem', height: '1.6rem', marginRight: '0.5rem', borderRadius: '4px', objectFit: 'cover', verticalAlign: 'middle', backgroundColor: 'var(--fb-panel-alt)' },
           '.cm-tooltip.cm-completionInfo': { padding: '0.4rem', maxWidth: '18rem' },
+          // Choix de l'affichage d'un tableau qu'on vient de citer.
+          '.cm-board-choice': { display: 'flex', alignItems: 'center', gap: '0.15rem', padding: '0.25rem', borderRadius: '10px', fontFamily: 'var(--fb-font, system-ui, sans-serif)', fontSize: '0.8rem', boxShadow: 'var(--fb-shadow-lg)' },
+          '.cm-tooltip:has(> .cm-board-choice)': { borderRadius: '10px' },
+          '.cm-board-choice-label': { padding: '0 0.4rem 0 0.35rem', color: 'var(--fb-muted)' },
+          '.cm-board-choice button': { display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.3rem 0.55rem', border: '0', borderRadius: '7px', background: 'none', color: 'var(--fb-text)', font: 'inherit', cursor: 'pointer' },
+          '.cm-board-choice button:hover': { backgroundColor: 'var(--fb-panel-alt)' },
+          '.cm-board-choice button.active': { backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)', fontWeight: '600' },
+          '.cm-board-choice button .pi': { fontSize: '0.8rem' },
           '.cm-image-info': { display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--fb-muted)', wordBreak: 'break-all' },
           '.cm-image-info img': { maxWidth: '16rem', maxHeight: '12rem', borderRadius: '6px', objectFit: 'contain', backgroundColor: 'var(--fb-panel-alt)' },
           '.cm-ySelectionInfo': { padding: '1px 4px', borderRadius: '4px', fontFamily: 'inherit', fontSize: '0.7rem', fontWeight: '600', opacity: '1' },
@@ -856,7 +877,19 @@ onMounted(() => {
                 '.cm-lp-board-head .pi-objects-column': { color: '#a855f7' },
                 '.cm-lp-board-title': { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
                 '.cm-lp-board-open': { color: 'var(--fb-muted)', fontSize: '0.8rem', marginRight: '0.25rem' },
-                '.cm-lp-board-tools': { display: 'flex', opacity: '0', transition: 'opacity 0.15s' },
+                '.cm-lp-board-tools': { display: 'flex', alignItems: 'center', opacity: '0', transition: 'opacity 0.15s' },
+                '.cm-lp-board-tools button.active': { backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)' },
+                '.cm-lp-board-tools button .pi': { fontSize: '0.8rem' },
+                '.cm-lp-board-sep': { width: '1px', height: '1rem', margin: '0 0.2rem', backgroundColor: 'var(--fb-border)' },
+                '.cm-lp-board-zoom': { display: 'flex' },
+                // Affiché en image : l'image seule ; ses outils flottent en haut à droite.
+                '.cm-lp-board.image': { position: 'relative', border: '0', borderRadius: '8px', backgroundColor: 'transparent' },
+                '.cm-lp-board.image .cm-lp-board-preview': { maxHeight: 'none', padding: '0', borderRadius: '8px' },
+                '.cm-lp-board.image .cm-lp-board-tools': { position: 'absolute', top: '0.4rem', right: '0.4rem', padding: '0.15rem', border: '1px solid var(--fb-border)', borderRadius: '8px', backgroundColor: 'var(--fb-panel)' },
+                // Vue intégrée : l'en-tête ouvre le tableau, le cadre se parcourt.
+                '.cm-lp-board.embed': { cursor: 'default' },
+                '.cm-lp-board.embed .cm-lp-board-head': { cursor: 'pointer' },
+                '.cm-lp-board.embed .fb-board-view img': { maxHeight: 'none' },
                 '.cm-lp-board:hover .cm-lp-board-tools': { opacity: '1' },
                 '.cm-lp-board-tools button': { display: 'grid', placeItems: 'center', width: '1.7rem', height: '1.7rem', padding: '0', border: '0', borderRadius: '6px', background: 'none', color: 'var(--fb-muted)', cursor: 'pointer' },
                 '.cm-lp-board-tools button:hover': { backgroundColor: 'var(--fb-panel-alt)', color: 'var(--fb-text)' },

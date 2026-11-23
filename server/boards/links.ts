@@ -72,12 +72,15 @@ export function boardLinks(ctx: AppContext, user: AuthUser, node: BoardNodeRow):
   const toTicket = (row: TicketRow): DocLinkTicketDTO => ({ id: row.id, projectId: row.project_id, key: `${projects.get(row.project_id)}-${row.number}`, title: row.title });
   const toNote = (row: PathRow): DocLinkNoteDTO => ({ id: row.id, spaceId: row.space_id, spaceName: docs.get(row.space_id) ?? '', path: row.path, title: docTitle(row.path) });
 
-  // Ce qui le cite. Le texte indexé des notes est en minuscules, la mention s'y retrouve telle quelle.
+  // Ce qui le cite. Le texte indexé des notes est en minuscules, la mention s'y retrouve telle quelle, seule
+  // (`board:7)`) ou suivie de son affichage (`board:7#image)`).
   const mention = `%(board:${node.id})%`;
+  const shown = `%(board:${node.id}#%`;
   const citingNotes = docs.size
     ? ctx.db.all<PathRow>(
-        `SELECT id, space_id, path FROM doc_nodes WHERE kind = 'markdown' AND deleted_at IS NULL AND space_id IN (${inList(docs.keys())}) AND search_text LIKE ? ORDER BY updated_at DESC LIMIT ?`,
+        `SELECT id, space_id, path FROM doc_nodes WHERE kind = 'markdown' AND deleted_at IS NULL AND space_id IN (${inList(docs.keys())}) AND (search_text LIKE ? OR search_text LIKE ?) ORDER BY updated_at DESC LIMIT ?`,
         mention,
+        shown,
         LIST_MAX,
       )
     : [];
@@ -85,10 +88,12 @@ export function boardLinks(ctx: AppContext, user: AuthUser, node: BoardNodeRow):
     ? ctx.db.all<TicketRow>(
         `SELECT t.id, t.project_id, t.number, t.title FROM tickets t
           WHERE t.project_id IN (${inList(projects.keys())})
-            AND (t.description LIKE ? OR EXISTS (SELECT 1 FROM ticket_comments c WHERE c.ticket_id = t.id AND c.deleted_at IS NULL AND c.body LIKE ?))
+            AND (t.description LIKE ? OR t.description LIKE ? OR EXISTS (SELECT 1 FROM ticket_comments c WHERE c.ticket_id = t.id AND c.deleted_at IS NULL AND (c.body LIKE ? OR c.body LIKE ?)))
           ORDER BY t.updated_at DESC LIMIT ?`,
         mention,
+        shown,
         mention,
+        shown,
         LIST_MAX,
       )
     : [];

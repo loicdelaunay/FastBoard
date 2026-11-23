@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.17.0';
+export const APP_VERSION = '2.18.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,15 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.18.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Tableau blanc cité dans une note : après un @, une petite barre propose son affichage, comme dans Whimsical : simple lien, carte, image seule, ou vue intégrée où l’on se déplace et où l’on zoome. Le choix se change ensuite au survol du tableau affiché, ou par un clic droit.' },
+      { category: 'Amélioration', text: 'Export des tableaux blancs : l’image est dessinée dans le thème par défaut, quel que soit celui de votre écran, et le réglage « Thème » permet d’en choisir un autre (prédéfini, à vous, ou celui affiché à l’écran).' },
+      { category: 'Amélioration', text: 'Documentation : les adresses web (http, https) d’une note s’ouvrent dans un autre onglet du navigateur, et plus dans un onglet de la documentation.' },
+    ],
+  },
   {
     version: '2.17.0',
     date: '2026-11-23',

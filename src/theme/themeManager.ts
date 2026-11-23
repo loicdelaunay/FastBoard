@@ -141,6 +141,84 @@ export function applyTheme(id: string | null | undefined): string {
   return theme.id;
 }
 
+// --- Un thème sur une partie de la page ------------------------------------------------------------------------------
+
+/** Variables d'un thème à poser sur un élément : il s'y dessine à ses couleurs, sans changer le thème de la page. */
+export interface ThemeScope {
+  id: string;
+  dark: boolean;
+  vars: Record<string, string>;
+}
+
+interface PresetTokens {
+  primitive: Record<string, Record<string, string> | undefined>;
+  semantic: { colorScheme: Record<ThemeMode, { primary: { color: string }; content: { background: string; borderColor: string }; text: { color: string; mutedColor: string } }> };
+}
+
+/**
+ * Couleurs et polices d'un thème (prédéfini ou personnalisé), résolues une à une d'après son preset PrimeVue : celles que
+ * lisent l'interface (`--fb-*`) et PrimeVue (`--p-*`). Sert à dessiner un tableau blanc dans un autre thème que celui de
+ * la page (export) ; la page, elle, reçoit ces couleurs de PrimeVue par `paintTheme`.
+ */
+export function themeScope(id: string | null | undefined): ThemeScope {
+  const theme = resolve(id);
+  const preset = PRESETS[theme.preset] as unknown as PresetTokens;
+  const dark = theme.mode === 'dark';
+  const scheme = preset.semantic.colorScheme[theme.mode];
+  const named = (color: string): Record<string, string> => (isHexColor(color) ? (palette(color) as unknown as Record<string, string>) : (preset.primitive[color] ?? {}));
+  const primary = named(theme.primary);
+  const surface: Record<string, string> = { 0: '#ffffff', ...named(theme.surface) };
+  /** `{surface.700}`, `{primary.500}`, `{slate.50}`… : la couleur que le jeton désigne. */
+  const token = (value: string | undefined, depth = 0): string => {
+    const match = /^\{([\w-]+)\.([\w-]+)\}$/.exec(value ?? '');
+    if (!match || depth > 6) return value ?? '';
+    const next = match[1] === 'primary' ? primary[match[2]!] : match[1] === 'surface' ? surface[match[2]!] : preset.primitive[match[1]!]?.[match[2]!];
+    return next ? token(next, depth + 1) : '';
+  };
+
+  const accent = token(scheme.primary.color);
+  const panel = token(scheme.content.background);
+  const border = token(scheme.content.borderColor);
+  const text = token(scheme.text.color);
+  const muted = token(scheme.text.mutedColor);
+  const vars: Record<string, string> = {
+    '--p-primary-color': accent,
+    '--p-content-background': panel,
+    '--p-content-border-color': border,
+    '--p-text-color': text,
+    '--p-text-muted-color': muted,
+    '--p-surface-0': surface[0]!,
+    '--fb-bg': token(surface[dark ? '950' : '50']),
+    '--fb-panel': panel,
+    '--fb-panel-alt': token(surface[dark ? '800' : '100']),
+    '--fb-border': border,
+    '--fb-text': text,
+    '--fb-muted': muted,
+    '--fb-accent': accent,
+    '--fb-accent-soft': `color-mix(in srgb, ${accent} 12%, transparent)`,
+    '--fb-shadow': dark ? '0 1px 2px rgb(0 0 0 / 30%)' : '0 1px 2px rgb(15 23 42 / 6%), 0 1px 3px rgb(15 23 42 / 8%)',
+    '--fb-shadow-lg': dark ? '0 8px 24px rgb(0 0 0 / 45%)' : '0 8px 24px rgb(15 23 42 / 14%)',
+  };
+  for (const shade of SHADES) {
+    vars[`--p-primary-${shade}`] = token(primary[shade]);
+    vars[`--p-surface-${shade}`] = token(surface[shade]);
+  }
+  // Couleurs réglées une à une par un thème personnalisé ; les autres reviennent à celles du thème (pas à celles de la page).
+  for (const entry of THEME_COLORS) {
+    const value = theme.custom?.colors[entry.key];
+    for (const name of entry.vars) {
+      if (value && isHexColor(value)) vars[name] = value;
+      else if (!(name in vars)) vars[name] = 'initial';
+    }
+  }
+  const fonts = { ...EMPTY_THEME_FONTS, ...theme.custom?.fonts };
+  vars['--fb-font'] = fonts.body || userFonts.body || 'initial';
+  vars['--fb-font-heading'] = fonts.heading || userFonts.heading || 'initial';
+  vars['--fb-font-mono'] = fonts.mono || userFonts.mono || 'initial';
+  for (const name of Object.keys(vars)) if (!vars[name]) delete vars[name];
+  return { id: theme.id, dark, vars };
+}
+
 // --- Polices ---------------------------------------------------------------------------------------------------------
 
 export function cachedFonts(): FontSettings {

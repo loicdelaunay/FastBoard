@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { inject, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Chart as ChartInstance, ChartConfiguration } from 'chart.js';
 import type { ChartElement } from '@shared/boards';
 import { t } from '@/i18n';
+import { BOARD_REPAINT } from './editor/paint';
 
 /** Graphique Chart.js d'un tableau blanc : première colonne = étiquettes, colonnes suivantes = séries. */
 const props = defineProps<{ element: ChartElement; rows: string[][] }>();
@@ -11,6 +12,8 @@ const canvas = ref<HTMLCanvasElement | null>(null);
 const failed = ref(false);
 let chart: ChartInstance | null = null;
 let kind = '';
+/** Chart.js une fois chargé : les dessins suivants se font tout de suite (voir `repaint`). */
+let ChartClass: typeof ChartInstance | null = null;
 
 const PALETTE = ['#6366f1', '#22c55e', '#f97316', '#ec4899', '#06b6d4', '#eab308', '#a855f7', '#ef4444'];
 
@@ -21,7 +24,8 @@ const toNumber = (value: string | undefined): number => {
 };
 
 function config(): ChartConfiguration {
-  const style = getComputedStyle(document.documentElement);
+  // Lues sur le graphique lui-même : le tableau peut être dessiné dans un autre thème que la page (export).
+  const style = getComputedStyle(canvas.value ?? document.documentElement);
   const text = style.getPropertyValue('--fb-text').trim() || '#334155';
   const grid = style.getPropertyValue('--fb-border').trim() || '#e2e8f0';
   const header = props.rows[0] ?? [];
@@ -64,7 +68,8 @@ function config(): ChartConfiguration {
 async function draw(): Promise<void> {
   if (!canvas.value) return;
   try {
-    const { Chart } = await import('chart.js/auto');
+    ChartClass ??= (await import('chart.js/auto')).Chart;
+    const Chart = ChartClass;
     if (!canvas.value) return;
     if (chart && kind === props.element.chart) {
       const next = config();
@@ -92,6 +97,9 @@ onMounted(() => {
   themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 });
 watch(() => [props.element.chart, props.element.title, JSON.stringify(props.rows)], () => void draw());
+// Couleurs du tableau changées le temps d'une capture : le graphique suit dans l'instant, sans attendre le prochain rendu.
+const repaint = inject(BOARD_REPAINT, null);
+if (repaint) watch(repaint, () => void draw(), { flush: 'sync' });
 onBeforeUnmount(() => {
   themeObserver?.disconnect();
   chart?.destroy();

@@ -31,7 +31,6 @@ import DocSiteDialog from '@/components/docs/DocSiteDialog.vue';
 import DocSpaceDialog from '@/components/docs/DocSpaceDialog.vue';
 import DocTrashDialog from '@/components/docs/DocTrashDialog.vue';
 import DocTree from '@/components/docs/DocTree.vue';
-import DocWebView from '@/components/docs/DocWebView.vue';
 import DocFindBar from '@/components/docs/find/DocFindBar.vue';
 import { useDocFind } from '@/composables/useDocFind';
 import { useDocTabs } from '@/composables/useDocTabs';
@@ -126,24 +125,13 @@ function openNode(node: DocNodeDTO, newTab = false): void {
   else tabsState.navigate(node.id);
 }
 
-function tabTitle(nodeId: number | null, url?: string): string {
-  if (url) return webTitle(url);
+function tabTitle(nodeId: number | null): string {
   const node = allNodes.value.find((entry) => entry.id === nodeId);
   if (!node) return t('Nouvel onglet');
   return isText(node) ? docTitle(node.path) : docBaseName(node.path);
 }
 
-/** Titre d'un onglet web : le site, sans « www. ». */
-function webTitle(url: string): string {
-  try {
-    return new URL(url).host.replace(/^www\./, '');
-  } catch {
-    return url;
-  }
-}
-
-function tabIcon(nodeId: number | null, url?: string): string {
-  if (url) return 'pi pi-globe';
+function tabIcon(nodeId: number | null): string {
   const node = allNodes.value.find((entry) => entry.id === nodeId);
   return !node ? 'pi pi-plus-circle' : node.kind === 'image' ? 'pi pi-image' : node.kind === 'template' ? 'pi pi-clone template-tab' : 'pi pi-file';
 }
@@ -940,23 +928,21 @@ const recent = computed(() =>
           role="tab"
           :aria-selected="tab.id === active.id"
           tabindex="0"
-          :title="tab.url ?? store.nodes.find((node) => node.id === tab.nodeId)?.path ?? $t('Nouvel onglet')"
+          :title="store.nodes.find((node) => node.id === tab.nodeId)?.path ?? $t('Nouvel onglet')"
           @click="tabsState.activate(tab.id)"
           @keydown.enter="tabsState.activate(tab.id)"
           @auxclick.prevent="$event.button === 1 && tabsState.close(tab.id)"
           @contextmenu.prevent="openTabMenu($event, tab.id)"
         >
-          <i :class="tabIcon(tab.nodeId, tab.url)" class="tab-icon"></i>
-          <span class="tab-title truncate">{{ tabTitle(tab.nodeId, tab.url) }}</span>
+          <i :class="tabIcon(tab.nodeId)" class="tab-icon"></i>
+          <span class="tab-title truncate">{{ tabTitle(tab.nodeId) }}</span>
           <button type="button" class="tab-close" :aria-label="$t('Fermer l’onglet')" @click.stop="tabsState.close(tab.id)"><i class="pi pi-times"></i></button>
         </div>
         <button v-tooltip.bottom="$t('Nouvel onglet')" type="button" class="tab-add" :aria-label="$t('Nouvel onglet')" @click="tabsState.openInNewTab(null)"><i class="pi pi-plus"></i></button>
         <ContextMenu ref="tabMenu" :model="tabMenuItems" />
       </div>
 
-      <DocWebView v-if="active.url" :url="active.url" />
-
-      <template v-else-if="selected">
+      <template v-if="selected">
         <header class="note-nav">
           <Button v-tooltip.bottom="$t('Précédent')" icon="pi pi-arrow-left" text rounded size="small" severity="secondary" :disabled="!active.back.length" :aria-label="$t('Précédent')" @click="tabsState.goBack()" />
           <Button v-tooltip.bottom="$t('Suivant')" icon="pi pi-arrow-right" text rounded size="small" severity="secondary" :disabled="!active.forward.length" :aria-label="$t('Suivant')" @click="tabsState.goForward()" />
@@ -1063,7 +1049,6 @@ const recent = computed(() =>
                   :obsidian="obsidian"
                   :readonly="false"
                   @open="openNode"
-                  @open-url="tabsState.openWeb"
                   @comment="startComment"
                   @focus-comment="focusComment"
                   @top-line="onEditorLine"
@@ -1071,7 +1056,7 @@ const recent = computed(() =>
                 />
               </div>
               <div v-if="!writing || (showPreview && !live)" ref="previewPane" class="pane preview" @scroll.passive="onPreviewScroll">
-                <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" :obsidian="obsidian" @open="openNode" @open-url="tabsState.openWeb" @comment="startComment" @focus-comment="focusComment" />
+                <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" :obsidian="obsidian" @open="openNode" @comment="startComment" @focus-comment="focusComment" />
                 <p v-else class="muted empty-note">{{ canWrite ? $t('Cette note est vide. Passez en écriture pour la rédiger.') : $t('Cette note est vide.') }}</p>
               </div>
             </div>

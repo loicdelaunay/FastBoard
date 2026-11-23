@@ -147,11 +147,18 @@ export interface ExportedImage {
   reduced: boolean;
 }
 
+/** Aperçu d'un autre tableau montré sur celui-ci (Fast Element) : son image existe en clair et en sombre. */
+const BOARD_PREVIEW = /\/api\/boards\/nodes\/\d+\/preview\?/;
+
 /**
  * Construit le SVG autonome de `content` (le groupe des éléments du tableau, sans transformation) sur `bounds`.
- * `background` : couleur du fond, ou `null` pour un fond transparent.
+ * `background` : couleur du fond, ou `null` pour un fond transparent. `dark` : le tableau est dessiné dans un thème sombre
+ * (ou clair) qui n'est pas forcément celui de la page ; les aperçus d'autres tableaux prennent ce thème.
+ *
+ * Les styles sont lus avant le premier `await` : l'appelant peut poser un thème sur le tableau, appeler cette fonction,
+ * et le retirer aussitôt, sans que rien ne s'affiche.
  */
-export async function buildExportSvg(content: SVGGElement, bounds: Rect, ids: ReadonlySet<string> | null, background: string | null): Promise<{ svg: string; width: number; height: number }> {
+export async function buildExportSvg(content: SVGGElement, bounds: Rect, ids: ReadonlySet<string> | null, background: string | null, dark: boolean | null = null): Promise<{ svg: string; width: number; height: number }> {
   const view = { x: bounds.x - PADDING, y: bounds.y - PADDING, w: bounds.w + PADDING * 2, h: bounds.h + PADDING * 2 };
   const clone = content.cloneNode(true) as SVGGElement;
   clone.removeAttribute('transform');
@@ -198,7 +205,8 @@ export async function buildExportSvg(content: SVGGElement, bounds: Rect, ids: Re
     if (data) node.setAttribute('href', data);
   }
   for (const node of Array.from(clone.querySelectorAll('img'))) {
-    const src = node.getAttribute('src');
+    let src = node.getAttribute('src');
+    if (src && dark !== null && BOARD_PREVIEW.test(src)) src = src.replace(/&theme=dark/g, '') + (dark ? '&theme=dark' : '');
     if (src && !src.startsWith('data:')) {
       const data = await toDataUrl(new URL(src, location.href).href);
       if (data) node.setAttribute('src', data);

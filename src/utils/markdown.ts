@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify';
 import katex from 'katex';
 import { Marked, type Tokens, type TokenizerAndRendererExtension } from 'marked';
+import { boardMentionView, MENTION_VIEW_SUFFIX, type BoardMentionView } from '@shared/boards';
 import { headingKey } from '@shared/docLinks';
 import { headingTitle } from '@shared/docOutline';
 import { highlightColor, highlightMarker } from '@shared/docObsidian';
@@ -26,10 +27,21 @@ export interface RenderOptions {
   boardPreviews?: boolean;
 }
 
-/** Aperçu d'un tableau blanc dans le texte : son image, son nom, et un clic l'ouvre. */
-export function boardPreviewHtml(id: number, label: string): string {
+/**
+ * Tableau blanc cité seul sur sa ligne. `card` : son nom et son aperçu, un clic l'ouvre ; `image` : son image seule ;
+ * `embed` : une vue où l'on se déplace et où l'on zoome (rendue vivante par `mountBoardEmbeds`).
+ */
+export function boardPreviewHtml(id: number, label: string, view: Exclude<BoardMentionView, 'link'> = 'card'): string {
   const name = escapeHtml(label);
-  return `<a class="md-board" href="/tableaux/t/${id}" data-board="${id}"><span class="md-board-head"><i class="pi pi-objects-column"></i><span class="md-board-title">${name}</span><i class="pi pi-external-link md-board-open"></i></span><img class="md-board-preview light" src="/api/boards/nodes/${id}/preview?width=960" alt="${name}" loading="lazy"><img class="md-board-preview dark" src="/api/boards/nodes/${id}/preview?width=960&amp;theme=dark" alt="${name}" loading="lazy"></a>`;
+  const image = (theme: 'light' | 'dark', width: number): string =>
+    `<img class="md-board-preview ${theme}" src="/api/boards/nodes/${id}/preview?width=${width}${theme === 'dark' ? '&amp;theme=dark' : ''}" alt="${name}" loading="lazy" draggable="false">`;
+  const images = (width: number): string => image('light', width) + image('dark', width);
+  const head = `<i class="pi pi-objects-column"></i><span class="md-board-title">${name}</span><i class="pi pi-external-link md-board-open"></i>`;
+  if (view === 'image') return `<a class="md-board md-board-image" href="/tableaux/t/${id}" data-board="${id}" title="${name}">${images(1600)}</a>`;
+  if (view === 'embed') {
+    return `<div class="md-board md-board-embed" data-embed="${id}"><a class="md-board-head" href="/tableaux/t/${id}" data-board="${id}">${head}</a><div class="fb-board-view">${images(1600)}</div></div>`;
+  }
+  return `<a class="md-board" href="/tableaux/t/${id}" data-board="${id}"><span class="md-board-head">${head}</span>${images(960)}</a>`;
 }
 
 export function escapeHtml(text: string): string {
@@ -161,26 +173,30 @@ function obsidianExtensions(): TokenizerAndRendererExtension[] {
   return [callout, blockComment, highlight, comment, tag];
 }
 
-/** Ligne faite d'une seule mention de tableau blanc. */
-const BOARD_LINE = /^@\[([^\]\n]{1,80})\]\(board:(\d+)\)[ \t]*(?:\n|$)/;
+/** Ligne faite d'une seule mention de tableau blanc, avec son affichage au besoin (`board:7#image`). */
+const BOARD_LINE = new RegExp(String.raw`^@\[([^\]\n]{1,80})\]\(board:(\d+)${MENTION_VIEW_SUFFIX}\)[ \t]*(?:\n|$)`);
+const BOARD_LINE_START = new RegExp(String.raw`^@\[[^\]\n]{1,80}\]\(board:\d+${MENTION_VIEW_SUFFIX}\)[ \t]*$`, 'm');
+const MENTION_START = new RegExp(String.raw`^@\[([^\]\n]{1,80})\]\((user|ticket|doc|board):(\d+)${MENTION_VIEW_SUFFIX}\)`);
 
 function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews = true): Marked {
   const boardPreview: TokenizerAndRendererExtension = {
     name: 'boardPreview',
     level: 'block',
-    start: (src: string) => /^@\[[^\]\n]{1,80}\]\(board:\d+\)[ \t]*$/m.exec(src)?.index,
+    start: (src: string) => BOARD_LINE_START.exec(src)?.index,
     tokenizer(src: string) {
       const match = BOARD_LINE.exec(src);
-      return match ? { type: 'boardPreview', raw: match[0], label: match[1], id: Number(match[2]) } : undefined;
+      const view = boardMentionView(match?.[3]) ?? 'card';
+      // « Lien » : la mention reste une simple pastille, même seule sur sa ligne.
+      return match && view !== 'link' ? { type: 'boardPreview', raw: match[0], label: match[1], id: Number(match[2]), view } : undefined;
     },
-    renderer: (token) => boardPreviewHtml(token.id as number, token.label as string),
+    renderer: (token) => boardPreviewHtml(token.id as number, token.label as string, token.view as Exclude<BoardMentionView, 'link'>),
   };
   const mention: TokenizerAndRendererExtension = {
     name: 'mention',
     level: 'inline',
     start: (src: string) => src.indexOf('@['),
     tokenizer(src: string) {
-      const match = /^@\[([^\]\n]{1,80})\]\((user|ticket|doc|board):(\d+)\)/.exec(src);
+      const match = MENTION_START.exec(src);
       if (!match) return undefined;
       return { type: 'mention', raw: match[0], label: match[1], kind: match[2], id: Number(match[3]) };
     },

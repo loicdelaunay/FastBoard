@@ -1,22 +1,17 @@
 import { computed, ref, watch, type Ref } from 'vue';
 
 /**
- * Onglets d'un espace de documentation, façon Obsidian : chacun montre un fichier (ou rien, page d'accueil), ou une page
- * web ouverte depuis un lien, et garde son propre historique pour ses flèches précédent / suivant. Ils sont retenus par
- * espace dans ce navigateur.
+ * Onglets d'un espace de documentation, façon Obsidian : chacun montre un fichier (ou rien, page d'accueil) et garde son
+ * propre historique pour ses flèches précédent / suivant. Ils sont retenus par espace dans ce navigateur. Les adresses
+ * web, elles, s'ouvrent dans le navigateur.
  */
 
 export interface DocTab {
   id: string;
   nodeId: number | null;
-  /** Page web montrée dans l'onglet, à la place d'un fichier. */
-  url?: string;
   back: Array<number | null>;
   forward: Array<number | null>;
 }
-
-/** Adresse qu'un onglet peut montrer : une page web. */
-export const isWebUrl = (value: unknown): value is string => typeof value === 'string' && /^https?:\/\//i.test(value);
 
 const HISTORY_MAX = 50;
 const TABS_MAX = 20;
@@ -33,16 +28,17 @@ export function useDocTabs(spaceId: Ref<number>) {
 
   function restore(): void {
     try {
-      const saved = JSON.parse(localStorage.getItem(key.value) ?? 'null') as { tabs: DocTab[]; active: string } | null;
-      if (saved?.tabs?.length) {
-        tabs.value = saved.tabs.slice(0, TABS_MAX).map((tab) => ({
+      const saved = JSON.parse(localStorage.getItem(key.value) ?? 'null') as { tabs: Array<DocTab & { url?: string }>; active: string } | null;
+      // Les onglets qui montraient une page web (avant la 2.18) ne sont pas repris : ces pages s'ouvrent dans le navigateur.
+      const kept = (saved?.tabs ?? []).filter((tab) => !tab.url);
+      if (kept.length) {
+        tabs.value = kept.slice(0, TABS_MAX).map((tab) => ({
           id: String(tab.id),
           nodeId: typeof tab.nodeId === 'number' ? tab.nodeId : null,
-          ...(isWebUrl(tab.url) ? { url: tab.url } : {}),
           back: tab.back ?? [],
           forward: tab.forward ?? [],
         }));
-        activeId.value = tabs.value.some((tab) => tab.id === saved.active) ? saved.active : tabs.value[0]!.id;
+        activeId.value = tabs.value.some((tab) => tab.id === saved?.active) ? saved!.active : tabs.value[0]!.id;
         return;
       }
     } catch {
@@ -68,30 +64,14 @@ export function useDocTabs(spaceId: Ref<number>) {
   /** Montre un fichier dans l'onglet actif, en le gardant dans son historique. */
   function navigate(nodeId: number | null): void {
     const tab = active.value;
-    if (tab.nodeId === nodeId && !tab.url) return;
-    if (!tab.url) tab.back = [...tab.back, tab.nodeId].slice(-HISTORY_MAX);
+    if (tab.nodeId === nodeId) return;
+    tab.back = [...tab.back, tab.nodeId].slice(-HISTORY_MAX);
     tab.forward = [];
     tab.nodeId = nodeId;
-    delete tab.url;
-  }
-
-  /** Ouvre une page web dans un nouvel onglet, à côté de l'onglet actif (ou retourne à celui qui la montre déjà). */
-  function openWeb(url: string): void {
-    if (!isWebUrl(url)) return;
-    const existing = tabs.value.find((tab) => tab.url === url);
-    if (existing) {
-      activeId.value = existing.id;
-      return;
-    }
-    const tab: DocTab = { ...blank(), url };
-    const index = tabs.value.findIndex((entry) => entry.id === activeId.value);
-    tabs.value.splice(index + 1, 0, tab);
-    if (tabs.value.length > TABS_MAX) tabs.value.splice(tabs.value.findIndex((entry) => entry.id !== tab.id && entry.id !== activeId.value), 1);
-    activeId.value = tab.id;
   }
 
   function openInNewTab(nodeId: number | null): void {
-    const existing = nodeId === null ? undefined : tabs.value.find((tab) => tab.nodeId === nodeId && !tab.url);
+    const existing = nodeId === null ? undefined : tabs.value.find((tab) => tab.nodeId === nodeId);
     if (existing) {
       activeId.value = existing.id;
       return;
@@ -149,7 +129,7 @@ export function useDocTabs(spaceId: Ref<number>) {
     if (tab.nodeId === nodeId) return;
     if (tab.back.length && tab.back.at(-1) === nodeId) return goBack();
     if (tab.forward.length && tab.forward[0] === nodeId) return goForward();
-    const holder = nodeId === null ? undefined : tabs.value.find((entry) => entry.nodeId === nodeId && !entry.url);
+    const holder = nodeId === null ? undefined : tabs.value.find((entry) => entry.nodeId === nodeId);
     if (holder) activeId.value = holder.id;
     else navigate(nodeId);
   }
@@ -164,5 +144,5 @@ export function useDocTabs(spaceId: Ref<number>) {
     for (const tab of tabs.value.filter((entry) => !alive(entry.nodeId))) close(tab.id);
   }
 
-  return { tabs, activeId, active, navigate, openInNewTab, openWeb, activate, close, closeOthers, goBack, goForward, show, prune };
+  return { tabs, activeId, active, navigate, openInNewTab, activate, close, closeOthers, goBack, goForward, show, prune };
 }

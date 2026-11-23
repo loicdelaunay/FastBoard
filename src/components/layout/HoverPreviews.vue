@@ -98,7 +98,9 @@ function onOver(event: MouseEvent): void {
     window.clearTimeout(hideTimer);
     return;
   }
-  const element = target.closest?.<HTMLElement>('[data-ticket], [data-board]:not(.md-board, .cm-lp-board), [data-comments-of]');
+  // Pendant qu'on choisit l'affichage d'un tableau qu'on vient de citer, son aperçu ne vient pas couvrir la barre de choix.
+  const choosing = document.querySelector('.cm-board-choice') !== null;
+  const element = choosing ? null : target.closest?.<HTMLElement>('[data-ticket], [data-board]:not(.md-board, .md-board-head, .cm-lp-board), [data-comments-of]');
   if (!element) {
     if (anchor) {
       window.clearTimeout(showTimer);

@@ -1,9 +1,11 @@
 /**
  * Mentions dans les textes libres (description, commentaires) :
  * `@[Alice Martin](user:12)` pour une personne, `@[APP-12](ticket:34)` pour un ticket, `@[Note](doc:56)` pour un fichier
- * de documentation, `@[Architecture](board:7)` pour un tableau blanc.
+ * de documentation, `@[Architecture](board:7)` pour un tableau blanc (avec son affichage au besoin : `board:7#image`).
  * Le nom entre crochets est celui du moment de la saisie ; l'affichage utilise le nom à jour quand il est connu.
  */
+
+import { MENTION_VIEW_SUFFIX, type BoardMentionView } from '@shared/boards';
 
 export type MentionKind = 'user' | 'ticket' | 'doc' | 'board';
 
@@ -12,11 +14,13 @@ export type TextSegment =
   | { type: 'mention'; kind: MentionKind; id: number; label: string }
   | { type: 'link'; url: string };
 
-const MENTION = /@\[([^\]\n]{1,80})\]\((user|ticket|doc|board):(\d+)\)/g;
+const MENTION = new RegExp(String.raw`@\[([^\]\n]{1,80})\]\((user|ticket|doc|board):(\d+)${MENTION_VIEW_SUFFIX}\)`, 'g');
 const URL = /\bhttps?:\/\/[^\s<>"')\]]+/g;
 
-export function mentionToken(kind: MentionKind, id: number, label: string): string {
-  return `@[${label.replace(/[[\]\n]/g, ' ').trim().slice(0, 80)}](${kind}:${id})`;
+/** `view` : affichage d'un tableau blanc (`image`, `embed`, `link`) ; absent, il s'affiche en carte ou en lien. */
+export function mentionToken(kind: MentionKind, id: number, label: string, view?: BoardMentionView | null): string {
+  const suffix = kind === 'board' && view && view !== 'card' ? `#${view}` : '';
+  return `@[${label.replace(/[[\]\n]/g, ' ').trim().slice(0, 80)}](${kind}:${id}${suffix})`;
 }
 
 function splitLinks(text: string): TextSegment[] {

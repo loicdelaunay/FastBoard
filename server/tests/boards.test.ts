@@ -3,7 +3,7 @@ import { after, before, describe, it } from 'node:test';
 import * as Y from 'yjs';
 import { attachAt, connectorGeometry, connectorStroke, crossingsOf, layoutMind, shapePath, shiftSegment } from '../../shared/boardGeometry.ts';
 import { boardPreviewSvg } from '../../shared/boardPreview.ts';
-import { diffElements, MOCKUP_KINDS, shiftConnector, type BoardElement, type BoardNodeDTO, type BoardVersionDTO, type ConnectorElement, type MindElement, type MockupElement, type ShapeElement } from '../../shared/boards.ts';
+import { boardMentionView, diffElements, MOCKUP_KINDS, shiftConnector, type BoardElement, type BoardNodeDTO, type BoardVersionDTO, type ConnectorElement, type MindElement, type MockupElement, type ShapeElement } from '../../shared/boards.ts';
 import { base64ToBytes, bytesToBase64 } from '../../shared/docs.ts';
 import type { ServerMessage } from '../../shared/realtime.ts';
 import { sanitizeElements } from '../boards/elements.ts';
@@ -499,9 +499,26 @@ describe('tableaux blancs', () => {
     assert.deepEqual(noteLinks.outgoing.boards.map((entry: { id: number }) => entry.id), [target.id]);
     assert.deepEqual(noteLinks.backlinks.boards.map((entry: { id: number }) => entry.id).sort(), [target.id, citing.id].sort());
 
+    // Une mention qui précise son affichage (image, vue intégrée, lien) reste une mention : liens dans les deux sens.
+    const shown = (await bob.post(`/api/documentation/spaces/${docSpace}/nodes`, { path: 'Plan', content: `@[Cible](board:${target.id}#embed)\n\nEt @[Cible](board:${target.id}#link).` })).body.node as { id: number };
+    const pictured = (await bob.post(`/api/projects/${project}/tickets`, { title: 'Relire', description: `@[Cible](board:${target.id}#image)` })).body.ticket as { id: number };
+    assert.ok(pictured.id);
+    const again = (await bob.get(`/api/boards/nodes/${target.id}/links`)).body;
+    assert.deepEqual(again.backlinks.notes.map((entry: { id: number }) => entry.id).sort(), [note.id, shown.id].sort(), 'les deux notes, avec ou sans affichage');
+    assert.deepEqual(again.backlinks.tickets.map((entry: { key: string }) => entry.key).sort(), ['LNK-1', 'LNK-2']);
+    const shownLinks = (await bob.get(`/api/documentation/nodes/${shown.id}/links`)).body;
+    assert.deepEqual(shownLinks.outgoing.boards.map((entry: { id: number }) => entry.id), [target.id]);
+    // Un autre tableau dont le numéro commence pareil n'est pas confondu.
+    const other = await newBoard(spaceId, 'Autre');
+    assert.deepEqual((await bob.get(`/api/boards/nodes/${other.id}/links`)).body.backlinks.notes, []);
+    assert.equal(boardMentionView('image'), 'image');
+    assert.equal(boardMentionView('embed'), 'embed');
+    assert.equal(boardMentionView('grand'), null, 'affichage inconnu : celui par défaut');
+    assert.equal(boardMentionView(undefined), null);
+
     // Chacun ne voit que ce qui lui est ouvert : Vera n'est pas dans le projet, Eve pas dans l'espace.
     const forVera = (await vera.get(`/api/boards/nodes/${target.id}/links`)).body;
-    assert.equal(forVera.backlinks.notes.length, 1);
+    assert.equal(forVera.backlinks.notes.length, 2, 'les deux notes de l’espace où elle est lectrice');
     assert.equal(forVera.backlinks.tickets.length, 0);
     assert.equal((await eve.get(`/api/boards/nodes/${target.id}/links`)).status, 404, 'hors de l’espace, le tableau n’existe pas');
   });
