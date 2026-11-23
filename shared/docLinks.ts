@@ -33,13 +33,32 @@ export function anchorKey(text: string): string {
     .replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
-/** Position, dans `titles`, du titre visé par une ancre : à l'identique d'abord, puis aux lettres et chiffres près. */
-export function findHeading(titles: readonly string[], anchor: string): number {
-  const exact = headingKey(anchor);
+/**
+ * Position, dans `titles`, du titre visé par une ancre : par son identifiant (`{#id}`, `<a id>`) s'il en a, puis par son
+ * texte à l'identique, enfin aux lettres et chiffres près (`#1-disponibilite`, `#1.%20Disponibilité`…).
+ */
+export function findHeading(titles: readonly string[], anchor: string, ids: ReadonlyArray<readonly string[] | undefined> = []): number {
+  let decoded = anchor.replace(/^#/, '');
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    // Ancre mal encodée : on la prend telle quelle.
+  }
+  const byId = ids.findIndex((list) => list?.some((id) => id === decoded || id.toLowerCase() === decoded.toLowerCase()));
+  if (byId >= 0) return byId;
+  const exact = headingKey(decoded);
   const found = titles.findIndex((title) => headingKey(title) === exact);
   if (found >= 0) return found;
-  const loose = anchorKey(anchor);
-  return loose ? titles.findIndex((title) => anchorKey(title) === loose) : -1;
+  const loose = anchorKey(decoded);
+  if (!loose) return -1;
+  const close = titles.findIndex((title) => anchorKey(title) === loose);
+  if (close >= 0) return close;
+  // Doublons numérotés à la façon de GitHub : « #installation-1 » vise le deuxième « Installation ».
+  const duplicate = /^(.*?)-(\d+)$/.exec(decoded.trim());
+  if (!duplicate) return -1;
+  const base = anchorKey(duplicate[1]!);
+  const same = titles.flatMap((title, index) => (base && anchorKey(title) === base ? [index] : []));
+  return same[Number(duplicate[2])] ?? -1;
 }
 
 /** Transforme les liens wiki en liens Markdown ordinaires, en laissant le code intact. */

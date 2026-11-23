@@ -8,6 +8,8 @@ export interface DocHeading {
   title: string;
   /** Ligne du titre dans le source, à partir de 1. */
   line: number;
+  /** Identifiants donnés au titre, `{#id}` à la fin ou `<a id="…">` : des liens `#id` y mènent. */
+  ids?: string[];
 }
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
@@ -16,17 +18,32 @@ const SETEXT = /^ {0,3}(=+|-+)[ \t]*$/;
 /** Ce qui ne peut pas être le texte d'un titre souligné : la ligne n'est pas un paragraphe. */
 const NOT_PARAGRAPH = /^\s*$|^ {0,3}(?:#{1,6}(?:\s|$)|>|[-*+]\s|\d+[.)]\s|\||`{3}|~{3})/;
 
-function cleanTitle(raw: string): string {
-  const unlinked = raw.replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, (_match, target: string, label?: string) => label ?? target);
-  return plainText(unlinked).trim();
+/**
+ * Texte lisible d'un titre et ses identifiants : la numérotation reste (« 1. Disponibilité »), un `{#id}` final et les
+ * ancres HTML `<a id="…">` deviennent des identifiants, les autres balises HTML disparaissent.
+ */
+export function headingTitle(raw: string): { title: string; ids: string[] } {
+  const ids: string[] = [];
+  const text = raw
+    .replace(/[ \t]*\{#([^\s{}]+)[^{}]*\}[ \t]*$/, (_match, id: string) => {
+      ids.push(id);
+      return '';
+    })
+    .replace(/<a\s[^>]*?\b(?:id|name)\s*=\s*["']?([^"'\s>]+)["']?[^>]*>/gi, (_match, id: string) => {
+      ids.push(id);
+      return '';
+    })
+    .replace(/<\/?[a-z][^<>]*>/gi, '')
+    .replace(/\[\[([^\]|\n]+)(?:\|([^\]\n]+))?\]\]/g, (_match, target: string, label?: string) => label ?? target);
+  return { title: plainText(text, true).trim(), ids };
 }
 
 export function docOutline(text: string): DocHeading[] {
   const lines = text.split('\n');
   const headings: DocHeading[] = [];
   const add = (level: number, raw: string, line: number): void => {
-    const title = cleanTitle(raw);
-    if (title) headings.push({ level, title, line });
+    const { title, ids } = headingTitle(raw);
+    if (title) headings.push({ level, title, line, ...(ids.length ? { ids } : {}) });
   };
   let fence: string | null = null;
   // Propriétés en tête de note (---…---) : ni filet ni titre souligné.

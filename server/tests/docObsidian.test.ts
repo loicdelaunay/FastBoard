@@ -86,6 +86,15 @@ describe('Markdown d’Obsidian', () => {
     assert.equal(findHeading(titles, '^^'), -1);
   });
 
+  it('suit une table des matières numérotée, les identifiants et les doublons', () => {
+    const titles = ['Table des matières', '1. Availability', '2. Performance', '3.\u00a0Sécurité', 'Installation', 'Installation', 'Annexe'];
+    assert.equal(findHeading(titles, '1-availability'), 1, 'à la façon de GitHub');
+    assert.equal(findHeading(titles, '#2.-performance'), 2);
+    assert.equal(findHeading(titles, '3.%C2%A0s%C3%A9curit%C3%A9'), 3, 'ancre encodée');
+    assert.equal(findHeading(titles, 'installation-1'), 5, 'deuxième « Installation »');
+    assert.equal(findHeading(titles, 'annexe-id', [undefined, undefined, undefined, undefined, undefined, undefined, ['annexe-id']]), 6, 'par son identifiant');
+  });
+
   it('colore un surlignage d’après sa bille emoji', () => {
     assert.equal(highlightColor('🟢 Validé'), 'green');
     assert.equal(highlightColor(' 🟥 Bloqué'), 'red');

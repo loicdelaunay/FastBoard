@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import Button from 'primevue/button';
+import Message from 'primevue/message';
 import InputText from 'primevue/inputtext';
 import Tab from 'primevue/tab';
 import TabList from 'primevue/tablist';
@@ -76,6 +77,8 @@ const editable = computed(() => project.can('ticket.edit') && !project.archived)
 const canDelete = computed(() => project.can('ticket.delete') && !project.archived);
 const auth = useAuthStore();
 const watching = computed(() => auth.user !== null && props.ticket.watcherIds.includes(auth.user.id));
+/** Rappel d'avancement du projet : ce ticket attend une mise à jour de ma part. */
+const reminderMine = computed(() => auth.user !== null && (project.progressReminders.get(props.ticket.id) ?? []).includes(auth.user.id));
 const watchers = computed(() => props.ticket.watcherIds.flatMap((id) => project.usersById.get(id) ?? []));
 const watchBusy = ref(false);
 const watchHover = ref(false);
@@ -172,6 +175,10 @@ function askDelete(): void {
       <TicketDescription v-if="project.fieldOn('description')" :ticket-id="ticket.id" :value="ticket.description" :editable="editable" @save="(value) => save({ description: value }, $t('Description du ticket'))" />
 
       <TicketAttachments v-if="project.fieldOn('attachments')" ref="attachments" :ticket="ticket" :dragging="dragging" />
+
+      <Message v-if="reminderMine" severity="info" icon="pi pi-info-circle" class="reminder">
+        {{ $t('Ce ticket est en cours dans une livraison en cours : mettez à jour au moins le pourcentage de votre ligne, ou laissez un commentaire de progression.') }}
+      </Message>
 
       <TicketParts v-if="project.fieldOn('assignees') || project.fieldOn('progress')" :ticket="ticket" />
 

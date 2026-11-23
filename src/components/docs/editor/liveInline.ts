@@ -242,7 +242,11 @@ const HIGHLIGHT = /==(?!=)(?=\S)(.+?\S)\s*==/g;
 const COMMENT = /%%.*?%%/g;
 const TAG = /(^|[\s(])(#[\p{L}\p{N}_/-]*[\p{L}_/-][\p{L}\p{N}_/-]*)/gu;
 const FOOTNOTE = /\[\^[^\]\s]+\](?!:)/g;
-const MATH = /\$(?!\s)((?:\\\$|[^$\n])+?)(?<!\s)\$(?!\d)/g;
+const MATH = /\$(?!\s)((?:\\\$|[^$\n`])+?)(?<!\s)\$(?!\d)/g;
+/** Balises HTML en ligne rendues comme en lecture (exposant, indice, touche…) ; les autres restent en source. */
+const INLINE_HTML = /<(sup|sub|kbd|mark|u|ins|del|s|small|b|strong|i|em)(?:\s[^<>]*)?>((?:(?!<\/?\1[\s>]).)+?)<\/\1\s*>/gi;
+/** Nœuds du Markdown où un « $ » n'ouvre pas de formule. */
+const NO_MATH = /^(InlineCode|CodeText|FencedCode|CodeBlock|HTMLBlock|HTMLTag|URL|Autolink|LinkReference)$/;
 const BLOCK_ID = /\s\^[A-Za-z0-9-]+\s*$/g;
 
 function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
@@ -286,13 +290,41 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
     decorations.push(line(className).range(start));
   };
 
+  // Formules $…$ d'abord : la syntaxe Markdown qu'elles contiennent (x_1, a*b) ne doit ni les couper ni les décorer.
+  const tree = syntaxTree(state);
+  const maths: Array<[number, number]> = [];
+  const noMath = (position: number): boolean => {
+    for (let node: { name: string; parent: unknown } | null = tree.resolveInner(position, 1); node; node = node.parent as typeof node) {
+      if (NO_MATH.test(node.name)) return true;
+    }
+    return false;
+  };
   for (const visible of view.visibleRanges) {
-    syntaxTree(state).iterate({
+    for (let position = visible.from; position <= visible.to; ) {
+      const current = doc.lineAt(position);
+      position = current.to + 1;
+      if (inSkipped(current.from, current.to) || !current.text.includes('$')) continue;
+      for (const match of current.text.matchAll(MATH)) {
+        const from = current.from + match.index;
+        const to = from + match[0].length;
+        if (noMath(from) || noMath(to - 1) || maths.some(([start, end]) => from < end && to > start)) continue;
+        maths.push([from, to]);
+        code.push([from, to]);
+        if (touches(from, to)) decorations.push(mark('cm-lp-math-source').range(from, to));
+        else swap(from, to, new MathWidget(match[1]!));
+      }
+    }
+  }
+  const insideMath = (from: number, to: number) => maths.some(([start, end]) => from >= start && to <= end);
+
+  for (const visible of view.visibleRanges) {
+    tree.iterate({
       from: visible.from,
       to: visible.to,
       enter: (node) => {
         const { name, from, to } = node;
         if (name === 'Document') return true;
+        if (insideMath(from, to)) return false;
         if (insideSkipped(from, to)) {
           for (let position = from; position <= to; ) {
             const current = doc.lineAt(position);
@@ -310,6 +342,11 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
               const before = markNode.from > from && doc.sliceString(markNode.from - 1, markNode.from) === ' ' ? 1 : 0;
               hide(markNode.from - before, markNode.to + (markNode.from === from ? after : 0));
             }
+            // Identifiants du titre ({#id} final, <a id="…"></a>) : ils servent aux liens, pas à la lecture.
+            const title = doc.sliceString(from, to);
+            const id = /[ \t]*\{#[^\s{}]+[^{}]*\}[ \t]*$/.exec(title);
+            if (id) hide(from + id.index, to);
+            for (const anchor of title.matchAll(/<a\s[^>]*?\b(?:id|name)\s*=[^>]*>\s*<\/a>\s*/gi)) hide(from + anchor.index, from + anchor.index + anchor[0].length);
           }
           return true;
         }
@@ -443,6 +480,22 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
       scanned.add(current.from);
       const text = current.text;
       const base = current.from;
+      // HTML en ligne (<sup>2</sup>, <kbd>Ctrl</kbd>…) : les balises disparaissent, le texte prend leur rendu.
+      if (text.includes('<')) {
+        for (const match of text.matchAll(INLINE_HTML)) {
+          const from = base + match.index;
+          const to = from + match[0].length;
+          if (!outsideCode(from, to)) continue;
+          const open = match[0].indexOf('>') + 1;
+          const close = match[0].lastIndexOf('<');
+          decorations.push(mark(`cm-lp-html-${match[1]!.toLowerCase()}`).range(from + open, from + close));
+          if (touches(from, to)) decorations.push(mark('cm-lp-syntax').range(from, from + open), mark('cm-lp-syntax').range(from + close, to));
+          else {
+            hide(from, from + open);
+            hide(from + close, to);
+          }
+        }
+      }
       for (const match of text.matchAll(WIKI)) {
         const from = base + match.index;
         const to = from + match[0].length;
@@ -499,11 +552,6 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
       for (const match of text.matchAll(BLOCK_ID)) {
         const from = base + match.index;
         decorations.push(mark('cm-lp-syntax').range(from, from + match[0].length));
-      }
-      for (const match of text.matchAll(MATH)) {
-        const from = base + match.index;
-        const to = from + match[0].length;
-        if (outsideCode(from, to) && !touches(from, to)) swap(from, to, new MathWidget(match[1]!));
       }
     }
   }

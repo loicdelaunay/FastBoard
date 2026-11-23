@@ -28,6 +28,9 @@ import DocSiteDialog from '@/components/docs/DocSiteDialog.vue';
 import DocSpaceDialog from '@/components/docs/DocSpaceDialog.vue';
 import DocTrashDialog from '@/components/docs/DocTrashDialog.vue';
 import DocTree from '@/components/docs/DocTree.vue';
+import DocWebView from '@/components/docs/DocWebView.vue';
+import DocFindBar from '@/components/docs/find/DocFindBar.vue';
+import { useDocFind } from '@/composables/useDocFind';
 import { useDocTabs } from '@/composables/useDocTabs';
 import { useReadingShift } from '@/composables/useReadingShift';
 import { DocSession, type DocPresence } from '@/realtime/docSession';
@@ -119,13 +122,24 @@ function openNode(node: DocNodeDTO, newTab = false): void {
   else tabsState.navigate(node.id);
 }
 
-function tabTitle(nodeId: number | null): string {
+function tabTitle(nodeId: number | null, url?: string): string {
+  if (url) return webTitle(url);
   const node = allNodes.value.find((entry) => entry.id === nodeId);
   if (!node) return t('Nouvel onglet');
   return isText(node) ? docTitle(node.path) : docBaseName(node.path);
 }
 
-function tabIcon(nodeId: number | null): string {
+/** Titre d'un onglet web : le site, sans « www. ». */
+function webTitle(url: string): string {
+  try {
+    return new URL(url).host.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
+function tabIcon(nodeId: number | null, url?: string): string {
+  if (url) return 'pi pi-globe';
   const node = allNodes.value.find((entry) => entry.id === nodeId);
   return !node ? 'pi pi-plus-circle' : node.kind === 'image' ? 'pi pi-image' : node.kind === 'template' ? 'pi pi-clone template-tab' : 'pi pi-file';
 }
@@ -253,11 +267,13 @@ function goToHeading(index: number): void {
 }
 
 function onPreviewScroll(): void {
-  if (spyFrame || !showOutline.value) return;
+  if (spyFrame) return;
   spyFrame = requestAnimationFrame(() => {
     spyFrame = 0;
     const pane = previewPane.value;
-    if (!pane || Date.now() < followAfter) return;
+    // En lecture, la ligne du haut est celle que l'on retrouvera en passant en écriture.
+    if (pane && !writing.value && !restoringPosition) topLine = previewTopLine() ?? topLine;
+    if (!pane || !showOutline.value || Date.now() < followAfter) return;
     const elements = renderedHeadings();
     const limit = pane.getBoundingClientRect().top + 24;
     const atEnd = pane.scrollTop + pane.clientHeight >= pane.scrollHeight - 2;
@@ -265,7 +281,8 @@ function onPreviewScroll(): void {
   });
 }
 
-function onEditorLine(line: number): void {
+function onEditorLine(line: number, fraction = 0): void {
+  if (!restoringPosition) topLine = line + fraction;
   // Défilement de l'éditeur sans déplacer le curseur : l'aperçu suit le haut de l'éditeur.
   if (Date.now() > cursorSyncedAt + 400) syncPreview(line, 0);
   if (Date.now() < followAfter) return;
@@ -278,6 +295,8 @@ let lastCursor: { line: number; ratio: number } | null = null;
 let cursorSyncedAt = 0;
 
 function onCursorLine(line: number, ratio: number): void {
+  // Le curseur a bougé : le compteur de la recherche suit (« 3 sur 12 »).
+  find.refresh();
   lastCursor = { line, ratio };
   cursorSyncedAt = Date.now();
   syncPreview(line, ratio);
@@ -289,9 +308,14 @@ function onCursorLine(line: number, ratio: number): void {
  * position est interpolée. Si le rendu ne correspond pas bloc à bloc, seuls les titres servent de repères.
  */
 function syncPreview(line: number, ratio: number): void {
+  if (splitView.value) scrollPreviewToLine(line, ratio);
+}
+
+/** Repères entre les lignes du source et les hauteurs du rendu (voir `syncPreview`), du début à la fin de la note. */
+function previewAnchors(): { pane: HTMLElement; anchors: Array<{ line: number; y: number }> } | null {
   const pane = previewPane.value;
   const root = pane?.querySelector<HTMLElement>('.doc-preview .markdown');
-  if (!splitView.value || !pane || !root) return;
+  if (!pane || !root) return null;
   const text = content.value;
   const origin = pane.getBoundingClientRect().top - pane.scrollTop;
   const yOf = (element: Element): number => element.getBoundingClientRect().top - origin;
@@ -314,12 +338,60 @@ function syncPreview(line: number, ratio: number): void {
   }
   const total = text.split('\n').length;
   anchors = [{ line: 1, y: 0 }, ...anchors.filter((anchor) => anchor.line > 1), { line: total + 1, y: pane.scrollHeight }];
+  return { pane, anchors };
+}
+
+/** Amène la ligne `line` du source (décimale : une partie de la ligne) à la hauteur `ratio` de l'aperçu. */
+function scrollPreviewToLine(line: number, ratio: number): void {
+  const found = previewAnchors();
+  if (!found) return;
+  const { pane, anchors } = found;
   const index = Math.max(0, anchors.findLastIndex((anchor) => anchor.line <= line));
   const from = anchors[index]!;
   const to = anchors[Math.min(index + 1, anchors.length - 1)]!;
   const y = to.line > from.line ? from.y + ((line - from.line) / (to.line - from.line)) * (to.y - from.y) : from.y;
   pane.scrollTop = Math.max(0, y - ratio * pane.clientHeight);
 }
+
+/** Ligne du source (décimale) affichée en haut de l'aperçu : l'inverse de `scrollPreviewToLine`. */
+function previewTopLine(): number | null {
+  const found = previewAnchors();
+  if (!found) return null;
+  const { pane, anchors } = found;
+  const y = pane.scrollTop + 16;
+  const index = Math.max(0, anchors.findLastIndex((anchor) => anchor.y <= y));
+  const from = anchors[index]!;
+  const to = anchors[Math.min(index + 1, anchors.length - 1)]!;
+  return to.y > from.y ? from.line + ((y - from.y) / (to.y - from.y)) * (to.line - from.line) : from.line;
+}
+
+// --- Changer de mode sans perdre sa place : la ligne du haut de l'écran est suivie et retrouvée dans l'autre mode ---
+/** Ligne du source en haut de l'écran (décimale), quel que soit le mode. */
+let topLine = 1;
+/** Pendant qu'on rétablit la position, les défilements ne remplacent pas la ligne mémorisée. */
+let restoringPosition = false;
+let restoreTimer: number | undefined;
+
+watch([mode, writing], async () => {
+  const line = topLine;
+  restoringPosition = true;
+  window.clearTimeout(restoreTimer);
+  const restore = (): void => {
+    if (writing.value) editor.value?.scrollToSourceLine(line);
+    else if (previewPane.value) scrollPreviewToLine(line, 0);
+  };
+  await nextTick();
+  requestAnimationFrame(() => {
+    restore();
+    // Le rendu (images, schémas) et les hauteurs de l'éditeur se précisent juste après : un second calage.
+    restoreTimer = window.setTimeout(() => {
+      restore();
+      restoreTimer = window.setTimeout(() => (restoringPosition = false), 150);
+    }, 180);
+  });
+});
+// Une autre note repart du haut.
+watch(() => selected.value?.id, () => (topLine = 1));
 
 // Le rendu change avec le texte : on recale l'aperçu sur le curseur une fois l'aperçu redessiné.
 watch(content, () => {
@@ -375,6 +447,19 @@ const links = ref<DocLinksDTO | null>(null);
 const draft = ref<DocQuote | null>(null);
 const focusedComment = ref<number | null>(null);
 const editor = ref<InstanceType<typeof DocEditor> | null>(null);
+
+// --- Recherche dans la note (Ctrl F) ---
+const find = useDocFind({
+  editor,
+  preview: previewPane,
+  writing: () => writing.value,
+  active: () => isText(selected.value) && synced.value,
+  target: () => [selected.value?.id, mode.value, writing.value],
+  content,
+});
+function setFindBar(instance: unknown): void {
+  find.bar.value = instance as typeof find.bar.value;
+}
 
 const noteId = computed(() => (isText(selected.value) ? selected.value!.id : null));
 const openComments = computed(() => store.comments.filter((comment) => comment.parentId === null && !comment.resolvedAt).length);
@@ -742,21 +827,23 @@ const recent = computed(() =>
           role="tab"
           :aria-selected="tab.id === active.id"
           tabindex="0"
-          :title="store.nodes.find((node) => node.id === tab.nodeId)?.path ?? $t('Nouvel onglet')"
+          :title="tab.url ?? store.nodes.find((node) => node.id === tab.nodeId)?.path ?? $t('Nouvel onglet')"
           @click="tabsState.activate(tab.id)"
           @keydown.enter="tabsState.activate(tab.id)"
           @auxclick.prevent="$event.button === 1 && tabsState.close(tab.id)"
           @contextmenu.prevent="openTabMenu($event, tab.id)"
         >
-          <i :class="tabIcon(tab.nodeId)" class="tab-icon"></i>
-          <span class="tab-title truncate">{{ tabTitle(tab.nodeId) }}</span>
+          <i :class="tabIcon(tab.nodeId, tab.url)" class="tab-icon"></i>
+          <span class="tab-title truncate">{{ tabTitle(tab.nodeId, tab.url) }}</span>
           <button type="button" class="tab-close" :aria-label="$t('Fermer l’onglet')" @click.stop="tabsState.close(tab.id)"><i class="pi pi-times"></i></button>
         </div>
         <button v-tooltip.bottom="$t('Nouvel onglet')" type="button" class="tab-add" :aria-label="$t('Nouvel onglet')" @click="tabsState.openInNewTab(null)"><i class="pi pi-plus"></i></button>
         <ContextMenu ref="tabMenu" :model="tabMenuItems" />
       </div>
 
-      <template v-if="selected">
+      <DocWebView v-if="active.url" :url="active.url" />
+
+      <template v-else-if="selected">
         <header class="note-nav">
           <Button v-tooltip.bottom="$t('Précédent')" icon="pi pi-arrow-left" text rounded size="small" severity="secondary" :disabled="!active.back.length" :aria-label="$t('Précédent')" @click="tabsState.goBack()" />
           <Button v-tooltip.bottom="$t('Suivant')" icon="pi pi-arrow-right" text rounded size="small" severity="secondary" :disabled="!active.forward.length" :aria-label="$t('Suivant')" @click="tabsState.goForward()" />
@@ -814,7 +901,21 @@ const recent = computed(() =>
           <div v-if="!synced" class="waiting muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
           <div v-else class="note-body" :class="{ 'with-outline': showOutline }">
             <DocOutline v-if="showOutline" class="outline" :headings="headings" :active="activeHeading" @go="goToHeading" @close="outlineOpen = false" />
-            <div ref="panes" class="panes" :class="{ split: writing && !live && showPreview }">
+            <div ref="panes" class="panes" :class="{ split: writing && !live && showPreview, writing }">
+              <DocFindBar
+                v-if="find.open.value"
+                :ref="setFindBar"
+                v-model="find.query.value"
+                v-model:replace-open="find.replaceOpen.value"
+                class="find-floating"
+                :result="find.result.value"
+                :can-replace="writing"
+                @next="find.next"
+                @previous="find.previous"
+                @replace="find.replace"
+                @replace-all="find.replaceAll"
+                @close="find.close"
+              />
               <div v-if="writing && session" class="pane editor">
                 <DocEditor
                   :key="`${session.nodeId}-${mode}`"
@@ -829,6 +930,7 @@ const recent = computed(() =>
                   :obsidian="obsidian"
                   :readonly="false"
                   @open="openNode"
+                  @open-url="tabsState.openWeb"
                   @comment="startComment"
                   @focus-comment="focusComment"
                   @top-line="onEditorLine"
@@ -836,7 +938,7 @@ const recent = computed(() =>
                 />
               </div>
               <div v-if="!writing || (showPreview && !live)" ref="previewPane" class="pane preview" @scroll.passive="onPreviewScroll">
-                <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" :obsidian="obsidian" @open="openNode" @comment="startComment" @focus-comment="focusComment" />
+                <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" :obsidian="obsidian" @open="openNode" @open-url="tabsState.openWeb" @comment="startComment" @focus-comment="focusComment" />
                 <p v-else class="muted empty-note">{{ canWrite ? $t('Cette note est vide. Passez en écriture pour la rédiger.') : $t('Cette note est vide.') }}</p>
               </div>
             </div>
@@ -1166,9 +1268,23 @@ const recent = computed(() =>
   grid-template-columns: 14rem minmax(0, 1fr);
 }
 .panes {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
+}
+/* Barre de recherche (Ctrl F) : en haut à droite du texte, au-dessus de l'éditeur quand l'aperçu est à côté. */
+.find-floating {
+  position: absolute;
+  z-index: 6;
+  top: 0.6rem;
+  right: 1.4rem;
+}
+.panes.writing .find-floating {
+  top: 2.75rem;
+}
+.panes.split .find-floating {
+  right: calc(50% + 1rem);
 }
 .panes.split {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

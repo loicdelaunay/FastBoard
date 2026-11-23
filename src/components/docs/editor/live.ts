@@ -1,5 +1,6 @@
 import { RangeSetBuilder, StateEffect, StateField, type EditorState, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
+import { highlightCodeBlocks } from '@/utils/codeHighlight';
 import { markdownBlocks, renderMermaid, type MarkdownBlock } from '@/utils/markdown';
 import type { TextRange } from './commands';
 import { flushTables, TableWidget, type TableOptions } from './tableWidget';
@@ -63,6 +64,7 @@ class BlockWidget extends WidgetType {
     // Un diagramme ou une image change la hauteur du bloc une fois chargé.
     for (const image of box.querySelectorAll('img')) image.addEventListener('load', () => view.requestMeasure());
     void renderMermaid(box, document.documentElement.classList.contains('app-dark')).then(() => view.requestMeasure());
+    void highlightCodeBlocks(box);
     return box;
   }
 

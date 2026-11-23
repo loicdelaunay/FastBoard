@@ -2,6 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { STATUS_META, type TicketStatus } from '@shared/constants';
 import { todayISO } from '@shared/dates';
+import { progressReminderUsers, withProgressUpdate } from '@shared/progressReminder';
 import { defaultSettings, type ColumnConfig, type ProjectSettingsDTO } from '@shared/settings';
 import type { PresenceUser, ProjectEvent } from '@shared/realtime';
 import type { TicketFieldKey } from '@shared/ticketFields';
@@ -116,6 +117,28 @@ export const useProjectStore = defineStore('project', () => {
   const columns = computed<ColumnConfig[]>(() => settings.value.columns.map((column) => ({ ...column, label: t(column.label) })));
   const visibleColumns = computed(() => columns.value.filter((column) => !column.hidden));
   const statusOrder = computed(() => new Map(columns.value.map((column, index) => [column.status, index])));
+
+  // --- Rappel d'avancement ---
+  /** Horloge à la minute : un rappel apparaît sans attendre une autre modification. */
+  const clock = ref(Date.now());
+  setInterval(() => (clock.value = Date.now()), 60_000);
+  /** Tickets « En cours » d'une livraison en cours, avec les personnes qui devraient mettre à jour leur avancement. */
+  const progressReminders = computed(() => {
+    const map = new Map<number, number[]>();
+    if (!settings.value.progressReminder) return map;
+    const today = todayISO(new Date(clock.value));
+    for (const ticket of tickets.value) {
+      const delivery = ticket.deliveryId === null ? undefined : deliveriesById.value.get(ticket.deliveryId);
+      const people = progressReminderUsers(ticket, delivery, settings.value, today, clock.value);
+      if (people.length) map.set(ticket.id, people);
+    }
+    return map;
+  });
+  /** Tickets dont cette personne devrait mettre à jour l'avancement. */
+  function remindersFor(userId: number | null | undefined): TicketDTO[] {
+    if (!userId) return [];
+    return [...progressReminders.value].filter(([, people]) => people.includes(userId)).map(([ticketId]) => ticketsById.value.get(ticketId)!).filter(Boolean);
+  }
 
   /** Libellé, couleur et icône d'un statut dans ce projet (les noms et couleurs sont personnalisables). */
   function statusMeta(statusKey: TicketStatus): { label: string; color: string; icon: string } {
@@ -293,6 +316,7 @@ export const useProjectStore = defineStore('project', () => {
       case 'comment.deleted':
         upsertComment(event.comment);
         patchLocal(event.comment.ticketId, { commentCount: event.commentCount });
+        if (event.type === 'comment.created') noteCommentUpdate(event.comment);
         break;
       case 'attachment.created': {
         const list = attachments.value[event.attachment.ticketId];
@@ -666,6 +690,13 @@ export const useProjectStore = defineStore('project', () => {
   async function addComment(ticketId: number, body: string, parentId: number | null): Promise<void> {
     const { comment } = await api.addComment(ticketId, body, parentId);
     upsertComment(comment);
+    noteCommentUpdate(comment);
+  }
+
+  /** Un commentaire compte comme une mise à jour de l'avancement de son auteur (rappel d'avancement). */
+  function noteCommentUpdate(comment: CommentDTO): void {
+    const ticket = ticketsById.value.get(comment.ticketId);
+    if (ticket && comment.userId !== null) ticket.progressUpdates = withProgressUpdate(ticket.progressUpdates ?? [], comment.userId, comment.createdAt);
   }
 
   async function editComment(comment: CommentDTO, body: string): Promise<void> {
@@ -754,6 +785,7 @@ export const useProjectStore = defineStore('project', () => {
     unseenActivity, setActivityViewOpen,
     // index
     ticketsById, usersById, categoriesById, deliveriesById, prioritiesById, componentsById, priorityRank, currentDelivery, nextDelivery,
+    progressReminders, remindersFor,
     // droits
     can, readOnly, archived,
     // cycle de vie

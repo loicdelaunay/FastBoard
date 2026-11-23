@@ -13,6 +13,7 @@ import { useAuthStore } from '@/stores/auth';
 import { copyText, finishDocHtml, hydrateEmbeds, pendingAnchor, prepareDocText, scrollToHeading } from '@/utils/docRender';
 import { formatRelative } from '@/utils/format';
 import { zoomImageOnClick } from '@/utils/lightbox';
+import { highlightCodeBlocks } from '@/utils/codeHighlight';
 import { escapeHtml, renderMarkdown, renderMermaid, type MentionResolver } from '@/utils/markdown';
 
 /**
@@ -232,6 +233,7 @@ watch(html, async () => {
   }
   decorate(root);
   void renderMermaid(root, document.documentElement.classList.contains('app-dark'));
+  void highlightCodeBlocks(root);
   void hydrateEmbeds(root, context.value, async (nodeId) => (await api.wikiPage(slug.value, nodeId)).content);
   const anchor = pendingAnchor.value;
   const hash = route.hash ? decodeURIComponent(route.hash.slice(1)) : '';

@@ -55,6 +55,10 @@ export interface ProjectSettingsDTO {
   allowNewComponents: boolean;
   /** Analyseur, charge par personne : les tickets terminés sans assigné ne sont pas comptés dans « Non assigné ». */
   hideDoneUnassigned: boolean;
+  /** Rappel d'avancement : les tickets « En cours » d'une livraison en cours signalent qui n'a pas mis à jour son avancement. */
+  progressReminder: boolean;
+  /** Jours sans mise à jour (pourcentage ou commentaire) avant le rappel. */
+  progressReminderDays: number;
   /** Les six colonnes, dans l'ordre d'affichage. */
   columns: ColumnConfig[];
 }
@@ -80,6 +84,8 @@ export function defaultSettings(): ProjectSettingsDTO {
     customFields: [],
     allowNewComponents: false,
     hideDoneUnassigned: true,
+    progressReminder: false,
+    progressReminderDays: 2,
     columns: defaultColumns(),
   };
 }
@@ -93,7 +99,7 @@ const isColor = (value: unknown): value is string => typeof value === 'string' &
 export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
   const defaults = defaultSettings();
   const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert' | 'hideZeroProgress' | 'allowNewComponents' | 'hideDoneUnassigned'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
+  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert' | 'hideZeroProgress' | 'allowNewComponents' | 'hideDoneUnassigned' | 'progressReminder'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
 
   const seen = new Set<TicketStatus>();
   const columns: ColumnConfig[] = [];
@@ -133,6 +139,7 @@ export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
     }
   }
   const warn = days('deliveryWarnDays');
+  const reminderDays = source.progressReminderDays;
   return {
     autoMoveDone: flag('autoMoveDone'),
     autoReopen: flag('autoReopen'),
@@ -149,6 +156,8 @@ export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
     customFields: normalizeCustomFields(source.customFields),
     allowNewComponents: flag('allowNewComponents'),
     hideDoneUnassigned: flag('hideDoneUnassigned'),
+    progressReminder: flag('progressReminder'),
+    progressReminderDays: typeof reminderDays === 'number' && Number.isInteger(reminderDays) && reminderDays >= 1 && reminderDays <= 30 ? reminderDays : defaults.progressReminderDays,
     columns,
   };
 }

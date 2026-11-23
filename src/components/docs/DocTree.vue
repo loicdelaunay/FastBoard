@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import ContextMenu from 'primevue/contextmenu';
 import IconField from 'primevue/iconfield';
@@ -128,6 +128,72 @@ const rows = computed<Row[]>(() => {
   walk('', 0);
   return list;
 });
+
+/** Retrait d'un niveau : la largeur du chevron et de l'espace qui le suit, pour que les enfants s'alignent sous l'icône du dossier. */
+const INDENT_REM = 1.3;
+const indent = (depth: number): string => `${0.2 + depth * INDENT_REM}rem`;
+
+// --- Dossiers collants : en faisant défiler, les dossiers ouverts du fichier en haut de la liste y restent (façon VS Code) ---
+const list = ref<HTMLElement | null>(null);
+const stuck = ref<Row[]>([]);
+let stickFrame = 0;
+
+/** Dossiers ouverts (de la liste) qui contiennent la ligne `index`, du plus haut au plus proche. */
+function ancestorsOf(index: number): Row[] {
+  const row = rows.value[index];
+  if (!row) return [];
+  const result: Row[] = [];
+  let depth = row.depth;
+  for (let cursor = index - 1; cursor >= 0 && depth > 0; cursor -= 1) {
+    const candidate = rows.value[cursor]!;
+    if (candidate.node.kind === 'folder' && candidate.depth < depth) {
+      result.unshift(candidate);
+      depth = candidate.depth;
+    }
+  }
+  return result;
+}
+
+function updateStuck(): void {
+  stickFrame = 0;
+  const element = list.value;
+  if (!element || search.value.trim()) {
+    stuck.value = [];
+    return;
+  }
+  const items = [...element.querySelectorAll<HTMLElement>(':scope > .row')];
+  const height = items[0]?.offsetHeight ?? 0;
+  if (!height || element.scrollTop <= 0) {
+    stuck.value = [];
+    return;
+  }
+  // La ligne qui passe sous les dossiers collés ; deux passes, car leur nombre change la hauteur qu'ils couvrent.
+  let ancestors: Row[] = [];
+  for (let pass = 0; pass < 2; pass += 1) {
+    const edge = element.scrollTop + ancestors.length * height;
+    const index = Math.max(0, items.findIndex((item) => item.offsetTop + item.offsetHeight > edge));
+    ancestors = ancestorsOf(index).filter((row) => {
+      const item = items[rows.value.indexOf(row)];
+      return item !== undefined && item.offsetTop < element.scrollTop + ancestors.length * height;
+    });
+  }
+  stuck.value = ancestors;
+}
+
+function onListScroll(): void {
+  if (!stickFrame) stickFrame = requestAnimationFrame(updateStuck);
+}
+
+/** Un dossier collé ramène la liste jusqu'à lui. */
+function revealRow(row: Row): void {
+  const element = list.value;
+  const index = rows.value.indexOf(row);
+  const item = element?.querySelectorAll<HTMLElement>(':scope > .row')[index];
+  if (element && item) element.scrollTo({ top: Math.max(0, item.offsetTop - ancestorsOf(index).length * item.offsetHeight), behavior: 'smooth' });
+}
+
+watch(rows, () => void nextTick(updateStuck));
+onBeforeUnmount(() => cancelAnimationFrame(stickFrame));
 
 const ICONS: Record<DocNodeDTO['kind'], string> = { folder: 'pi pi-folder', markdown: 'pi pi-file', image: 'pi pi-image', template: 'pi pi-clone' };
 
@@ -289,7 +355,24 @@ function dropOn(folder: string): void {
       <InputText v-model="search" size="small" :placeholder="$t('Filtrer…')" :aria-label="$t('Filtrer les fichiers')" fluid />
     </IconField>
 
-    <ul class="list" role="tree" :aria-label="$t('Fichiers de l’espace')">
+    <ul ref="list" class="list" role="tree" :aria-label="$t('Fichiers de l’espace')" @scroll.passive="onListScroll">
+      <li v-if="stuck.length" class="sticky" role="presentation">
+        <div class="sticky-rows">
+          <div
+            v-for="row in stuck"
+            :key="row.node.id"
+            class="sticky-row"
+            :class="{ chosen: row.node.id === folderId }"
+            :style="{ paddingLeft: indent(row.depth) }"
+            :title="row.node.path"
+            @click="revealRow(row)"
+          >
+            <button type="button" class="chevron" tabindex="-1" :aria-label="$t('Replier')" @click.stop="toggle(row.node)"><i class="pi pi-chevron-down"></i></button>
+            <i class="pi pi-folder-open kind folder"></i>
+            <span class="name truncate">{{ docBaseName(row.node.path) }}</span>
+          </div>
+        </div>
+      </li>
       <li
         v-for="row in rows"
         :key="row.node.id"
@@ -298,7 +381,7 @@ function dropOn(folder: string): void {
         :aria-expanded="row.node.kind === 'folder' ? row.open : undefined"
         :aria-selected="row.node.id === selectedId || row.node.id === folderId"
         :class="{ selected: row.node.id === selectedId, chosen: row.node.id === folderId, dropping: over === row.node.path }"
-        :style="{ paddingLeft: `${0.2 + row.depth * 0.95}rem` }"
+        :style="{ paddingLeft: indent(row.depth) }"
         :draggable="editable"
         :title="row.node.memo ? `${row.node.path}\n${row.node.memo}` : row.node.path"
         tabindex="0"
@@ -316,7 +399,6 @@ function dropOn(folder: string): void {
         <button v-if="row.node.kind === 'folder'" type="button" class="chevron" tabindex="-1" :aria-label="row.open ? $t('Replier') : $t('Déplier')" @click.stop="toggle(row.node)">
           <i class="pi" :class="row.open ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
         </button>
-        <span v-else class="chevron-gap"></span>
         <i :class="[row.node.kind === 'folder' && row.open ? 'pi pi-folder-open' : ICONS[row.node.kind], row.node.kind]" class="kind"></i>
         <span class="name truncate">{{ row.node.kind === 'markdown' ? docTitle(row.node.path) : docBaseName(row.node.path) }}</span>
         <i v-if="row.node.memo" class="pi pi-comment mark" aria-hidden="true"></i>
@@ -347,7 +429,6 @@ function dropOn(folder: string): void {
           @keydown.enter="emit('open', node, false)"
           @contextmenu.prevent.stop="openMenu($event, node)"
         >
-          <span class="chevron-gap"></span>
           <i class="pi pi-clone kind template"></i>
           <span class="name truncate">{{ docTitle(node.path) }}</span>
           <i v-if="node.memo" class="pi pi-comment mark" aria-hidden="true"></i>
@@ -385,12 +466,40 @@ function dropOn(folder: string): void {
   flex: none;
 }
 .list {
+  position: relative;
   flex: 1;
   min-height: 0;
   margin: 0;
   padding: 0;
   overflow-y: auto;
   list-style: none;
+}
+/* Dossiers collés en haut de la liste pendant le défilement : une bande sans hauteur, au-dessus des lignes. */
+.sticky {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  height: 0;
+}
+.sticky-rows {
+  background: var(--fb-panel);
+  box-shadow: 0 6px 8px -6px rgb(0 0 0 / 30%);
+}
+.sticky-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.86rem;
+  cursor: pointer;
+  user-select: none;
+}
+.sticky-row:hover {
+  background: var(--fb-panel-alt);
+}
+.sticky-row.chosen {
+  background: color-mix(in srgb, var(--fb-accent) 7%, transparent);
 }
 .row {
   display: flex;
@@ -425,8 +534,8 @@ function dropOn(folder: string): void {
 .chevron {
   display: grid;
   place-items: center;
-  width: 1.05rem;
-  height: 1.05rem;
+  width: 1rem;
+  height: 1rem;
   flex: none;
   padding: 0;
   border: 0;
@@ -439,10 +548,6 @@ function dropOn(folder: string): void {
 .chevron:hover {
   background: color-mix(in srgb, var(--fb-text) 10%, transparent);
   color: var(--fb-text);
-}
-.chevron-gap {
-  width: 1.05rem;
-  flex: none;
 }
 .kind {
   color: var(--fb-muted);

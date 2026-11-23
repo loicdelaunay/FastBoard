@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.6.4';
+export const APP_VERSION = '2.7.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,22 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.7.0',
+    date: '2026-11-23',
+    changes: [
+      { category: 'Nouveauté', text: 'Projets : rappel d’avancement (Réglages → Automatisation) : pendant une livraison en cours, chaque personne qui a des tickets « En cours » est invitée à mettre à jour son avancement, en pourcentage ou par un commentaire ; une balise dans l’en-tête du projet liste ses tickets, et les cartes indiquent qui ne l’a pas fait.' },
+      { category: 'Nouveauté', text: 'Documentation : nouvelle recherche dans la note (Ctrl F), à la manière de VS Code : compteur de résultats, casse, mot entier, expressions régulières, et remplacement en écriture (Ctrl H).' },
+      { category: 'Nouveauté', text: 'Documentation : un lien web s’ouvre dans un onglet de la documentation ; Ctrl clic l’ouvre dans une nouvelle page du navigateur, et Ctrl clic sur une note l’ouvre dans un nouvel onglet.' },
+      { category: 'Nouveauté', text: 'Documentation : coloration syntaxique des blocs de code selon leur langage (```python, ```sql…), en lecture comme en écriture.' },
+      { category: 'Nouveauté', text: 'Documentation : après « == », l’autocomplétion propose les billes de couleur des surlignages (==🟢 Validé==).' },
+      { category: 'Amélioration', text: 'Documentation : l’arbre des fichiers garde en haut les dossiers ouverts pendant le défilement, comme dans VS Code, et les fichiers s’alignent à gauche, sous l’icône de leur dossier.' },
+      { category: 'Amélioration', text: 'Documentation : passer de Lecture à Lecture et écriture ou à Écriture garde la même position dans la note.' },
+      { category: 'Amélioration', text: 'Thèmes : avec les thèmes du site, le code en ligne, les citations, les puces et les en-têtes de tableau prennent la couleur du thème.' },
+      { category: 'Correction', text: 'Documentation : les formules $…$ et les balises HTML en ligne (<sup>, <sub>, <kbd>, <mark>…) s’affichent aussi en « Lecture et écriture », même avec des _ ou des * dans la formule.' },
+      { category: 'Correction', text: 'Documentation : les titres numérotés (« 1. Disponibilité ») gardent leur numéro dans le Sommaire, et les liens d’une table des matières (#1-disponibilite, {#id}, <a id>) mènent au bon titre.' },
+    ],
+  },
   {
     version: '2.6.4',
     date: '2026-11-20',

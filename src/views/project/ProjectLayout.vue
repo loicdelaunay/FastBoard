@@ -6,6 +6,7 @@ import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
 import { realtime } from '@/realtime/socket';
 import PresenceStack from '@/components/project/PresenceStack.vue';
+import ProgressReminderTag from '@/components/project/ProgressReminderTag.vue';
 import ProjectNotificationButton from '@/components/layout/ProjectNotificationButton.vue';
 import TicketContextMenu from '@/components/tickets/TicketContextMenu.vue';
 import TicketQuickEdit from '@/components/tickets/TicketQuickEdit.vue';
@@ -119,6 +120,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
         </nav>
 
         <div class="actions">
+          <ProgressReminderTag />
           <PresenceStack />
           <ProjectNotificationButton :project-id="projectId" />
           <Button v-tooltip.bottom="project.undoLabel ? $t('Annuler : {undoLabel} (Ctrl+Z)', { undoLabel: project.undoLabel }) : $t('Annuler (Ctrl+Z)')" icon="pi pi-undo" text rounded severity="secondary" :aria-label="$t('Annuler')" :disabled="!project.canUndo" @click="project.undo()" />

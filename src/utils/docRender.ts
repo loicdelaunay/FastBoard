@@ -27,7 +27,8 @@ export const pendingAnchor = ref<{ path: string; heading: string } | null>(null)
 /** Amène un titre à l'écran ; vrai s'il a été trouvé. */
 export function scrollToHeading(root: ParentNode, heading: string): boolean {
   const headings = [...root.querySelectorAll<HTMLElement>('[data-heading]')];
-  const target = headings[findHeading(headings.map((element) => element.dataset.heading ?? ''), heading)];
+  const ids = headings.map((element) => (element.dataset.ids ? element.dataset.ids.split(' ') : undefined));
+  const target = headings[findHeading(headings.map((element) => element.dataset.heading ?? ''), heading, ids)];
   target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   return Boolean(target);
 }

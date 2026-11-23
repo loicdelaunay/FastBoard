@@ -5,7 +5,7 @@ import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, p
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
-import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
+import { closeSearchPanel, findNext, findPrevious, getSearchQuery, highlightSelectionMatches, openSearchPanel, replaceAll, replaceNext, search, searchPanelOpen, SearchQuery, setSearchQuery } from '@codemirror/search';
 import { Compartment, EditorState } from '@codemirror/state';
 import { drawSelection, dropCursor, EditorView, highlightActiveLine, keymap, lineNumbers, placeholder, type Command } from '@codemirror/view';
 import ContextMenu from 'primevue/contextmenu';
@@ -18,8 +18,9 @@ import { docOutline } from '@shared/docOutline';
 import { docBaseName, docParent, docTitle, type DocNodeDTO } from '@shared/docs';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
-import { useDocLinks } from '@/composables/useDocLinks';
+import { useDocLinks, wantsNewTab } from '@/composables/useDocLinks';
 import { useAppStore } from '@/stores/app';
+import { codeLanguage } from '@/utils/codeHighlight';
 import type { DocSession } from '@/realtime/docSession';
 import { copyText, pendingAnchor, renderDocBlock, selectionQuote } from '@/utils/docRender';
 import { markdownBlocks } from '@/utils/markdown';
@@ -34,6 +35,8 @@ import { livePreview, refreshLive, textBeforePoint } from './editor/live';
 import { tableCellAt } from './editor/tableWidget';
 import { editorMenu, type MenuHandlers, type MenuTarget } from './editor/menu';
 import { completionIcon, inlineTools, insertTools, lineTools, slashCommands, type DocTool, type ToolHandlers } from './editor/tools';
+import { FIND_LIMIT, NO_RESULT, type FindOptions, type FindResult } from './find/find';
+import { highlightColors } from './editor/highlightColors';
 
 import { t } from '@/i18n';
 /**
@@ -53,10 +56,13 @@ const props = defineProps<{
   obsidian?: boolean;
 }>();
 const emit = defineEmits<{
-  open: [node: DocNodeDTO];
+  open: [node: DocNodeDTO, newTab?: boolean];
+  /** Adresse web à montrer dans un onglet de la documentation. */
+  'open-url': [url: string];
   comment: [quote: DocQuote];
   'focus-comment': [commentId: number];
-  'top-line': [line: number];
+  /** Ligne du source en haut de l'éditeur, et la part déjà défilée de cette ligne (0–1) quand elle est longue. */
+  'top-line': [line: number, fraction: number];
   /** Ligne du curseur, et sa hauteur dans l'éditeur (0 en haut, 1 en bas) : l'aperçu se cale dessus. */
   'cursor-line': [line: number, ratio: number];
 }>();
@@ -69,7 +75,17 @@ const editableState = (readonly: boolean) => [EditorState.readOnly.of(readonly),
 
 const router = useRouter();
 const app = useAppStore();
-const { follow, openNode, openTicket } = useDocLinks(() => props.nodes, (node) => emit('open', node));
+const { follow, openNode, openTicket } = useDocLinks(
+  () => props.nodes,
+  (node, newTab) => emit('open', node, newTab),
+  (url) => emit('open-url', url),
+);
+
+/** Adresse web : dans un onglet de la documentation, ou dans une nouvelle page du navigateur avec Ctrl clic. */
+function openAddress(url: string, event?: Event): void {
+  if (event && wantsNewTab(event)) window.open(url, '_blank', 'noopener');
+  else emit('open-url', url);
+}
 
 /** `@` propose les personnes, les tickets et les fichiers de documentation. */
 async function mentions(context: CompletionContext): Promise<CompletionResult | null> {
@@ -260,16 +276,20 @@ function followCell(element: HTMLElement, event: MouseEvent): boolean {
 }
 
 /** Suit un lien rendu dans le texte : mention, note de l'espace (lien Markdown ou wiki) ou adresse externe. */
-function followRendered(element: HTMLElement): boolean {
+function followRendered(element: HTMLElement, event: MouseEvent): boolean {
   const { kind, id, href, wiki } = element.dataset;
   if (kind && id) {
     if (kind === 'user') void router.push({ name: 'user', params: { id } });
     else if (kind === 'ticket') void openTicket(Number(id));
     else if (kind === 'board') void router.push({ name: 'board-file', params: { boardId: id } });
-    else openNode(Number(id));
+    else openNode(Number(id), wantsNewTab(event));
     return true;
   }
-  if (href && /^(https?:|mailto:)/i.test(href)) {
+  if (href && /^https?:/i.test(href)) {
+    openAddress(href, event);
+    return true;
+  }
+  if (href && /^mailto:/i.test(href)) {
     window.open(href, '_blank', 'noopener');
     return true;
   }
@@ -289,7 +309,7 @@ function followRendered(element: HTMLElement): boolean {
   const node = resolveDocLink(props.nodes, props.notePath, target.trim());
   if (!node) return false;
   pendingAnchor.value = heading ? { path: node.path, heading } : null;
-  emit('open', node);
+  emit('open', node, wantsNewTab(event));
   return true;
 }
 
@@ -301,7 +321,7 @@ const inline = liveInline({
     return node?.kind === 'image' ? `/api/documentation/nodes/${node.id}/raw` : null;
   },
   mentionLabel: (kind, id, label) => (kind === 'user' ? `@${props.users.find((user) => user.id === id)?.name ?? label}` : label),
-  follow: (element) => followRendered(element),
+  follow: (element, event) => followRendered(element, event),
 });
 
 /** Le rendu dépend aussi des commentaires et de l'arbre : le refaire, sans toucher au bloc en cours. */
@@ -355,7 +375,7 @@ function sourceLink(editor: EditorView, position: number): MenuTarget['link'] {
     if (match[1] === 'board') return { address: null, open: () => void router.push({ name: 'board-file', params: { boardId: match[2]! } }) };
     if (match[1]) return null;
     const target = (match[3] ?? match[4])!;
-    if (/^https?:/i.test(target)) return { address: target, open: () => window.open(target, '_blank', 'noopener') };
+    if (/^https?:/i.test(target)) return { address: target, open: () => openAddress(target) };
     const node = resolveDocLink(props.nodes, props.notePath, target);
     return node ? { address: null, open: () => emit('open', node) } : null;
   }
@@ -365,7 +385,8 @@ function sourceLink(editor: EditorView, position: number): MenuTarget['link'] {
 function renderedLink(element: HTMLElement, event: MouseEvent): MenuTarget['link'] {
   const link = element.closest<HTMLAnchorElement>('a');
   if (!link) return null;
-  return { address: /^https?:/i.test(link.href) && !link.classList.contains('md-mention') ? link.href : null, open: () => void (follow(link, event) && !link.dataset.node && !link.classList.contains('md-mention') && window.open(link.href, '_blank', 'noopener')) };
+  const web = /^https?:/i.test(link.href) && !link.classList.contains('md-mention') && !link.dataset.node;
+  return { address: web ? link.href : null, open: () => (web ? openAddress(link.href) : void follow(link, event)) };
 }
 
 /** Ce qui se trouve sous le clic droit, dans un bloc rendu ou dans le source. */
@@ -454,6 +475,19 @@ function scrollToLine(line: number): void {
   view.dispatch({ effects: EditorView.scrollIntoView(position, { y: 'start', yMargin: 12 }) });
 }
 
+/**
+ * Met en haut de l'éditeur la ligne `line` du source ; sa partie décimale avance dans une longue ligne (paragraphe
+ * replié sur plusieurs lignes d'écran). Sert à garder sa place en changeant de mode.
+ */
+function scrollToSourceLine(line: number): void {
+  if (!view) return;
+  const doc = view.state.doc;
+  const whole = Math.min(Math.max(1, Math.floor(line)), doc.lines);
+  const target = doc.line(whole);
+  const position = target.from + Math.round((line - whole) * target.length);
+  view.dispatch({ effects: EditorView.scrollIntoView(position, { y: 'start', yMargin: 16 }) });
+}
+
 /** Amène au titre visé par une ancre (`#1.1.1 UAV OAT`, `#uav-oat`…) ou à un bloc `#^id` ; faux s'il n'existe pas. */
 function scrollToAnchor(anchor: string): boolean {
   if (!view) return false;
@@ -462,6 +496,7 @@ function scrollToAnchor(anchor: string): boolean {
   const index = findHeading(
     headings.map((heading) => heading.title),
     anchor,
+    headings.map((heading) => heading.ids),
   );
   if (index >= 0) {
     scrollToLine(headings[index]!.line);
@@ -498,7 +533,60 @@ function insertBlock(text: string): boolean {
   return true;
 }
 
-defineExpose({ reveal, scrollToLine, insertBlock });
+// --- Recherche (Ctrl F), pilotée par la barre de la note ---
+
+/** Résultats de la recherche en cours et rang de celui qui est sélectionné. */
+function findResult(): FindResult {
+  if (!view || !searchPanelOpen(view.state)) return NO_RESULT;
+  const query = getSearchQuery(view.state);
+  if (!query.search) return NO_RESULT;
+  if (!query.valid) return { ...NO_RESULT, invalid: true };
+  const { from, to } = view.state.selection.main;
+  const cursor = query.getCursor(view.state);
+  let total = 0;
+  let current = -1;
+  for (let next = cursor.next(); !next.done && total < FIND_LIMIT; next = cursor.next()) {
+    if (next.value.from === from && next.value.to === to) current = total;
+    total += 1;
+  }
+  return { total, current };
+}
+
+/** Nouvelle recherche : le résultat choisi est le premier à partir du curseur, comme dans VS Code. */
+function findSet(options: FindOptions): FindResult {
+  if (!view) return NO_RESULT;
+  if (!searchPanelOpen(view.state)) openSearchPanel(view);
+  const query = new SearchQuery({ search: options.search, caseSensitive: options.caseSensitive, wholeWord: options.wholeWord, regexp: options.regexp, literal: true, replace: options.replace });
+  view.dispatch({ effects: setSearchQuery.of(query) });
+  if (query.search && query.valid) {
+    const start = view.state.selection.main.from;
+    const match = query.getCursor(view.state, start).next();
+    const found = match.done ? query.getCursor(view.state).next() : match;
+    if (!found.done) view.dispatch({ selection: { anchor: found.value.from, head: found.value.to }, effects: EditorView.scrollIntoView(found.value.from, { y: 'center' }), userEvent: 'select.search' });
+  }
+  return findResult();
+}
+
+function findStep(direction: 'next' | 'previous' | 'replace' | 'replaceAll'): FindResult {
+  if (!view) return NO_RESULT;
+  const command = { next: findNext, previous: findPrevious, replace: replaceNext, replaceAll }[direction];
+  command(view);
+  return findResult();
+}
+
+function findClose(): void {
+  if (view && searchPanelOpen(view.state)) closeSearchPanel(view);
+}
+
+/** Texte sélectionné d'une seule ligne, pour préremplir la recherche. */
+function selectionText(): string {
+  if (!view) return '';
+  const { from, to } = view.state.selection.main;
+  const text = view.state.sliceDoc(from, to);
+  return text.length <= 200 && !text.includes('\n') ? text : '';
+}
+
+defineExpose({ reveal, scrollToLine, scrollToSourceLine, insertBlock, findSet, findStep, findResult, findClose, selectionText, focus: () => view?.focus() });
 
 // Pour le sommaire : la ligne lue, signalée une fois par image.
 let scrollFrame = 0;
@@ -507,8 +595,10 @@ function onScroll(): void {
   scrollFrame = requestAnimationFrame(() => {
     scrollFrame = 0;
     if (!view) return;
-    const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 16);
-    emit('top-line', view.state.doc.lineAt(block.from).number);
+    const height = view.scrollDOM.scrollTop + 16;
+    const block = view.lineBlockAtHeight(height);
+    const fraction = block.height > 0 ? Math.min(1, Math.max(0, (height - block.top) / block.height)) : 0;
+    emit('top-line', view.state.doc.lineAt(block.from).number, fraction);
   });
 }
 
@@ -548,10 +638,21 @@ onMounted(() => {
         // écriture », où les repères au milieu des mots gênent la lecture.
         ...(props.live ? [] : [highlightSelectionMatches({ wholeWords: true, minSelectionLength: 3 })]),
         syntaxHighlighting(props.live ? docLiveHighlight : docHighlight),
-        markdown({ base: markdownLanguage }),
+        // Les blocs ```python, ```sql… sont colorés selon leur langage (grammaire chargée à la demande).
+        markdown({ base: markdownLanguage, codeLanguages: (info) => codeLanguage(info) }),
         EditorView.lineWrapping,
         placeholder(t('Écrivez en Markdown… @ pour mentionner, / pour insérer un élément.')),
-        autocompletion({ override: [mentions, wikiLinks, slashCommands(handlers)], addToOptions: [{ render: completionIcon, position: 20 }] }),
+        autocompletion({ override: [mentions, wikiLinks, slashCommands(handlers), highlightColors(() => props.obsidian)], addToOptions: [{ render: completionIcon, position: 20 }] }),
+        // Recherche (Ctrl F) : le moteur de CodeMirror, piloté par la barre de la note ; son propre panneau reste caché.
+        search({
+          top: true,
+          createPanel: () => {
+            const dom = document.createElement('div');
+            dom.className = 'cm-find-hidden';
+            return { dom, top: true };
+          },
+          scrollToMatch: (range) => EditorView.scrollIntoView(range, { y: 'center' }),
+        }),
         yCollab(text, awareness, { undoManager: new Y.UndoManager(text) }),
         keymap.of([
           { key: 'Mod-b', run: shortcut(t('Gras')) },
@@ -560,7 +661,6 @@ onMounted(() => {
           ...yUndoManagerKeymap,
           ...closeBracketsKeymap,
           ...defaultKeymap,
-          ...searchKeymap,
           ...completionKeymap,
           indentWithTab,
         ]),
@@ -596,13 +696,19 @@ onMounted(() => {
           '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'inherit', maxHeight: '18rem' },
           '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '0.2rem 0.5rem' },
           '.cm-slash-icon': { width: '1.4rem', color: 'var(--fb-muted)', fontSize: '0.8rem' },
-          '.cm-completionIcon-doc-image, .cm-completionIcon-doc-note': { display: 'none' },
+          '.cm-completionIcon-doc-image, .cm-completionIcon-doc-note, .cm-completionIcon-highlight': { display: 'none' },
           '.cm-file-thumb': { width: '2.2rem', height: '1.6rem', marginRight: '0.5rem', borderRadius: '4px', objectFit: 'cover', verticalAlign: 'middle', backgroundColor: 'var(--fb-panel-alt)' },
           '.cm-tooltip.cm-completionInfo': { padding: '0.4rem', maxWidth: '18rem' },
           '.cm-image-info': { display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.75rem', color: 'var(--fb-muted)', wordBreak: 'break-all' },
           '.cm-image-info img': { maxWidth: '16rem', maxHeight: '12rem', borderRadius: '6px', objectFit: 'contain', backgroundColor: 'var(--fb-panel-alt)' },
           '.cm-ySelectionInfo': { padding: '1px 4px', borderRadius: '4px', fontFamily: 'inherit', fontSize: '0.7rem', fontWeight: '600', opacity: '1' },
           '.cm-doc-comment': { borderRadius: '2px', backgroundColor: 'color-mix(in srgb, #f59e0b 28%, transparent)' },
+          // Recherche (Ctrl F) : mêmes couleurs que les résultats en lecture ; le panneau de CodeMirror reste caché.
+          '.cm-panels.cm-panels-top': { borderBottom: 'none' },
+          '.cm-find-hidden': { display: 'none' },
+          '.cm-searchMatch': { borderRadius: '2px', backgroundColor: 'var(--fb-find-match)', outline: 'none' },
+          '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'var(--fb-find-current)', color: 'var(--fb-find-current-text)' },
+          '.cm-searchMatch-selected *': { color: 'inherit !important' },
           // Autres occurrences du mot choisi : discrètes, dans la couleur du thème (le vert vif par défaut attire l'œil).
           '.cm-selectionMatch': { borderRadius: '2px', backgroundColor: 'color-mix(in srgb, var(--fb-accent) 18%, transparent)' },
           ...(props.live
@@ -635,8 +741,8 @@ onMounted(() => {
                   fontSize: '0.85em',
                   padding: '0.1em 0.35em',
                   borderRadius: '5px',
-                  color: 'var(--md-code, currentColor)',
-                  backgroundColor: 'var(--md-code-bg, var(--fb-panel-alt))',
+                  color: 'var(--md-code, var(--fb-md-code))',
+                  backgroundColor: 'var(--md-code-bg, var(--fb-md-code-bg))',
                 },
                 '.cm-lp-link': { color: 'var(--md-link, var(--fb-accent))', textDecoration: 'underline', textUnderlineOffset: '2px', cursor: 'pointer' },
                 '.cm-lp-syntax': { color: 'var(--fb-muted)' },
@@ -644,12 +750,12 @@ onMounted(() => {
                   borderLeft: '3px solid var(--md-quote-bar, var(--fb-accent))',
                   padding: '0 0.9rem !important',
                   color: 'var(--md-quote, var(--fb-muted))',
-                  backgroundColor: 'var(--md-quote-bg, var(--fb-panel-alt))',
+                  backgroundColor: 'var(--md-quote-bg, var(--fb-md-quote-bg))',
                 },
                 '.cm-lp-quote-first': { paddingTop: '0.25rem !important' },
                 '.cm-lp-quote-last': { paddingBottom: '0.25rem !important' },
-                '.cm-lp-bullet': { display: 'inline-block', minWidth: '0.9em', color: 'var(--md-marker, var(--fb-muted))', fontWeight: '700' },
-                '.cm-lp-ordinal': { color: 'var(--md-marker, var(--fb-muted))' },
+                '.cm-lp-bullet': { display: 'inline-block', minWidth: '0.9em', color: 'var(--md-marker, var(--fb-md-marker))', fontWeight: '700' },
+                '.cm-lp-ordinal': { color: 'var(--md-marker, var(--fb-md-marker))' },
                 '.cm-lp-task': { margin: '0 0.45em 0 0', verticalAlign: 'middle', cursor: 'pointer' },
                 '.cm-lp-done': { color: 'var(--fb-muted)', textDecoration: 'line-through' },
                 '.cm-lp-hr-line': { position: 'relative' },
@@ -697,6 +803,26 @@ onMounted(() => {
                 '.cm-lp-mention, .cm-lp-embed': { padding: '0.05em 0.45em', borderRadius: '999px', backgroundColor: 'var(--fb-accent-soft)', color: 'var(--fb-accent)', fontWeight: '600', cursor: 'pointer' },
                 '.cm-lp-embed::before': { content: '"\\e9c3"', marginRight: '0.3em', fontFamily: 'primeicons', fontSize: '0.8em', fontWeight: 'normal' },
                 '.cm-lp-highlight': { borderRadius: '3px', backgroundColor: 'var(--md-highlight, color-mix(in srgb, #facc15 38%, transparent))' },
+                // Formules et HTML en ligne, comme en lecture.
+                '.cm-lp-math': { display: 'inline-block', maxWidth: '100%', overflowX: 'auto', verticalAlign: 'middle' },
+                '.cm-lp-math-source': { fontFamily: `var(--fb-font-mono, ${FONT_MONO})`, fontSize: '0.88em', color: 'var(--md-code, var(--fb-hl-code))' },
+                '.cm-lp-html-sup': { verticalAlign: 'super', fontSize: '0.75em', lineHeight: '0' },
+                '.cm-lp-html-sub': { verticalAlign: 'sub', fontSize: '0.75em', lineHeight: '0' },
+                '.cm-lp-html-kbd': {
+                  padding: '0.05em 0.35em',
+                  border: '1px solid var(--fb-border)',
+                  borderBottomWidth: '2px',
+                  borderRadius: '4px',
+                  backgroundColor: 'var(--fb-panel-alt)',
+                  fontFamily: `var(--fb-font-mono, ${FONT_MONO})`,
+                  fontSize: '0.85em',
+                },
+                '.cm-lp-html-mark': { borderRadius: '3px', backgroundColor: 'var(--md-highlight, color-mix(in srgb, #facc15 38%, transparent))' },
+                '.cm-lp-html-u, .cm-lp-html-ins': { textDecoration: 'underline' },
+                '.cm-lp-html-del, .cm-lp-html-s': { textDecoration: 'line-through' },
+                '.cm-lp-html-small': { fontSize: '0.85em' },
+                '.cm-lp-html-b, .cm-lp-html-strong': { fontWeight: '700', color: 'var(--md-strong, currentColor)' },
+                '.cm-lp-html-i, .cm-lp-html-em': { fontStyle: 'italic', color: 'var(--md-em, currentColor)' },
                 '.cm-lp-hl-red': { backgroundColor: 'color-mix(in srgb, #ef4444 30%, transparent)' },
                 '.cm-lp-hl-orange': { backgroundColor: 'color-mix(in srgb, #f97316 32%, transparent)' },
                 '.cm-lp-hl-green': { backgroundColor: 'color-mix(in srgb, #22c55e 30%, transparent)' },

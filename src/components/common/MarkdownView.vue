@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useTicketRoute } from '@/composables/useTicketRoute';
 import { useProjectStore } from '@/stores/project';
+import { highlightCodeBlocks } from '@/utils/codeHighlight';
 import { renderMarkdown, renderMermaid, type MentionResolver } from '@/utils/markdown';
 import { ticketKey } from '@/utils/tickets';
 
@@ -39,7 +40,9 @@ const html = computed(() => {
 
 async function drawDiagrams(): Promise<void> {
   await nextTick();
-  if (root.value) await renderMermaid(root.value, document.documentElement.classList.contains('app-dark'));
+  if (!root.value) return;
+  void highlightCodeBlocks(root.value);
+  await renderMermaid(root.value, document.documentElement.classList.contains('app-dark'));
 }
 onMounted(drawDiagrams);
 watch(html, drawDiagrams);
@@ -87,7 +90,7 @@ function onClick(event: MouseEvent): void {
   color: var(--md-em, currentColor);
 }
 .markdown li::marker {
-  color: var(--md-marker, currentColor);
+  color: var(--md-marker, var(--fb-md-marker));
 }
 .markdown > :first-child {
   margin-top: 0;
@@ -137,16 +140,61 @@ function onClick(event: MouseEvent): void {
 .markdown blockquote {
   padding: 0.25rem 0.9rem;
   border-left: 3px solid var(--md-quote-bar, var(--fb-accent));
-  background: var(--md-quote-bg, var(--fb-panel-alt));
+  background: var(--md-quote-bg, var(--fb-md-quote-bg));
   color: var(--md-quote, var(--fb-muted));
 }
 .markdown code {
   padding: 0.1rem 0.35rem;
   border-radius: 5px;
-  background: var(--md-code-bg, var(--fb-panel-alt));
-  color: var(--md-code, currentColor);
+  background: var(--md-code-bg, var(--fb-md-code-bg));
+  color: var(--md-code, var(--fb-md-code));
   font-family: var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
   font-size: 0.85em;
+}
+.markdown kbd {
+  padding: 0.05em 0.35em;
+  border: 1px solid var(--fb-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--fb-panel-alt);
+  font-family: var(--fb-font-mono, ui-monospace, 'Cascadia Mono', Consolas, monospace);
+  font-size: 0.85em;
+}
+/* Coloration syntaxique des blocs de code (classes de @lezer/highlight), aux couleurs du thème comme l'éditeur. */
+.markdown pre code :is(.tok-keyword, .tok-operatorKeyword, .tok-modifier, .tok-controlKeyword) {
+  color: var(--fb-hl-keyword);
+}
+.markdown pre code :is(.tok-string, .tok-string2, .tok-character, .tok-regexp, .tok-inserted) {
+  color: var(--fb-hl-string);
+}
+.markdown pre code :is(.tok-number, .tok-bool, .tok-atom, .tok-literal) {
+  color: var(--fb-hl-number);
+}
+.markdown pre code :is(.tok-typeName, .tok-className, .tok-namespace, .tok-macroName, .tok-tagName) {
+  color: var(--fb-hl-type);
+}
+.markdown pre code :is(.tok-propertyName, .tok-attributeName, .tok-definition, .tok-labelName) {
+  color: var(--fb-hl-property);
+}
+.markdown pre code :is(.tok-comment, .tok-meta, .tok-punctuation) {
+  color: var(--fb-muted);
+}
+.markdown pre code .tok-comment {
+  font-style: italic;
+}
+.markdown pre code :is(.tok-deleted, .tok-invalid) {
+  color: var(--fb-danger);
+}
+.markdown pre code .tok-heading,
+.markdown pre code .tok-strong {
+  font-weight: 700;
+}
+.markdown pre code .tok-emphasis {
+  font-style: italic;
+}
+.markdown pre code .tok-link,
+.markdown pre code .tok-url {
+  text-decoration: underline;
 }
 .markdown pre {
   padding: 0.75rem 0.9rem;
@@ -172,7 +220,7 @@ function onClick(event: MouseEvent): void {
   border: 1px solid var(--md-table-border, var(--fb-border));
 }
 .markdown th {
-  background: var(--md-th-bg, var(--fb-panel-alt));
+  background: var(--md-th-bg, var(--fb-md-th-bg));
 }
 .markdown hr {
   border: 0;

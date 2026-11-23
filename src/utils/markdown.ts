@@ -1,8 +1,8 @@
 import DOMPurify from 'dompurify';
 import katex from 'katex';
-import { Marked, type TokenizerAndRendererExtension } from 'marked';
-import { plainText } from '@shared/docComments';
+import { Marked, type Tokens, type TokenizerAndRendererExtension } from 'marked';
 import { headingKey } from '@shared/docLinks';
+import { headingTitle } from '@shared/docOutline';
 import { highlightColor, highlightMarker } from '@shared/docObsidian';
 import 'katex/dist/katex.min.css';
 
@@ -218,7 +218,8 @@ function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews
     start: (src: string) => src.indexOf('$'),
     tokenizer(src: string) {
       // « $x$ » : pas d'espace juste après le premier $ ni juste avant le second (évite « 5 $ et 10 $ »).
-      const match = /^\$(?!\s)((?:\\\$|[^$\n])+?)(?<!\s)\$(?!\d)/.exec(src);
+      // Une formule ne traverse pas un `code` : « 10 $, ni `$x$` » n'en contient pas.
+      const match = /^\$(?!\s)((?:\\\$|[^$\n`])+?)(?<!\s)\$(?!\d)/.exec(src);
       return match ? { type: 'inlineMath', raw: match[0], text: match[1]! } : undefined;
     },
     renderer: (token) => math(token.text as string, false),
@@ -238,9 +239,15 @@ function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews
         }
         return `<pre class="md-code"><code${language ? ` data-lang="${escapeHtml(language)}"` : ''}>${escapeHtml(text)}</code></pre>`;
       },
-      // Repère de chaque titre, pour le sommaire et les liens [[Note#Titre]].
+      // Repère de chaque titre (numérotation comprise), pour le sommaire et les liens [[Note#Titre]] ou #ancre ; un
+      // `{#id}` final ne s'affiche pas, il devient un identifiant du titre comme `<a id="…">`.
       heading({ tokens, depth, text }) {
-        return `<h${depth} data-heading="${escapeHtml(headingKey(plainText(text)))}">${this.parser.parseInline(tokens)}</h${depth}>\n`;
+        const { title, ids } = headingTitle(text);
+        const last = tokens.at(-1);
+        const ID = /[ \t]*\{#[^\s{}]+[^{}]*\}\s*$/;
+        const inline = last?.type === 'text' && ID.test(last.raw) ? [...tokens.slice(0, -1), { ...last, raw: last.raw.replace(ID, ''), text: (last as Tokens.Text).text.replace(ID, '') }] : tokens;
+        const anchors = ids.length ? ` data-ids="${escapeHtml(ids.join(' '))}"` : '';
+        return `<h${depth} data-heading="${escapeHtml(headingKey(title))}"${anchors}>${this.parser.parseInline(inline)}</h${depth}>\n`;
       },
     },
   });

@@ -7,6 +7,7 @@ import ColorChip from '@/components/common/ColorChip.vue';
 import ProgressMeter from '@/components/common/ProgressMeter.vue';
 import UserAvatarGroup from '@/components/common/UserAvatarGroup.vue';
 import StaleBar from '@/components/tickets/StaleBar.vue';
+import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
 import { useUiStore } from '@/stores/ui';
 import { dueDate, isOverdue, ticketKey } from '@/utils/tickets';
@@ -18,6 +19,7 @@ const emit = defineEmits<{ open: [] }>();
 
 const project = useProjectStore();
 const ui = useUiStore();
+const auth = useAuthStore();
 
 const category = computed(() => (props.ticket.categoryId ? project.categoriesById.get(props.ticket.categoryId) : undefined));
 const delivery = computed(() => (props.ticket.deliveryId ? project.deliveriesById.get(props.ticket.deliveryId) : undefined));
@@ -61,6 +63,14 @@ const assignees = computed(() =>
 );
 const doneIds = computed(() => props.ticket.assignees.filter((assignee) => assignee.done).map((assignee) => assignee.userId));
 const startedIds = computed(() => props.ticket.assignees.filter((assignee) => !assignee.done && assignee.progress > 0).map((assignee) => assignee.userId));
+/** Rappel d'avancement (réglage du projet) : personnes qui devraient mettre à jour le leur, et si j'en fais partie. */
+const reminder = computed(() => project.progressReminders.get(props.ticket.id) ?? []);
+const reminderMine = computed(() => auth.user !== null && reminder.value.includes(auth.user.id));
+const reminderLabel = computed(() =>
+  reminderMine.value
+    ? t('Livraison en cours : pensez à mettre à jour votre avancement (pourcentage de votre ligne ou commentaire de progression).')
+    : t('Avancement à mettre à jour (pourcentage ou commentaire) : {names}', { names: reminder.value.map((id) => project.usersById.get(id)?.name ?? '?').join(', ') }),
+);
 const due = computed(() => dueDate(props.ticket, delivery.value));
 const overdue = computed(() => isOverdue(props.ticket, delivery.value, todayISO()));
 const urgency = computed(() => deliveryUrgency(props.ticket, delivery.value, project.settings, todayISO()));
@@ -136,6 +146,7 @@ function onLeave(): void {
           <i class="pi pi-truck"></i><span class="truncate">{{ delivery.name }}</span>
         </span>
         <StaleBar :ticket="ticket" compact />
+        <span v-if="reminder.length" v-tooltip.top="reminderLabel" class="reminder" :class="{ mine: reminderMine }" :aria-label="reminderLabel"><i class="pi pi-info-circle"></i>{{ $t('Avancement') }}</span>
         <span v-if="ticket.parts.length > ticket.assignees.length" class="comments" :class="{ complete: partsDone === ticket.parts.length }" :title="$t('Lignes d’avancement')"><i class="pi pi-list-check"></i>{{ partsDone }}/{{ ticket.parts.length }}</span>
         <span v-if="children.length && project.fieldOn('children')" class="comments" :class="{ complete: childrenDone === children.length }" :title="$t('Sous-tickets')"><i class="pi pi-sitemap"></i>{{ childrenDone }}/{{ children.length }}</span>
         <span v-if="linkCount && project.fieldOn('links')" class="comments" :title="$t('Dépendances')"><i class="pi pi-link"></i>{{ linkCount }}</span>
@@ -318,6 +329,26 @@ function onLeave(): void {
 .due.late {
   color: var(--fb-danger);
   font-weight: 700;
+}
+.reminder {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid color-mix(in srgb, #0ea5e9 45%, transparent);
+  border-radius: 999px;
+  color: #0284c7;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+:global(.app-dark) .reminder {
+  color: #7dd3fc;
+}
+.reminder.mine {
+  border-color: transparent;
+  background: #0ea5e9;
+  color: #fff;
 }
 .delivery-chip {
   --tone: #f59e0b;

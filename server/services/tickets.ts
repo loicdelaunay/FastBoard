@@ -51,6 +51,7 @@ interface TicketExtras {
   componentIds: number[];
   links: LinkRow[];
   watcherIds: number[];
+  progressUpdates: Array<{ userId: number; at: string }>;
 }
 
 function toTicketDTO(row: TicketRow, extras: TicketExtras): TicketDTO {
@@ -81,6 +82,7 @@ function toTicketDTO(row: TicketRow, extras: TicketExtras): TicketDTO {
     attachmentCount: extras.attachmentCount,
     links: extras.links.map(toLinkDTO),
     watcherIds: extras.watcherIds,
+    progressUpdates: extras.progressUpdates,
     statusChangedAt: row.status_changed_at ?? row.updated_at,
     createdBy: row.created_by,
     createdAt: row.created_at,
@@ -144,8 +146,24 @@ function loadExtras(db: Db, scope: 'project' | 'ticket', id: number): (ticketId:
     db.all<{ ticket_id: number; user_id: number }>(`SELECT w.ticket_id, w.user_id FROM ticket_watchers w JOIN tickets t ON t.id = w.ticket_id WHERE ${where} ORDER BY w.created_at`, id),
     (row) => row.ticket_id,
   );
+  // Dernière mise à jour de l'avancement par chacun : sa ligne (pourcentage, état ou texte) ou un commentaire.
+  const updates = groupBy(
+    db.all<{ ticket_id: number; user_id: number; at: string }>(
+      `SELECT ticket_id, user_id, MAX(at) AS at FROM (
+         SELECT h.ticket_id, h.user_id, h.created_at AS at FROM ticket_history h JOIN tickets t ON t.id = h.ticket_id
+          WHERE ${where} AND h.user_id IS NOT NULL AND json_extract(h.data, '$.kind') = 'part' AND json_extract(h.data, '$.action') IS NULL
+         UNION ALL
+         SELECT c.ticket_id, c.user_id, c.created_at AS at FROM ticket_comments c JOIN tickets t ON t.id = c.ticket_id
+          WHERE ${where} AND c.user_id IS NOT NULL AND c.deleted_at IS NULL
+       ) GROUP BY ticket_id, user_id ORDER BY user_id`,
+      id,
+      id,
+    ),
+    (row) => row.ticket_id,
+  );
   return (ticketId) => ({
     watcherIds: (watchers.get(ticketId) ?? []).map((row) => row.user_id),
+    progressUpdates: (updates.get(ticketId) ?? []).map((row) => ({ userId: row.user_id, at: row.at })),
     parts: parts.get(ticketId) ?? [],
     commentCount: comments.get(ticketId) ?? 0,
     attachmentCount: files.get(ticketId) ?? 0,

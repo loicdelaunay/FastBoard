@@ -21,6 +21,7 @@ import { enV27 } from './en.v27.ts';
 import { enV27Boards } from './en.v27-boards.ts';
 import { enV27Notifications } from './en.v27-notifications.ts';
 import { enV27Images } from './en.v27-images.ts';
+import { enV28 } from './en.v28.ts';
 
 /** Catalogue anglais : clé = texte français (voir `index.ts`). */
-export const en: Record<string, string> = { ...enA, ...enB, ...enC, ...enPdf, ...enV11, ...enV12, ...enV13, ...enV14, ...enV15, ...enV16, ...enV17, ...enV18, ...enV19, ...enV20, ...enV21, ...enV22, ...enV23, ...enV24, ...enV25, ...enV26, ...enV27, ...enV27Boards, ...enV27Notifications, ...enV27Images };
+export const en: Record<string, string> = { ...enA, ...enB, ...enC, ...enPdf, ...enV11, ...enV12, ...enV13, ...enV14, ...enV15, ...enV16, ...enV17, ...enV18, ...enV19, ...enV20, ...enV21, ...enV22, ...enV23, ...enV24, ...enV25, ...enV26, ...enV27, ...enV27Boards, ...enV27Notifications, ...enV27Images, ...enV28 };

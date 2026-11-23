@@ -26,11 +26,10 @@ export interface DocCommentDTO extends DocQuote {
 export const DOC_COMMENT_LIMITS = { body: 5_000, quote: 500, context: 80 };
 
 /** Retire la syntaxe Markdown d'un texte : ce qui reste est ce que la lecture affiche. */
-export function plainText(markdown: string): string {
-  return markdown
-    .replace(/@\[([^\]\n]*)\]\((?:user|ticket|doc|board):\d+\)/g, '$1')
-    .replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, '$1')
-    .replace(/^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)/gm, '')
+export function plainText(markdown: string, inline = false): string {
+  const text = markdown.replace(/@\[([^\]\n]*)\]\((?:user|ticket|doc|board):\d+\)/g, '$1').replace(/!?\[([^\]\n]*)\]\([^)\n]*\)/g, '$1');
+  // `inline` : un texte seul, comme un titre (« 1. Disponibilité » garde son numéro) ; sinon les marques de début de ligne partent.
+  return (inline ? text : text.replace(/^[ \t]*(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+(?:\[[ xX]\][ \t]+)?|\d+[.)][ \t]+)/gm, ''))
     .replace(/[*`~]+/g, '')
     .replace(/(^|\s)_+|_+(?=\s|$)/g, '$1');
 }

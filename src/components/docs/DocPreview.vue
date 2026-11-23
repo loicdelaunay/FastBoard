@@ -23,10 +23,14 @@ const props = defineProps<{
   /** Syntaxe propre à Obsidian (réglage de l'espace). */
   obsidian?: boolean;
 }>();
-const emit = defineEmits<{ open: [node: DocNodeDTO]; comment: [quote: DocQuote]; 'focus-comment': [commentId: number] }>();
+const emit = defineEmits<{ open: [node: DocNodeDTO, newTab?: boolean]; 'open-url': [url: string]; comment: [quote: DocQuote]; 'focus-comment': [commentId: number] }>();
 
 const root = ref<HTMLElement | null>(null);
-const { follow, openTicket } = useDocLinks(() => props.nodes, (node) => emit('open', node));
+const { follow, openTicket } = useDocLinks(
+  () => props.nodes,
+  (node, newTab) => emit('open', node, newTab),
+  (url) => emit('open-url', url),
+);
 
 /** Le rendu suit la frappe avec un léger retard : redessiner un diagramme à chaque touche ferait clignoter la page. */
 const shown = ref(props.text);

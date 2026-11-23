@@ -8,7 +8,7 @@ import { useProjectStore } from '@/stores/project';
 import { notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
-type Flag = 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator';
+type Flag = 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'progressReminder';
 
 const project = useProjectStore();
 const canEdit = computed(() => project.can('project.edit') && !project.archived);
@@ -38,7 +38,22 @@ const options: Array<{ key: Flag; title: string; help: string; icon: string }> =
     help: t('Des petits points sur chaque carte montrent depuis combien de temps le ticket n\'a pas changé de colonne : gris, puis orange au-delà du seuil, rouge au double. Les tickets terminés ne sont pas concernés.'),
     icon: 'pi pi-hourglass',
   },
+  {
+    key: 'progressReminder',
+    title: t('Rappeler de mettre à jour l’avancement'),
+    help: t('Pendant une livraison en cours, chaque personne qui a des tickets « En cours » voit une balise l’invitant à mettre à jour son avancement : au moins le pourcentage de sa ligne, ou un commentaire de progression. Les cartes indiquent qui ne l’a pas fait.'),
+    icon: 'pi pi-info-circle',
+  },
 ];
+
+async function setReminderDays(value: number | null): Promise<void> {
+  if (!value || value === project.settings.progressReminderDays) return;
+  try {
+    await project.updateProjectInfo({ settings: { progressReminderDays: value } });
+  } catch (error) {
+    notifyError(error, t('Réglage non enregistré'));
+  }
+}
 
 async function setStaleDays(value: number | null): Promise<void> {
   if (!value || value === project.settings.staleDays) return;
@@ -70,6 +85,11 @@ async function toggle(key: Flag, value: boolean): Promise<void> {
           <span class="small">{{ $t('Signaler après') }}</span>
           <InputNumber :model-value="project.settings.staleDays" :min="1" :max="365" show-buttons button-layout="horizontal" size="small" :input-style="{ width: '3.5rem', textAlign: 'center' }" increment-button-icon="pi pi-plus" decrement-button-icon="pi pi-minus" :disabled="!canEdit" :aria-label="$t('Jours sans changement de colonne')" @update:model-value="setStaleDays" />
           <span class="small">{{ $t('jours sans changement de colonne') }}</span>
+        </label>
+        <label v-if="option.key === 'progressReminder' && project.settings.progressReminder" class="days">
+          <span class="small">{{ $t('Rappeler après') }}</span>
+          <InputNumber :model-value="project.settings.progressReminderDays" :min="1" :max="30" show-buttons button-layout="horizontal" size="small" :input-style="{ width: '3.5rem', textAlign: 'center' }" increment-button-icon="pi pi-plus" decrement-button-icon="pi pi-minus" :disabled="!canEdit" :aria-label="$t('Jours sans mise à jour de l’avancement')" @update:model-value="setReminderDays" />
+          <span class="small">{{ $t('jours sans mise à jour de l’avancement') }}</span>
         </label>
       </div>
       <ToggleSwitch :input-id="`auto-${option.key}`" :model-value="project.settings[option.key]" :disabled="!canEdit" @update:model-value="(value: boolean) => toggle(option.key, value)" />

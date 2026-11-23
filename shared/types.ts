@@ -209,6 +209,8 @@ export interface TicketDTO {
   statusChangedAt: string;
   /** Personnes qui suivent le ticket (notifications). */
   watcherIds: number[];
+  /** Dernière mise à jour de l'avancement par personne : sa ligne (pourcentage, état, texte) ou un commentaire. */
+  progressUpdates: Array<{ userId: number; at: string }>;
   createdBy: number | null;
   createdAt: string;
   updatedAt: string;

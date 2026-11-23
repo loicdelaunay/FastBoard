@@ -24,7 +24,7 @@ function styles(live: boolean): TagStyle[] {
     { tag: tags.labelName, color: 'var(--fb-accent)' },
     { tag: [tags.string, tags.special(tags.string)], color: 'var(--fb-hl-string)' },
     // Dans le source, le code se repère à sa couleur ; rendu, il garde celle du texte, comme en lecture.
-    { tag: tags.monospace, color: live ? 'var(--md-code, currentColor)' : 'var(--md-code, var(--fb-hl-code))' },
+    { tag: tags.monospace, color: live ? 'var(--md-code, var(--fb-md-code))' : 'var(--md-code, var(--fb-hl-code))' },
     { tag: [tags.processingInstruction, tags.contentSeparator, tags.meta], color: 'var(--fb-muted)' },
     { tag: [tags.comment, tags.blockComment, tags.lineComment], color: 'var(--fb-muted)', fontStyle: 'italic' },
     { tag: [tags.keyword, tags.operatorKeyword, tags.controlKeyword], color: 'var(--fb-hl-keyword)' },

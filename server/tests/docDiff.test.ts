@@ -140,6 +140,15 @@ describe('sommaire d’une note', () => {
     assert.deepEqual(docOutline('## **Gras** et `code`\n## [Lien](https://a.fr) et [[Note|Alias]]\n## @[Léa](user:3)').map((heading) => heading.title), ['Gras et code', 'Lien et Alias', 'Léa']);
   });
 
+  it('garde la numérotation d’un titre et lit ses identifiants', () => {
+    assert.deepEqual(docOutline('## 1. Disponibilité\n## 2) Performances\n## Annexe {#annexe .large}\n## <a id="glossaire"></a>Glossaire'), [
+      { level: 2, title: '1. Disponibilité', line: 1 },
+      { level: 2, title: '2) Performances', line: 2 },
+      { level: 2, title: 'Annexe', line: 3, ids: ['annexe'] },
+      { level: 2, title: 'Glossaire', line: 4, ids: ['glossaire'] },
+    ]);
+  });
+
   it('écarte un titre vide', () => {
     assert.deepEqual(docOutline('#\n## \n'), []);
   });

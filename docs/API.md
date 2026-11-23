@@ -211,6 +211,8 @@ curl -s -X DELETE $FASTBOARD/api/parts/7 -H "Authorization: Bearer $TOKEN"
 
 Chaque appel retourne le ticket à jour. La progression du ticket est la moyenne de ses lignes ; quand toutes sont terminées, il passe à `done`. Modifier le texte, l'avancement ou la fin de ses propres lignes demande `ticket.update_own_part` ; le reste demande `ticket.edit`.
 
+**Rappel d'avancement.** Avec `settings.progressReminder` (et `settings.progressReminderDays`, 2 jours par défaut) dans `PATCH /projects/{id}`, les tickets `in_progress` d'une livraison en cours signalent dans l'interface les personnes qui n'ont pas mis à jour leur avancement depuis ce délai. Chaque ticket donne `progressUpdates` : pour chaque personne, la date de sa dernière mise à jour (pourcentage, état ou texte de sa ligne, ou commentaire). Un agent qui met à jour l'avancement pour quelqu'un le fait avec le jeton de cette personne, ou laisse un commentaire de progression.
+
 ### Documentation
 
 À activer dans *Administration → Documentation* (sinon `409 docs_disabled`). Un espace contient des notes Markdown et des images, dans des dossiers. L'identifiant d'un fichier ne change pas quand on le renomme ou le déplace.

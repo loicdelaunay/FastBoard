@@ -55,6 +55,8 @@ function securityHeaders(config: AppConfig) {
     "script-src 'self'",
     "font-src 'self' data:",
     "connect-src 'self' ws: wss:",
+    // Les liens web d'une note s'ouvrent dans un onglet de la documentation (cadre isolé par `sandbox`).
+    "frame-src 'self' https: http:",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

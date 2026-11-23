@@ -245,6 +245,8 @@ export const settingsPatchSchema = z.object({
   hideZeroProgress: z.boolean().optional().describe('Masque la barre d’avancement des tickets à 0 %.'),
   allowNewComponents: z.boolean().optional().describe('Les personnes qui modifient les tickets peuvent créer un composant depuis un ticket.'),
   hideDoneUnassigned: z.boolean().optional().describe('Analyseur : ne pas compter les tickets terminés dans « Non assigné » (charge par personne).'),
+  progressReminder: z.boolean().optional().describe('Rappel d’avancement : sur les tickets « En cours » d’une livraison en cours, signale les personnes qui n’ont pas mis à jour leur avancement (pourcentage ou commentaire).'),
+  progressReminderDays: z.number().int().min(1).max(30).optional().describe('Jours sans mise à jour de l’avancement avant le rappel (2 par défaut).'),
   ticketFields: z.partialRecord(z.enum(TICKET_FIELDS), z.boolean()).optional().describe('Champs standard affichés dans les tickets (`false` = masqué, les valeurs sont conservées).'),
   customFields: z
     .array(

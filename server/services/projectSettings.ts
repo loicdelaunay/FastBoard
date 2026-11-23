@@ -62,6 +62,8 @@ export function describeSettingsChange(before: ProjectSettingsDTO, after: Projec
   if (JSON.stringify(before.customFields) !== JSON.stringify(after.customFields)) parts.push('champs personnalisés');
   toggle('ajout de composants depuis les tickets', before.allowNewComponents, after.allowNewComponents);
   toggle('terminés masqués dans « Non assigné »', before.hideDoneUnassigned, after.hideDoneUnassigned);
+  toggle('rappel d’avancement', before.progressReminder, after.progressReminder);
+  if (before.progressReminderDays !== after.progressReminderDays) parts.push(`rappel d’avancement après ${after.progressReminderDays} j`);
   if (before.deliveryWarnDays !== after.deliveryWarnDays || before.deliveryDangerDays !== after.deliveryDangerDays) parts.push('seuils d’alerte de livraison');
   if (JSON.stringify(before.columns) !== JSON.stringify(after.columns)) {
     parts.push('colonnes du Kanban');
