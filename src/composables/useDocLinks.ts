@@ -1,7 +1,9 @@
 import { useRouter } from 'vue-router';
 import type { DocNodeDTO } from '@shared/docs';
+import { citedElementsOf, citedLinesOf } from '@shared/citations';
 import { t } from '@/i18n';
 import { api } from '@/api';
+import { boardCitationRoute, docCitationRoute } from '@/utils/citations';
 import { pendingAnchor, scrollToHeading } from '@/utils/docRender';
 import { notifyError } from '@/utils/notify';
 
@@ -55,7 +57,14 @@ export function useDocLinks(nodes: () => readonly DocNodeDTO[], open: (node: Doc
       void router.push({ name: 'user', params: { id: link.dataset.user } });
     } else if (link.dataset.board) {
       event.preventDefault();
-      void router.push({ name: 'board-file', params: { boardId: link.dataset.board } });
+      void router.push(boardCitationRoute(Number(link.dataset.board), citedElementsOf(link.dataset.elements ? `el:${link.dataset.elements}` : null)));
+    } else if (link.dataset.project) {
+      event.preventDefault();
+      void router.push({ name: 'project', params: { projectId: link.dataset.project } });
+    } else if (link.dataset.doc && link.dataset.lines && !wantsNewTab(event)) {
+      // Lignes citées : la note s'ouvre, ces lignes surlignées.
+      event.preventDefault();
+      void router.push(docCitationRoute(Number(link.dataset.doc), citedLinesOf(`L${link.dataset.lines}`)));
     } else if (link.dataset.doc) {
       event.preventDefault();
       openNode(Number(link.dataset.doc), wantsNewTab(event));

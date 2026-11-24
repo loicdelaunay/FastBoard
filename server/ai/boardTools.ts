@@ -99,6 +99,7 @@ export const BOARD_TOOLS: ToolDefinition[] = [
     run: (tool, args) => {
       const node = boardOf(tool, args.board, false);
       const elements = readBoardElements(tool.ctx, node);
+      tool.cite({ kind: 'board', id: node.id, label: boardTitle(node.path), detail: node.path });
       return {
         board: { id: node.id, title: boardTitle(node.path), path: node.path, kind: node.kind, count: elements.length, bounds: boardBounds(elements) },
         elements: elements.slice(0, MAX_LISTED).map(describe),

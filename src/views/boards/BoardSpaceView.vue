@@ -10,6 +10,7 @@ import Tag from 'primevue/tag';
 import type { MenuItem } from 'primevue/menuitem';
 import { useConfirm } from 'primevue/useconfirm';
 import { boardTitle, type BoardLinksDTO, type BoardNodeDTO } from '@shared/boards';
+import { citedElementsFromQuery } from '@shared/citations';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import { darkMode } from '@/theme/themeManager';
@@ -45,6 +46,8 @@ const boardId = computed(() => {
   return Number.isInteger(value) && value > 0 ? value : null;
 });
 const board = computed(() => store.nodes.find((node) => node.id === boardId.value && (node.kind === 'board' || node.kind === 'template')) ?? null);
+/** Éléments cités (`?elements=a,b`) : le tableau s'ouvre sur eux. */
+const focus = computed(() => citedElementsFromQuery(route.query.elements));
 /** Modèles de l'espace, à part de l'arbre des tableaux. */
 const templates = computed(() => store.nodes.filter((node) => node.kind === 'template').sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'base' })));
 const treeNodes = computed(() => store.nodes.filter((node) => node.kind !== 'template'));
@@ -439,7 +442,7 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
 
       <div v-if="board && session" class="board-area">
         <BoardTimeline v-if="timelineOpen" :key="`h${board.id}`" :board-id="board.id" :title="boardTitle(board.path)" :session="session" :can-edit="store.canEdit && session.canWrite.value" :users="users" :is-template="isTemplate" @close="timelineOpen = false" @forked="onForked" />
-        <BoardCanvas v-else :key="board.id" ref="canvas" :session="session" :can-edit="store.canEdit" :users="users" :board-title="boardTitle(board.path)" :space-id="spaceId" :templates="templates" :is-template="isTemplate" history v-model:follow="follow.following.value" @open-template="openTemplate" @history="timelineOpen = true" />
+        <BoardCanvas v-else :key="board.id" ref="canvas" :session="session" :focus="focus" :can-edit="store.canEdit" :users="users" :board-title="boardTitle(board.path)" :space-id="spaceId" :templates="templates" :is-template="isTemplate" history v-model:follow="follow.following.value" @open-template="openTemplate" @history="timelineOpen = true" />
         <BoardLinksPanel v-if="linksOpen && !isTemplate" :links="links" :loading="linksLoading" @close="linksOpen = false" />
       </div>
 

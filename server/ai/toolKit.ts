@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AiChangeDTO, AiRenderRequest } from '../../shared/ai.ts';
+import type { AiChangeDTO, AiRenderRequest, AiSourceDTO } from '../../shared/ai.ts';
 import type { Actor, AppContext } from '../context.ts';
 import type { AuthUser } from '../services/access.ts';
 
@@ -24,6 +24,8 @@ export interface ToolContext {
   attach: (label: string, image: string) => void;
   /** Images regardées pendant cette réponse (bornées par `AI_LIMITS.viewsPerAnswer`). */
   views: number;
+  /** Note un élément lu pour répondre : il apparaît dans les sources sous la réponse (une fois). */
+  cite: (source: AiSourceDTO) => void;
 }
 
 export interface ToolDefinition {

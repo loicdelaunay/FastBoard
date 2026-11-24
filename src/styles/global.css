@@ -31,6 +31,9 @@
   --fb-find-match: color-mix(in srgb, #facc15 48%, transparent);
   --fb-find-current: #f97316;
   --fb-find-current-text: #fff;
+  /* Lignes citées d'une note (lien d'une citation, ?lines=…) : bande teintée et filet à gauche. */
+  --fb-cited-bg: color-mix(in srgb, var(--fb-accent) 13%, transparent);
+  --fb-cited-edge: var(--fb-accent);
   /* Largeur du texte des notes (Mon compte → Apparence → Lecture) : « toute la largeur » la porte à 100 %. */
   --fb-reading-width: 52rem;
   /* Polices réglables dans Mon compte → Apparence (variables posées par themeManager). */
@@ -53,6 +56,7 @@
   --fb-hl-type: #93c5fd;
   --fb-hl-property: #7dd3fc;
   --fb-find-match: color-mix(in srgb, #facc15 32%, transparent);
+  --fb-cited-bg: color-mix(in srgb, var(--fb-accent) 20%, transparent);
   --fb-panel-alt: var(--p-surface-800);
   --fb-shadow: 0 1px 2px rgb(0 0 0 / 30%);
   --fb-shadow-lg: 0 8px 24px rgb(0 0 0 / 45%);

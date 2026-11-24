@@ -11,10 +11,11 @@ export type MentionKind = 'user' | 'ticket' | 'doc' | 'board';
 
 export type TextSegment =
   | { type: 'text'; text: string }
-  | { type: 'mention'; kind: MentionKind; id: number; label: string }
+  /** `suffix` : ce qui suit le `#` (lignes citées d'une note, éléments cités d'un tableau…). */
+  | { type: 'mention'; kind: MentionKind | 'project'; id: number; label: string; suffix: string }
   | { type: 'link'; url: string };
 
-const MENTION = new RegExp(String.raw`@\[([^\]\n]{1,80})\]\((user|ticket|doc|board):(\d+)${MENTION_VIEW_SUFFIX}\)`, 'g');
+const MENTION = new RegExp(String.raw`@\[([^\]\n]{1,80})\]\((user|ticket|doc|board|project):(\d+)${MENTION_VIEW_SUFFIX}\)`, 'g');
 const URL = /\bhttps?:\/\/[^\s<>"')\]]+/g;
 
 /** `view` : affichage d'un tableau blanc (`image`, `embed`, `link`) ; absent, il s'affiche en carte ou en lien. */
@@ -41,7 +42,7 @@ export function parseRichText(text: string): TextSegment[] {
   let last = 0;
   for (const match of text.matchAll(MENTION)) {
     if (match.index > last) segments.push(...splitLinks(text.slice(last, match.index)));
-    segments.push({ type: 'mention', kind: match[2] as MentionKind, id: Number(match[3]), label: match[1]! });
+    segments.push({ type: 'mention', kind: match[2] as MentionKind | 'project', id: Number(match[3]), label: match[1]!, suffix: match[4] ?? '' });
     last = match.index + match[0].length;
   }
   if (last < text.length) segments.push(...splitLinks(text.slice(last)));

@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import { reasoningOptionsOf } from '@shared/ai';
-import type { AiChangeDTO, AiContext, AiContextKind, AiConversationSummaryDTO, AiFile, AiMessage, AiModelChoiceDTO, AiStreamEvent, AiWriteMode } from '@shared/ai';
+import type { AiChangeDTO, AiContext, AiContextKind, AiConversationSummaryDTO, AiFile, AiMessage, AiModelChoiceDTO, AiSourceDTO, AiStreamEvent, AiWriteMode } from '@shared/ai';
 import { api } from '@/api';
 import { httpHeaders } from '@/api/http';
 import { translateServerMessage } from '@/i18n/server';
@@ -54,6 +54,8 @@ export interface AiTurn {
   changes?: number;
   /** Modifications faites ou proposées pendant cette réponse. */
   edits?: AiChangeDTO[];
+  /** Éléments lus pour répondre, listés sous la réponse. */
+  sources?: AiSourceDTO[];
 }
 
 const PREFS_KEY = 'fb.ai.prefs';
@@ -332,6 +334,9 @@ export const useAiStore = defineStore('ai', () => {
         break;
       case 'change':
         (turn.edits ??= []).push(event.change);
+        break;
+      case 'source':
+        if (!turn.sources?.some((source) => source.kind === event.source.kind && source.id === event.source.id)) (turn.sources ??= []).push(event.source);
         break;
       case 'message':
         turn.content = event.content;

@@ -142,6 +142,57 @@ function onContextMenu(event: MouseEvent): void {
   text-decoration: underline dotted;
   cursor: help;
 }
+/* Lignes citées (lien d'une citation, ?lines=…) : blocs teintés, filet à gauche ; au plus près dans une liste, un
+   tableau ou un bloc de code (bandes). */
+/* La bande déborde sur les côtés seulement (ombres hors de la boîte) : deux éléments voisins se touchent sans se
+   superposer. La puce d'un élément de liste reste dans la bande, le filet à sa gauche. */
+.doc-preview .md-cited {
+  --cited-pad: 0.4rem;
+  position: relative;
+  background: var(--fb-cited-bg);
+  box-shadow:
+    calc(-1 * var(--cited-pad)) 0 0 var(--fb-cited-bg),
+    0.4rem 0 0 var(--fb-cited-bg);
+}
+.doc-preview .md-cited:not(tr)::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--cited-pad) - 3px);
+  width: 3px;
+  background: var(--fb-cited-edge);
+  pointer-events: none;
+}
+.doc-preview li.md-cited {
+  --cited-pad: 1.5rem;
+}
+.doc-preview tr.md-cited {
+  box-shadow: none;
+}
+.doc-preview tr.md-cited > * {
+  background: var(--fb-cited-bg);
+}
+.doc-preview tr.md-cited > :first-child {
+  box-shadow: inset 3px 0 0 var(--fb-cited-edge);
+}
+.doc-preview .md-cited-code,
+.doc-preview .md-cited-root {
+  position: relative;
+}
+.doc-preview .md-cited-band {
+  position: absolute;
+  right: 0;
+  left: 0;
+  background: var(--fb-cited-bg);
+  box-shadow: inset 3px 0 0 var(--fb-cited-edge);
+  pointer-events: none;
+}
+.doc-preview .md-cited-band.wide {
+  right: -0.5rem;
+  left: -0.7rem;
+  border-radius: 3px;
+}
 .doc-preview .md-mention.doc::before,
 .cm-live-block .md-mention.doc::before {
   content: '\e9c3';

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router';
 import Button from 'primevue/button';
 import Popover from 'primevue/popover';
 import Select from 'primevue/select';
@@ -17,6 +17,7 @@ import MarkdownView from '@/components/common/MarkdownView.vue';
 import AiChanges from './AiChanges.vue';
 import AiContextPicker from './AiContextPicker.vue';
 import AiHistory from './AiHistory.vue';
+import AiSources from './AiSources.vue';
 import AiSteps from './AiSteps.vue';
 import { useAiStore, type AiContextEntry } from '@/stores/ai';
 import { useAuthStore } from '@/stores/auth';
@@ -25,6 +26,8 @@ import { useDocsStore } from '@/stores/docs';
 import { useProjectStore } from '@/stores/project';
 import { useProjectsStore } from '@/stores/projects';
 import { ticketKey } from '@/utils/tickets';
+import { api } from '@/api';
+import type { MentionResolver } from '@/utils/markdown';
 
 import { t } from '@/i18n';
 /**
@@ -43,6 +46,34 @@ const project = useProjectStore();
 const projects = useProjectsStore();
 const route = useRoute();
 const router = useRouter();
+
+// --- Ce que cite l'assistant : un clic l'ouvre (dans un autre onglet depuis la page dédiée, pour garder la conversation) ---
+function go(location: RouteLocationRaw): void {
+  if (page.value) window.open(router.resolve(location).href, '_blank', 'noopener');
+  else void router.push(location);
+}
+
+/** Un ticket cité, quel que soit son projet : dans le projet ouvert, sa fenêtre s'ouvre par-dessus. */
+async function openCitedTicket(ticketId: number, projectId?: number): Promise<void> {
+  let inProject = projectId ?? project.ticketsById.get(ticketId)?.projectId;
+  try {
+    inProject ??= (await api.ticket(ticketId)).ticket.projectId;
+  } catch (error) {
+    notifyError(error, t('Ticket inaccessible'));
+    return;
+  }
+  if (!page.value && project.project?.id === inProject && route.params.projectId) void router.push({ query: { ...route.query, ticket: String(ticketId) } });
+  else go({ name: 'project', params: { projectId: inProject }, query: { ticket: String(ticketId) } });
+}
+
+/** Les réponses citent des tickets de tous les projets : hors du projet ouvert, le texte de la mention suffit. */
+const answerResolver: MentionResolver = {
+  userName: (id) => project.usersById.get(id)?.name,
+  ticketLabel: (id, label) => {
+    const ticket = project.ticketsById.get(id);
+    return ticket ? { key: ticketKey(project.project, ticket), title: ticket.title } : { key: label, title: '' };
+  },
+};
 
 const input = ref('');
 const images = ref<string[]>([]);
@@ -465,7 +496,8 @@ onBeforeUnmount(() => (resizing.value = false));
             <div v-else class="bubble assistant">
               <AiSteps :steps="turn.steps" :running="ai.busy && index === ai.turns.length - 1" />
               <AiChanges :turn="turn" />
-              <MarkdownView v-if="turn.content" :text="turn.content" class="answer" />
+              <MarkdownView v-if="turn.content" :text="turn.content" class="answer" :resolver="answerResolver" :navigate="go" :open-ticket-with="(id) => void openCitedTicket(id)" />
+              <AiSources v-if="turn.sources?.length && (turn.content || turn.error)" :sources="turn.sources" :navigate="go" :open-ticket="(id, projectId) => void openCitedTicket(id, projectId)" />
               <div v-else-if="!turn.error" class="thinking" aria-label="…"><span></span><span></span><span></span></div>
               <p v-if="turn.error" class="error"><i class="pi pi-exclamation-triangle"></i> {{ turn.error }}</p>
               <p v-if="turn.model && (turn.content || turn.error)" class="model-used muted"><i class="pi pi-microchip-ai"></i> {{ turn.model }}</p>

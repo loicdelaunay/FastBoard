@@ -16,7 +16,7 @@ export function mentionedUserIds(text: string): Set<number> {
 
 /** Extrait autour de la première mention, sans le balisage des mentions. */
 function excerptAround(text: string, userId: number): string {
-  const plain = text.replace(/@\[([^\]\n]{1,80})\]\((?:user|ticket|doc|board):\d+(?:#[a-z]{1,12})?\)/g, '@$1').replace(/\s+/g, ' ').trim();
+  const plain = text.replace(/@\[([^\]\n]{1,80})\]\((?:user|ticket|doc|board|project):\d+(?:#[A-Za-z0-9:,_-]{1,400})?\)/g, '@$1').replace(/\s+/g, ' ').trim();
   const marker = text.match(new RegExp(`@\\[([^\\]\\n]{1,80})\\]\\(user:${userId}\\)`))?.[1];
   const index = marker ? plain.indexOf(`@${marker}`) : 0;
   const start = Math.max(0, index - 60);

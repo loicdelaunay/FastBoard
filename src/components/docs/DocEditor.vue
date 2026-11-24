@@ -12,6 +12,7 @@ import ContextMenu from 'primevue/contextmenu';
 import type { MenuItem } from 'primevue/menuitem';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import * as Y from 'yjs';
+import { citedElementsOf, citedLinesOf, linesLabel, type LineRange } from '@shared/citations';
 import { findQuote, quoteFromSource, sourceOffset, type DocCommentDTO, type DocQuote } from '@shared/docComments';
 import { findHeading, imageMarkdown, resolveDocLink } from '@shared/docLinks';
 import { docOutline } from '@shared/docOutline';
@@ -21,6 +22,7 @@ import { api } from '@/api';
 import { useDocLinks, wantsNewTab } from '@/composables/useDocLinks';
 import { useAppStore } from '@/stores/app';
 import { codeLanguage } from '@/utils/codeHighlight';
+import { boardCitationRoute, docCitationRoute } from '@/utils/citations';
 import type { DocSession } from '@/realtime/docSession';
 import { copyText, pendingAnchor, renderDocBlock, selectionQuote } from '@/utils/docRender';
 import { markdownBlocks } from '@/utils/markdown';
@@ -31,6 +33,7 @@ import { docImageIdOf, docImageUrl, replaceDocImage } from '@/utils/replaceImage
 import { matchesQuery, normalizeText } from '@/utils/search';
 import { boardChoice, boardMentionAt, showBoardChoice } from './editor/boardMention';
 import { taskLine, toggleTask } from './editor/commands';
+import { citedLines, showCitedLines } from './editor/cited';
 import { docComments, setDocComments } from './editor/comments';
 import { docHighlight, docLiveHighlight } from './editor/highlight';
 import { editImageSource, liveInline } from './editor/liveInline';
@@ -348,11 +351,14 @@ function followCell(element: HTMLElement, event: MouseEvent): boolean {
 
 /** Suit un lien rendu dans le texte : mention, note de l'espace (lien Markdown ou wiki) ou adresse externe. */
 function followRendered(element: HTMLElement, event: MouseEvent): boolean {
-  const { kind, id, href, wiki } = element.dataset;
+  const { kind, id, href, wiki, suffix } = element.dataset;
   if (kind && id) {
+    const lines = citedLinesOf(suffix);
     if (kind === 'user') void router.push({ name: 'user', params: { id } });
     else if (kind === 'ticket') void openTicket(Number(id));
-    else if (kind === 'board') void router.push({ name: 'board-file', params: { boardId: id } });
+    else if (kind === 'board') void router.push(boardCitationRoute(Number(id), citedElementsOf(suffix)));
+    else if (kind === 'project') void router.push({ name: 'project', params: { projectId: id } });
+    else if (lines && !wantsNewTab(event)) void router.push(docCitationRoute(Number(id), lines));
     else openNode(Number(id), wantsNewTab(event));
     return true;
   }
@@ -391,7 +397,11 @@ const inline = liveInline({
     const node = resolveDocLink(props.nodes, props.notePath, target);
     return node?.kind === 'image' ? docImageUrl(node) : null;
   },
-  mentionLabel: (kind, id, label) => (kind === 'user' ? `@${props.users.find((user) => user.id === id)?.name ?? label}` : label),
+  mentionLabel: (kind, id, label, suffix) => {
+    if (kind === 'user') return `@${props.users.find((user) => user.id === id)?.name ?? label}`;
+    const lines = kind === 'doc' ? citedLinesOf(suffix) : null;
+    return lines && !/\b(?:l|ll|lignes?|lines?)\.?\s*\d/i.test(label) ? `${label} · l. ${linesLabel(lines)}` : label;
+  },
   follow: (element, event) => followRendered(element, event),
 });
 
@@ -439,13 +449,16 @@ function onClick(event: MouseEvent): void {
 /** Lien écrit sous une position du source : mention, lien wiki ou lien Markdown. */
 function sourceLink(editor: EditorView, position: number): MenuTarget['link'] {
   const line = editor.state.doc.lineAt(position);
-  for (const match of line.text.matchAll(/@\[[^\]\n]*\]\((user|ticket|doc|board):(\d+)(?:#[a-z]{1,12})?\)|\[\[([^\]|#\n]+)[^\]\n]*\]\]|\[[^\]\n]*\]\(([^)\s]+)[^)\n]*\)/g)) {
+  for (const match of line.text.matchAll(/@\[[^\]\n]*\]\((user|ticket|doc|board|project):(\d+)(?:#([A-Za-z0-9:,_-]{1,400}))?\)|\[\[([^\]|#\n]+)[^\]\n]*\]\]|\[[^\]\n]*\]\(([^)\s]+)[^)\n]*\)/g)) {
     if (position < line.from + match.index || position > line.from + match.index + match[0].length) continue;
     if (match[1] === 'ticket') return { address: null, open: () => void openTicket(Number(match[2])) };
+    const lines = citedLinesOf(match[3]);
+    if (match[1] === 'doc' && lines) return { address: null, open: () => void router.push(docCitationRoute(Number(match[2]), lines)) };
     if (match[1] === 'doc') return { address: null, open: () => openNode(Number(match[2])) };
-    if (match[1] === 'board') return { address: null, open: () => void router.push({ name: 'board-file', params: { boardId: match[2]! } }) };
+    if (match[1] === 'board') return { address: null, open: () => void router.push(boardCitationRoute(Number(match[2]), citedElementsOf(match[3]))) };
+    if (match[1] === 'project') return { address: null, open: () => void router.push({ name: 'project', params: { projectId: match[2]! } }) };
     if (match[1]) return null;
-    const target = (match[3] ?? match[4])!;
+    const target = (match[4] ?? match[5])!;
     if (/^https?:/i.test(target)) return { address: target, open: () => openAddress(target) };
     const node = resolveDocLink(props.nodes, props.notePath, target);
     return node ? { address: null, open: () => emit('open', node) } : null;
@@ -721,7 +734,12 @@ function selectionText(): string {
   return text.length <= 200 && !text.includes('\n') ? text : '';
 }
 
-defineExpose({ reveal, scrollToLine, scrollToSourceLine, insertBlock, findSet, findStep, findResult, findRefresh, findClose, selectionText, focus: () => view?.focus() });
+/** Surligne les lignes citées (`null` : les efface) ; avec `scroll`, les amène à l'écran. */
+function citeLines(ranges: readonly LineRange[] | null, scroll: boolean): void {
+  if (view) showCitedLines(view, ranges, scroll);
+}
+
+defineExpose({ reveal, scrollToLine, scrollToSourceLine, citeLines, insertBlock, findSet, findStep, findResult, findRefresh, findClose, selectionText, focus: () => view?.focus() });
 
 // Pour le sommaire : la ligne lue, signalée une fois par image.
 let scrollFrame = 0;
@@ -764,6 +782,7 @@ onMounted(() => {
       extensions: [
         ...(props.live ? [live.extension, inline] : [lineNumbers(), highlightActiveLine()]),
         docComments,
+        citedLines,
         drawSelection(),
         dropCursor(),
         indentOnInput(),
@@ -855,6 +874,12 @@ onMounted(() => {
           '.cm-image-info img': { maxWidth: '16rem', maxHeight: '12rem', borderRadius: '6px', objectFit: 'contain', backgroundColor: 'var(--fb-panel-alt)' },
           '.cm-ySelectionInfo': { padding: '1px 4px', borderRadius: '4px', fontFamily: 'inherit', fontSize: '0.7rem', fontWeight: '600', opacity: '1' },
           '.cm-doc-comment': { borderRadius: '2px', backgroundColor: 'color-mix(in srgb, #f59e0b 28%, transparent)' },
+          // Lignes citées (lien d'une citation) : bande à la couleur du thème, filet à gauche.
+          // En « Lecture et écriture », la bande déborde à gauche pour laisser la puce d'une liste lisible, filet compris.
+          '.cm-cited-line': props.live
+            ? { position: 'relative', backgroundColor: 'var(--fb-cited-bg)', boxShadow: '-8px 0 0 var(--fb-cited-bg)' }
+            : { backgroundColor: 'var(--fb-cited-bg)', boxShadow: 'inset 3px 0 0 var(--fb-cited-edge)' },
+          ...(props.live ? { '.cm-cited-line::before': { content: '""', position: 'absolute', top: '0', bottom: '0', left: '-11px', width: '3px', backgroundColor: 'var(--fb-cited-edge)', pointerEvents: 'none' } } : {}),
           // Recherche (Ctrl F) : mêmes couleurs que les résultats en lecture ; le panneau de CodeMirror reste caché.
           '.cm-searchMatch': { borderRadius: '2px', backgroundColor: 'var(--fb-find-match)', outline: 'none' },
           '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'var(--fb-find-current)', color: 'var(--fb-find-current-text)' },

@@ -112,8 +112,11 @@ export function boardMentionView(suffix: string | null | undefined): BoardMentio
   return (BOARD_MENTION_VIEWS as readonly string[]).includes(suffix ?? '') ? (suffix as BoardMentionView) : null;
 }
 
-/** Suffixe d'affichage d'une mention (source d'expression régulière) : `#image`, facultatif. */
-export const MENTION_VIEW_SUFFIX = '(?:#([a-z]{1,12}))?';
+/**
+ * Suffixe d'une mention (source d'expression régulière), facultatif : l'affichage d'un tableau (`#image`), des lignes
+ * citées d'une note (`#L12-18`) ou des éléments cités d'un tableau (`#el:a1b2c3,d4e5f6`, voir `shared/citations.ts`).
+ */
+export const MENTION_VIEW_SUFFIX = '(?:#([A-Za-z0-9:,_-]{1,400}))?';
 
 export const BOARD_SHARE_LIMITS = {
   passwordMin: 4,

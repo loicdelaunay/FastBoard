@@ -1,3 +1,4 @@
+import { numberLines, withoutLineNumbers } from '../../shared/ai.ts';
 import { changedPassage } from '../../shared/docDiff.ts';
 import { docTitle, DOC_LIMITS, normalizeDocPath, withMarkdownExtension, type DocRole } from '../../shared/docs.ts';
 import { docOutline } from '../../shared/docOutline.ts';
@@ -96,7 +97,8 @@ export const DOC_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'read_doc',
-    description: 'Lit une note Markdown : son plan, son texte (par tranches pour une longue note, voir nextOffset) et ses commentaires ouverts.',
+    description:
+      'Lit une note Markdown : son plan, son texte (par tranches pour une longue note, voir nextOffset) et ses commentaires ouverts. Dans `content`, chaque ligne commence par son numéro et « │ » (pour citer des lignes) : ces numéros ne font pas partie du texte, ne les recopie pas dans edit_doc.',
     parameters: { type: 'object', properties: { ...NOTE_PROPERTIES, offset: { type: 'integer', minimum: 0, description: 'Position de départ, pour lire la suite.' } }, required: ['note'] },
     write: false,
     docs: true,
@@ -106,6 +108,9 @@ export const DOC_TOOLS: ToolDefinition[] = [
       const text = noteText(tool, node);
       const offset = Math.max(0, Number(args.offset) || 0);
       const end = offset + READ_CHARS;
+      // Numéro de la première ligne lue : celles d'avant, plus une.
+      const firstLine = text.slice(0, offset).split('\n').length;
+      tool.cite({ kind: 'doc', id: node.id, label: docTitle(node.path), detail: node.path });
       return {
         id: node.id,
         spaceId: node.space_id,
@@ -113,7 +118,8 @@ export const DOC_TOOLS: ToolDefinition[] = [
         chars: text.length,
         updatedAt: node.updated_at,
         outline: docOutline(text).slice(0, 200).map((heading) => `${'#'.repeat(heading.level)} ${heading.title}`),
-        content: text.slice(offset, end),
+        firstLine,
+        content: numberLines(text.slice(offset, end), firstLine),
         nextOffset: end < text.length ? end : undefined,
         comments: listComments(tool.ctx.db, node.id)
           .filter((comment) => !comment.resolvedAt)
@@ -192,13 +198,15 @@ ${content}` : base;
     run: (tool, args) => {
       requireWrite(tool);
       const node = findNote(tool, args, 'editor');
-      const old = String(args.old ?? '');
-      if (!old) throw badRequest('old est vide.');
       const text = noteText(tool, node);
+      // Des numéros de ligne recopiés de read_doc ne font pas partie du texte.
+      const raw = String(args.old ?? '');
+      const old = text.includes(raw) ? raw : withoutLineNumbers(raw);
+      if (!old) throw badRequest('old est vide.');
       const index = text.indexOf(old);
       if (index < 0) throw badRequest('Passage introuvable : recopiez-le exactement depuis read_doc.');
       if (text.indexOf(old, index + 1) >= 0) throw badRequest('Passage présent plusieurs fois : ajoutez du contexte pour qu’il soit unique.');
-      return changeNote(tool, node, `${text.slice(0, index)}${String(args.new ?? '')}${text.slice(index + old.length)}`);
+      return changeNote(tool, node, `${text.slice(0, index)}${withoutLineNumbers(String(args.new ?? ''))}${text.slice(index + old.length)}`);
     },
   },
   {
@@ -212,7 +220,7 @@ ${content}` : base;
       requireWrite(tool);
       const node = findNote(tool, args, 'editor');
       if (typeof args.content !== 'string') throw badRequest('content est obligatoire.');
-      return changeNote(tool, node, args.content);
+      return changeNote(tool, node, withoutLineNumbers(args.content));
     },
   },
 ];

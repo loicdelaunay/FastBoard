@@ -85,6 +85,8 @@ const props = defineProps<{
   history?: boolean;
   /** Mode historique : éléments ajoutés ou modifiés par la version affichée, à entourer. */
   changes?: { added: ReadonlySet<string>; changed: ReadonlySet<string> } | null;
+  /** Éléments cités (lien d'une citation, `?elements=a,b`) : sélectionnés et cadrés à l'ouverture. */
+  focus?: readonly string[] | null;
 }>();
 const emit = defineEmits<{ 'open-template': [id: number]; history: [] }>();
 /** Personne suivie (son identifiant) : la vue montre ce qu'elle regarde, jusqu'à notre première action. */
@@ -339,15 +341,31 @@ function restoreView(): void {
   fit();
 }
 
+/** Sélectionne et cadre les éléments cités qui existent encore ; faux s'il n'en reste aucun. */
+function focusOn(ids: readonly string[]): boolean {
+  const found = ids.map((id) => index.value.get(id)).filter((element): element is BoardElement => Boolean(element));
+  if (!found.length) return false;
+  select(found.map((element) => element.id));
+  fit(found);
+  return true;
+}
+
 watch(
   () => props.session.synced.value,
   async (synced) => {
     if (!synced) return;
     model.flush();
     await nextTick();
-    restoreView();
+    if (!props.focus?.length || !focusOn(props.focus)) restoreView();
   },
   { immediate: true },
+);
+// Une autre citation du même tableau : on passe à ses éléments.
+watch(
+  () => props.focus?.join(','),
+  (key) => {
+    if (key && props.session.synced.value) focusOn(props.focus!);
+  },
 );
 
 // --- Rendu -------------------------------------------------------------------------------------------------------------

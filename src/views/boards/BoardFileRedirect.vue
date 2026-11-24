@@ -12,7 +12,9 @@ const failed = ref(false);
 onMounted(async () => {
   try {
     const { space, node } = await api.board(Number(route.params.boardId));
-    await router.replace({ name: 'board-space', params: { spaceId: space.id }, query: { board: String(node.id) } });
+    // Éléments cités (`?elements=a,b`) : le tableau s'ouvre sur eux.
+    const elements = typeof route.query.elements === 'string' && route.query.elements ? { elements: route.query.elements } : {};
+    await router.replace({ name: 'board-space', params: { spaceId: space.id }, query: { board: String(node.id), ...elements } });
   } catch {
     failed.value = true;
   }

@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify';
 import katex from 'katex';
 import { Marked, type Tokens, type TokenizerAndRendererExtension } from 'marked';
 import { boardMentionView, MENTION_VIEW_SUFFIX, type BoardMentionView } from '@shared/boards';
+import { citedElementsOf, citedLinesOf, linesLabel, linesParam } from '@shared/citations';
 import { headingKey } from '@shared/docLinks';
 import { headingTitle } from '@shared/docOutline';
 import { highlightColor, highlightMarker } from '@shared/docObsidian';
@@ -10,7 +11,8 @@ import 'katex/dist/katex.min.css';
 /**
  * Rendu Markdown des descriptions : GitHub Flavored Markdown (tableaux, listes de tâches, barré), formules KaTeX
  * (`$…$`, `$$…$$` ou bloc ```math), diagrammes Mermaid (bloc ```mermaid, dessinés ensuite par `renderMermaid`) et
- * mentions `@[Nom](user:12)` / `@[APP-12](ticket:34)` / `@[Note](doc:56)`. Avec `obsidian`, la syntaxe propre à
+ * mentions `@[Nom](user:12)` / `@[APP-12](ticket:34)` / `@[Note](doc:56)` / `@[Projet](project:3)`, avec au besoin des
+ * lignes citées (`doc:56#L4-9`) ou des éléments cités d'un tableau (`board:7#el:a1b2c3`). Avec `obsidian`, la syntaxe propre à
  * Obsidian : callouts, `==surlignage==`, `%%commentaires%%` et `#étiquettes`. Le HTML produit est toujours assaini.
  */
 
@@ -176,7 +178,10 @@ function obsidianExtensions(): TokenizerAndRendererExtension[] {
 /** Ligne faite d'une seule mention de tableau blanc, avec son affichage au besoin (`board:7#image`). */
 const BOARD_LINE = new RegExp(String.raw`^@\[([^\]\n]{1,80})\]\(board:(\d+)${MENTION_VIEW_SUFFIX}\)[ \t]*(?:\n|$)`);
 const BOARD_LINE_START = new RegExp(String.raw`^@\[[^\]\n]{1,80}\]\(board:\d+${MENTION_VIEW_SUFFIX}\)[ \t]*$`, 'm');
-const MENTION_START = new RegExp(String.raw`^@\[([^\]\n]{1,80})\]\((user|ticket|doc|board):(\d+)${MENTION_VIEW_SUFFIX}\)`);
+const MENTION_START = new RegExp(String.raw`^@\[([^\]\n]{1,80})\]\((user|ticket|doc|board|project):(\d+)${MENTION_VIEW_SUFFIX}\)`);
+
+/** Le texte d'une mention dit déjà les lignes citées (« Guide, l. 12-18 ») : on ne les répète pas. */
+const LINES_IN_LABEL = /\b(?:l|ll|lignes?|lines?)\.?\s*\d/i;
 
 function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews = true): Marked {
   const boardPreview: TokenizerAndRendererExtension = {
@@ -186,8 +191,8 @@ function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews
     tokenizer(src: string) {
       const match = BOARD_LINE.exec(src);
       const view = boardMentionView(match?.[3]) ?? 'card';
-      // « Lien » : la mention reste une simple pastille, même seule sur sa ligne.
-      return match && view !== 'link' ? { type: 'boardPreview', raw: match[0], label: match[1], id: Number(match[2]), view } : undefined;
+      // « Lien » : la mention reste une simple pastille, même seule sur sa ligne ; de même pour des éléments cités.
+      return match && view !== 'link' && !citedElementsOf(match[3]) ? { type: 'boardPreview', raw: match[0], label: match[1], id: Number(match[2]), view } : undefined;
     },
     renderer: (token) => boardPreviewHtml(token.id as number, token.label as string, token.view as Exclude<BoardMentionView, 'link'>),
   };
@@ -198,7 +203,7 @@ function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews
     tokenizer(src: string) {
       const match = MENTION_START.exec(src);
       if (!match) return undefined;
-      return { type: 'mention', raw: match[0], label: match[1], kind: match[2], id: Number(match[3]) };
+      return { type: 'mention', raw: match[0], label: match[1], kind: match[2], id: Number(match[3]), suffix: match[4] ?? '' };
     },
     renderer(token) {
       const id = token.id as number;
@@ -206,11 +211,22 @@ function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews
         const name = resolver.userName(id) ?? (token.label as string);
         return `<a class="md-mention user" href="/users/${id}" data-user="${id}">@${escapeHtml(name)}</a>`;
       }
+      const label = token.label as string;
       if (token.kind === 'doc') {
-        return `<a class="md-mention doc" href="/documentation/f/${id}" data-doc="${id}">${escapeHtml(token.label as string)}</a>`;
+        const lines = citedLinesOf(token.suffix as string);
+        if (!lines) return `<a class="md-mention doc" href="/documentation/f/${id}" data-doc="${id}">${escapeHtml(label)}</a>`;
+        const param = linesParam(lines);
+        const shown = LINES_IN_LABEL.test(label) ? '' : `<span class="md-mention-lines">l. ${linesLabel(lines)}</span>`;
+        return `<a class="md-mention doc cited" href="/documentation/f/${id}?lines=${param}" data-doc="${id}" data-lines="${param}">${escapeHtml(label)}${shown}</a>`;
       }
       if (token.kind === 'board') {
-        return `<a class="md-mention board" href="/tableaux/t/${id}" data-board="${id}">${escapeHtml(token.label as string)}</a>`;
+        const elements = citedElementsOf(token.suffix as string);
+        if (!elements) return `<a class="md-mention board" href="/tableaux/t/${id}" data-board="${id}">${escapeHtml(label)}</a>`;
+        const param = elements.join(',');
+        return `<a class="md-mention board cited" href="/tableaux/t/${id}?elements=${param}" data-board="${id}" data-elements="${param}">${escapeHtml(label)}</a>`;
+      }
+      if (token.kind === 'project') {
+        return `<a class="md-mention project" href="/p/${id}" data-project="${id}">${escapeHtml(label)}</a>`;
       }
       const ticket = resolver.ticketLabel(id, token.label as string);
       return ticket

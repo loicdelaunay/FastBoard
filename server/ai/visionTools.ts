@@ -180,6 +180,7 @@ export const VISION_TOOLS: ToolDefinition[] = [
       if (!tool.render) throw badRequest('Le panneau ne peut pas dessiner le tableau ici.');
       const { node } = requireBoard(tool.ctx, tool.user, Number(args.board));
       const elements = readBoardElements(tool.ctx, node);
+      tool.cite({ kind: 'board', id: node.id, label: boardTitle(node.path), detail: node.path });
       const placed = elements.filter(isPlaced);
       if (!placed.length) return { board: { id: node.id, title: boardTitle(node.path) }, empty: true };
       const region = regionOf(elements, args);

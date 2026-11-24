@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.21.0';
+export const APP_VERSION = '2.22.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,13 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.22.0',
+    date: '2026-11-24',
+    changes: [
+      { category: 'Nouveauté', text: 'Assistant IA : il cite ce dont il parle par des liens qui ouvrent l’élément (ticket, projet, note, tableau blanc), et liste sous sa réponse les sources qu’il a lues. Il cite au besoin des lignes précises d’une note, qui s’ouvre sur ces lignes surlignées (en lecture comme en écriture), ou des éléments d’un tableau, qui s’ouvre sur eux. Ces liens s’écrivent aussi à la main : `@[Guide](doc:12#L4-9)`, `@[Schéma](board:7#el:…)`.' },
+    ],
+  },
   {
     version: '2.21.0',
     date: '2026-11-24',

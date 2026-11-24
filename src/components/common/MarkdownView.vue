@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, type RouteLocationRaw } from 'vue-router';
 import { useTicketRoute } from '@/composables/useTicketRoute';
 import { useProjectStore } from '@/stores/project';
+import { citationRoute } from '@/utils/citations';
 import { mountBoardEmbeds } from '@/utils/boardEmbed';
 import { highlightCodeBlocks } from '@/utils/codeHighlight';
 import { renderMarkdown, renderMermaid, type MentionResolver } from '@/utils/markdown';
@@ -19,6 +20,8 @@ const props = defineProps<{
   prepare?: (text: string) => string;
   finish?: (html: string) => string;
   openTicketWith?: (ticketId: number) => void;
+  /** Ouvre une note, un tableau, une personne ou un projet mentionné (par défaut : dans cette page). */
+  navigate?: (location: RouteLocationRaw) => void;
 }>();
 
 const project = useProjectStore();
@@ -55,9 +58,14 @@ function onClick(event: MouseEvent): void {
   if (!target) return;
   event.preventDefault();
   event.stopPropagation();
-  if (target.dataset.user) void router.push({ name: 'user', params: { id: target.dataset.user } });
-  else if (target.dataset.doc) void router.push({ name: 'doc-file', params: { nodeId: target.dataset.doc } });
-  else if (target.dataset.ticket) (props.openTicketWith ?? openTicket)(Number(target.dataset.ticket));
+  const go = props.navigate ?? ((location: RouteLocationRaw) => void router.push(location));
+  if (target.dataset.ticket) {
+    (props.openTicketWith ?? openTicket)(Number(target.dataset.ticket));
+    return;
+  }
+  // Personne, note (sur ses lignes citées), tableau blanc (sur ses éléments cités), projet.
+  const location = target.dataset.user ? { name: 'user', params: { id: target.dataset.user } } : citationRoute(target);
+  if (location) go(location);
 }
 </script>
 
@@ -279,6 +287,20 @@ function onClick(event: MouseEvent): void {
 }
 .markdown .md-mention.ticket {
   font-size: 0.9em;
+}
+/* Lignes citées d'une note (« l. 12–18 »), après son nom. */
+.markdown .md-mention-lines {
+  margin-left: 0.3rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.markdown .md-mention.cited.board::after {
+  content: '\ea32';
+  margin-left: 0.3rem;
+  font-family: primeicons;
+  font-size: 0.75em;
+  font-weight: 400;
 }
 /* Tableau blanc cité seul sur sa ligne : son aperçu. */
 .markdown .md-board {

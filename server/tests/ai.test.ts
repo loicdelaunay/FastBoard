@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
-import { contextOfItems, guessCapabilities, parseAiImageRef, REASONING_PRESETS, reasoningPresetOf, type AiChangeDTO, type AiRenderRequest, type AiStreamEvent } from '../../shared/ai.ts';
+import { contextOfItems, guessCapabilities, numberLines, parseAiImageRef, REASONING_PRESETS, reasoningPresetOf, type AiChangeDTO, type AiRenderRequest, type AiStreamEvent } from '../../shared/ai.ts';
 import { writeSetting } from '../services/appSettings.ts';
 import { bootServer, TestClient } from './helpers.ts';
 
@@ -253,6 +253,8 @@ describe('assistant IA', () => {
     assert.equal((await bob.get(`/api/tickets/${ids.ticket}`)).body.ticket.title, 'Paiement par carte');
     const read = await chat(vera, 'outil:get_ticket {"ticket":"BTQ-1"}', { projectId: ids.project, ticketId: ids.ticket });
     assert.ok(String(read.body).includes('remboursement'), 'la lecture est permise');
+    const sources = events(read.body).flatMap((event) => (event.type === 'source' ? [event.source] : []));
+    assert.deepEqual(sources, [{ kind: 'ticket', id: ids.ticket, label: 'BTQ-1 — Paiement par carte', detail: 'Boutique', projectId: ids.project }], 'le ticket lu est une source, avec son projet');
     assert.ok(String(read.body).includes('subTickets'), 'les sous-tickets sont lus');
   });
 
@@ -536,11 +538,25 @@ describe('assistant IA', () => {
       assert.ok(system.includes('« Guides/Installation.md »') && system.includes('Guide technique'));
       assert.ok(toolNames().includes('read_doc') && !toolNames().includes('edit_doc'), 'en lecture seule, pas d’outil d’écriture');
 
-      await chat(bob, `outil:read_doc {"note":${noteId}}`, { docNodeId: noteId });
+      const stream = events((await chat(bob, `outil:read_doc {"note":${noteId}}`, { docNodeId: noteId })).body);
       const read = toolOutput();
       assert.equal(read.path, 'Guides/Installation.md');
-      assert.equal(read.content, CONTENT);
+      assert.equal(read.firstLine, 1);
+      assert.equal(read.content, numberLines(CONTENT), 'chaque ligne porte son numéro, pour être citée');
+      assert.ok(read.content.startsWith('1│ # Guide\n2│ \n3│ Installer'));
       assert.deepEqual(read.outline, ['# Guide', '## Suite']);
+      assert.deepEqual(
+        stream.filter((event) => event.type === 'source'),
+        [{ type: 'source', source: { kind: 'doc', id: noteId, label: 'Installation', detail: 'Guides/Installation.md' } }],
+        'la note lue figure dans les sources',
+      );
+      const rules = provider.requests.at(-1)!.body.messages[0]!.content as string;
+      assert.ok(rules.includes(`@[Titre](doc:ID#L12-18)`) && rules.includes('@[Titre](board:ID#el:id1,id2)'), 'le modèle sait citer des lignes et des éléments');
+
+      // Lecture par tranches : la numérotation continue où la tranche commence.
+      await chat(bob, `outil:read_doc {"note":${noteId},"offset":${CONTENT.indexOf('## Suite')}}`);
+      assert.equal(toolOutput().firstLine, 5);
+      assert.ok(toolOutput().content.startsWith('5│ ## Suite'));
 
       await chat(bob, `outil:read_doc {"note":"Guides/Installation","spaceId":${spaceId}}`);
       assert.equal(toolOutput().id, noteId, 'une note se désigne aussi par son chemin');
@@ -593,6 +609,16 @@ describe('assistant IA', () => {
       assert.ok((await nodeText(noteId)).includes('serveur de production'));
       const versions = (await bob.get(`/api/documentation/nodes/${noteId}/versions`)).body.versions;
       assert.equal(versions[0].origin, 'ai');
+    });
+
+    it('ignore les numéros de ligne recopiés de read_doc dans une retouche', async () => {
+      const before = await nodeText(noteId);
+      const line = before.split('\n').findIndex((text) => text.startsWith('Installer')) + 1;
+      const stream = events((await chat(bob, `outil:edit_doc ${JSON.stringify({ note: noteId, old: `${line}│ ${before.split('\n')[line - 1]}`, new: `${line}│ Installer le serveur de recette.` })}`, {}, true)).body);
+      assert.equal(changesOf(stream)[0]?.state, 'applied');
+      const after = await nodeText(noteId);
+      assert.ok(after.includes('\nInstaller le serveur de recette.\n'), 'le texte est retouché, sans les numéros');
+      assert.ok(!after.includes('│'));
     });
 
     it('explique pourquoi un passage ne convient pas', async () => {

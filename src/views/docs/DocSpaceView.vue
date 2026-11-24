@@ -10,6 +10,7 @@ import Menu from 'primevue/menu';
 import Tag from 'primevue/tag';
 import Select from 'primevue/select';
 import type { MenuItem } from 'primevue/menuitem';
+import { citedLinesFromQuery, linesLabel, linesParam } from '@shared/citations';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
 import { docBaseName, docParent, docTitle, type DocLinksDTO, type DocNodeDTO } from '@shared/docs';
 import { docOutline } from '@shared/docOutline';
@@ -40,6 +41,7 @@ import { DocSession } from '@/realtime/docSession';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
 import { downloadFrom } from '@/utils/files';
+import { clearCitedBlocks, markCitedBlocks } from '@/utils/citedPreview';
 import { markdownBlocks } from '@/utils/markdown';
 import { formatDateTime, formatRelative } from '@/utils/format';
 import { notify, notifyError } from '@/utils/notify';
@@ -350,16 +352,19 @@ function previewAnchors(): { pane: HTMLElement; anchors: Array<{ line: number; y
   return { pane, anchors };
 }
 
+/** Hauteur, dans le contenu de l'aperçu, de la ligne `line` du source (interpolée entre deux repères). */
+function lineY(anchors: ReadonlyArray<{ line: number; y: number }>, line: number): number {
+  const index = Math.max(0, anchors.findLastIndex((anchor) => anchor.line <= line));
+  const from = anchors[index]!;
+  const to = anchors[Math.min(index + 1, anchors.length - 1)]!;
+  return to.line > from.line ? from.y + ((line - from.line) / (to.line - from.line)) * (to.y - from.y) : from.y;
+}
+
 /** Amène la ligne `line` du source (décimale : une partie de la ligne) à la hauteur `ratio` de l'aperçu. */
 function scrollPreviewToLine(line: number, ratio: number): void {
   const found = previewAnchors();
   if (!found) return;
-  const { pane, anchors } = found;
-  const index = Math.max(0, anchors.findLastIndex((anchor) => anchor.line <= line));
-  const from = anchors[index]!;
-  const to = anchors[Math.min(index + 1, anchors.length - 1)]!;
-  const y = to.line > from.line ? from.y + ((line - from.line) / (to.line - from.line)) * (to.y - from.y) : from.y;
-  pane.scrollTop = Math.max(0, y - ratio * pane.clientHeight);
+  found.pane.scrollTop = Math.max(0, lineY(found.anchors, line) - ratio * found.pane.clientHeight);
 }
 
 /** Ligne du source (décimale) affichée en haut de l'aperçu : l'inverse de `scrollPreviewToLine`. */
@@ -438,9 +443,80 @@ watch([() => follow.following.value, synced, mode, writing, () => selected.value
 
 /** Notre première action dans la note (clic, molette, touche) nous rend la main. */
 function onFollowAction(event: Event): void {
+  // On reprend la main : les lignes citées ne ramènent plus l'écran sur elles.
+  citedScroll = false;
   if (follow.following.value === null) return;
   if (event instanceof KeyboardEvent && ['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
   follow.stop();
+}
+
+// --- Lignes citées (lien d'une citation, `?lines=12-18`) : surlignées et amenées à l'écran ---
+const cited = computed(() => {
+  const file = queryFile();
+  return file !== null && file === selected.value?.id ? citedLinesFromQuery(route.query.lines) : null;
+});
+const citedKey = computed(() => (cited.value ? `${selected.value?.id}:${linesParam(cited.value)}` : ''));
+const citedCount = computed(() => cited.value?.reduce((sum, range) => sum + range.to - range.from + 1, 0) ?? 0);
+/** Tant que l'on n'a pas repris la main, le surlignage ramène l'écran sur les lignes (le rendu se précise peu à peu). */
+let citedScroll = false;
+let citedTimers: number[] = [];
+let citedContentTimer: number | undefined;
+
+/** Surligne les lignes citées dans l'éditeur et dans l'aperçu ; avec `scroll`, les amène en haut de l'écran. */
+function showCited(scroll: boolean): void {
+  const ranges = cited.value;
+  if (writing.value) editor.value?.citeLines(ranges, scroll);
+  const pane = previewPane.value;
+  const root = pane?.querySelector<HTMLElement>('.doc-preview .markdown');
+  if (!pane || !root) return;
+  if (!ranges) {
+    clearCitedBlocks(root);
+    return;
+  }
+  const marked = markCitedBlocks(root, content.value, obsidian.value, ranges);
+  const found = marked.length ? null : previewAnchors();
+  if (found) {
+    // Rendu qui ne suit pas le texte bloc à bloc : une bande placée d'après la hauteur des lignes.
+    const origin = pane.getBoundingClientRect().top - pane.scrollTop;
+    const rootTop = root.getBoundingClientRect().top - origin;
+    root.classList.add('md-cited-root');
+    for (const range of ranges) {
+      const top = lineY(found.anchors, range.from);
+      const band = document.createElement('div');
+      band.className = 'md-cited-band wide';
+      band.style.top = `${top - rootTop}px`;
+      band.style.height = `${Math.max(18, lineY(found.anchors, range.to + 1) - top)}px`;
+      root.append(band);
+    }
+  }
+  if (!scroll || writing.value) return;
+  const first = marked[0] ?? root.querySelector<HTMLElement>('.md-cited-band');
+  if (first) pane.scrollTop += first.getBoundingClientRect().top - pane.getBoundingClientRect().top - 72;
+}
+
+/** Plusieurs passages : le texte, les images et les schémas se dessinent peu à peu. */
+function scheduleCited(scroll: boolean): void {
+  citedTimers.forEach((timer) => window.clearTimeout(timer));
+  citedScroll = scroll;
+  citedTimers = [60, 350, 900].map((delay) => window.setTimeout(() => showCited(citedScroll), delay));
+}
+watch([citedKey, synced], () => scheduleCited(Boolean(cited.value)));
+// Autre mode, aperçu ouvert ou fermé : le surlignage suit, sans déplacer l'écran.
+watch([mode, writing, showPreview], () => scheduleCited(false));
+// Le rendu de la lecture est refait quand le texte change : le surlignage aussi (le rendu suit la frappe de peu).
+watch(content, () => {
+  if (!cited.value || writing.value) return;
+  window.clearTimeout(citedContentTimer);
+  citedContentTimer = window.setTimeout(() => showCited(false), 400);
+});
+
+function revealCited(): void {
+  scheduleCited(true);
+}
+
+function dismissCited(): void {
+  const { lines: _lines, ...rest } = route.query;
+  void router.replace({ query: rest });
 }
 
 // Le rendu change avec le texte : on recale l'aperçu sur le curseur une fois l'aperçu redessiné.
@@ -1040,6 +1116,12 @@ const recent = computed(() =>
                 <div class="follow-frame" :style="{ '--follow': follow.followed.value.color }"></div>
                 <FollowPill class="follow-banner" :name="follow.followed.value.name" :color="follow.followed.value.color" @stop="follow.stop()" />
               </template>
+              <div v-if="cited" class="cited-banner" :class="{ raised: follow.followed.value }" role="status">
+                <i class="pi pi-bookmark"></i>
+                <span>{{ $t('Ligne {lines} citée|Lignes {lines} citées', { n: citedCount, lines: linesLabel(cited) }) }}</span>
+                <button type="button" class="cited-action" @click="revealCited">{{ $t('Revoir') }}</button>
+                <button type="button" class="cited-close" :aria-label="$t('Ne plus surligner')" @click="dismissCited"><i class="pi pi-times"></i></button>
+              </div>
               <DocFindBar
                 v-if="find.open.value"
                 :ref="setFindBar"
@@ -1411,6 +1493,49 @@ const recent = computed(() =>
   pointer-events: none;
 }
 /* En bas, au-dessus de la barre des liens et du compte des mots ; le haut est pris par les outils de l'éditeur. */
+/* En bas à gauche : le panneau de l'assistant, d'où vient souvent la citation, couvre la droite. */
+.cited-banner {
+  position: absolute;
+  bottom: 3.1rem;
+  left: 1.2rem;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: max-content;
+  max-width: calc(100% - 2rem);
+  padding: 0.3rem 0.35rem 0.3rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--fb-accent) 45%, var(--fb-border));
+  border-radius: 999px;
+  background: var(--fb-panel);
+  box-shadow: var(--fb-shadow-lg);
+  color: var(--fb-text);
+  font-size: 0.85rem;
+}
+.cited-banner.raised {
+  bottom: 5.8rem;
+}
+.cited-banner > .pi {
+  color: var(--fb-accent);
+}
+.cited-action,
+.cited-close {
+  padding: 0.15rem 0.5rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--fb-accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cited-close {
+  color: var(--fb-muted);
+}
+.cited-action:hover,
+.cited-close:hover {
+  background: var(--fb-accent-soft);
+}
 .follow-banner {
   position: absolute;
   bottom: 3.1rem;

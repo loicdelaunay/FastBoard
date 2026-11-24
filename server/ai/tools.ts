@@ -348,6 +348,7 @@ export const TOOLS: ToolDefinition[] = [
     run: (tool, args) => {
       const access = canRead(tool, Number(args.projectId));
       const snapshot = buildSnapshot(tool.ctx.db, access);
+      tool.cite({ kind: 'project', id: snapshot.project.id, label: snapshot.project.name, detail: snapshot.project.key });
       const byStatus = Object.fromEntries(snapshot.project.settings.columns.map((column) => [column.status, { label: column.label, count: snapshot.tickets.filter((ticket) => ticket.status === column.status).length }]));
       return {
         id: snapshot.project.id,
@@ -409,7 +410,9 @@ export const TOOLS: ToolDefinition[] = [
     run: (tool, args) => {
       const row = resolveTicket(tool, args.ticket);
       const access = canRead(tool, row.project_id);
-      return ticketDetail(tool, getTicketDTO(tool.ctx.db, row.id), namesOf(tool, access));
+      const ticket = getTicketDTO(tool.ctx.db, row.id);
+      tool.cite({ kind: 'ticket', id: ticket.id, label: `${ticketKeyOf(tool.ctx.db, row)} — ${clip(ticket.title, 80)}`, detail: access.project.name, projectId: row.project_id });
+      return ticketDetail(tool, ticket, namesOf(tool, access));
     },
   },
   {

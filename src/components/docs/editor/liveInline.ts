@@ -27,7 +27,8 @@ export interface LiveInlineOptions {
   /** Adresse d'une image écrite dans la note, ou `null` si elle est introuvable. */
   imageUrl: (target: string) => string | null;
   /** Nom à afficher pour une mention. */
-  mentionLabel: (kind: string, id: number, label: string) => string;
+  /** `suffix` : ce qui suit le `#` de la mention (lignes citées d'une note…). */
+  mentionLabel: (kind: string, id: number, label: string, suffix: string) => string;
   /** Suit un lien rendu (adresse, note, mention) ; vrai s'il a été suivi. */
   follow: (element: HTMLElement, event: MouseEvent) => boolean;
 }
@@ -278,7 +279,7 @@ const hidden = Decoration.replace({});
 const mark = (className: string, attributes?: Record<string, string>) => Decoration.mark({ class: className, ...(attributes ? { attributes } : {}) });
 const line = (className: string) => Decoration.line({ class: className });
 
-const MENTION_URL = /^(user|ticket|doc|board):(\d+)(?:#([a-z]{1,12}))?$/;
+const MENTION_URL = /^(user|ticket|doc|board|project):(\d+)(?:#([A-Za-z0-9:,_-]{1,400}))?$/;
 const WIKI = /(!?)\[\[([^\]\n]+?)\]\]/g;
 const HIGHLIGHT = /==(?!=)(?=\S)(.+?\S)\s*==/g;
 const COMMENT = /%%.*?%%/g;
@@ -442,7 +443,17 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
                   swap(from - 1, to, new BoardWidget(Number(mention[2]), label, to - from + 1, shown));
                   return false;
                 }
-                swap(from - 1, to, new TextWidget(options.mentionLabel(mention[1]!, Number(mention[2]), label), `cm-lp-mention ${mention[1]}`, { 'data-kind': mention[1]!, 'data-id': mention[2]!, ...(mention[1] === 'ticket' ? { 'data-ticket': mention[2]! } : {}), ...(mention[1] === 'board' ? { 'data-board': mention[2]! } : {}) }));
+                swap(
+                  from - 1,
+                  to,
+                  new TextWidget(options.mentionLabel(mention[1]!, Number(mention[2]), label, mention[3] ?? ''), `cm-lp-mention ${mention[1]}`, {
+                    'data-kind': mention[1]!,
+                    'data-id': mention[2]!,
+                    ...(mention[3] ? { 'data-suffix': mention[3] } : {}),
+                    ...(mention[1] === 'ticket' ? { 'data-ticket': mention[2]! } : {}),
+                    ...(mention[1] === 'board' ? { 'data-board': mention[2]! } : {}),
+                  }),
+                );
               }
               return false;
             }

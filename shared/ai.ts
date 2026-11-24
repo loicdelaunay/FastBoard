@@ -213,6 +213,40 @@ export interface AiChatRequest {
   canRender?: boolean;
 }
 
+/**
+ * Source consultée par l'assistant pour répondre (ticket, note, tableau blanc, projet) : le panneau la liste sous la
+ * réponse, cliquable.
+ */
+export interface AiSourceDTO {
+  kind: 'ticket' | 'doc' | 'board' | 'project';
+  id: number;
+  /** Ce qui s'affiche : clé et titre d'un ticket, titre d'une note… */
+  label: string;
+  /** Précision (chemin d'une note, espace…). */
+  detail?: string;
+  /** Projet d'un ticket : pour l'ouvrir sans détour. */
+  projectId?: number;
+}
+
+/** Séparateur entre le numéro d'une ligne et son texte dans ce que lit l'assistant (`12│ texte`). */
+export const LINE_MARK = '│';
+
+/** Texte numéroté ligne à ligne, à partir de `first` : ce que l'assistant lit d'une note, pour en citer des lignes. */
+export function numberLines(text: string, first = 1): string {
+  return text
+    .split('\n')
+    .map((line, index) => `${first + index}${LINE_MARK} ${line}`)
+    .join('\n');
+}
+
+/** Retire les numéros de ligne qu'un modèle aurait recopiés (chaque ligne non vide en porte un) ; sinon, le texte tel quel. */
+export function withoutLineNumbers(text: string): string {
+  const lines = text.split('\n');
+  const mark = new RegExp(`^\\s*\\d+${LINE_MARK} ?`);
+  if (!lines.some((line) => line.trim()) || !lines.every((line) => !line.trim() || mark.test(line))) return text;
+  return lines.map((line) => line.replace(mark, '')).join('\n');
+}
+
 /** Image que l'assistant peut lire : fichier de la documentation, image d'un tableau blanc, pièce jointe d'un ticket. */
 export type AiImageSource = { kind: 'doc'; id: number } | { kind: 'asset'; key: string } | { kind: 'attachment'; id: number };
 
@@ -309,6 +343,8 @@ export type AiStreamEvent =
   | { type: 'thought'; id: string; text: string }
   /** Modification faite ou proposée. */
   | { type: 'change'; change: AiChangeDTO }
+  /** Source consultée (une fois par élément) : listée sous la réponse. */
+  | { type: 'source'; source: AiSourceDTO }
   /** Réponse finale (Markdown). */
   | { type: 'message'; content: string }
   | { type: 'error'; message: string }
@@ -328,6 +364,8 @@ export const AI_LIMITS = {
   imagesPerMessage: 4,
   /** Images que l'assistant peut regarder pendant une réponse (vues de tableaux, images lues). */
   viewsPerAnswer: 10,
+  /** Sources listées sous une réponse (tickets, notes, tableaux, projets lus). */
+  sourcesPerAnswer: 30,
   /** Largeur par défaut et maximale d'une vue de tableau dessinée pour le modèle (en pixels). */
   renderWidth: 1400,
   renderWidthMax: 2048,
