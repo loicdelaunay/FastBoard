@@ -226,6 +226,8 @@ export const componentSchemas: Record<string, Schema> = {
     updatedBy: nullable(int()),
     deletedAt: nullable(dateTime('Mise à la corbeille.')),
     memo: str('Note libre : à quoi sert ce fichier ou ce dossier.'),
+    icon: nullable(str('Dossier : son icône (classe PrimeIcons) ; `null` : le dossier habituel.')),
+    color: nullable(str('Dossier : la couleur de son icône (`#RRGGBB`) ; `null` : celle par défaut.')),
   }),
   DocMember: obj({ userId: int(), role: str('', { enum: ['reader', 'editor', 'owner'] }) }),
   BoardShare: obj({

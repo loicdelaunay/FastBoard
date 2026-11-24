@@ -9,6 +9,7 @@ import type { MenuItem } from 'primevue/menuitem';
 import { docBaseName, docParent, docTitle, type DocNodeDTO } from '@shared/docs';
 import { useDocsStore } from '@/stores/docs';
 import { matchesQuery } from '@/utils/search';
+import { folderIcon, folderIconStyle } from '@/utils/docFolders';
 
 import { t } from '@/i18n';
 /**
@@ -35,6 +36,8 @@ const emit = defineEmits<{
   import: [node: DocNodeDTO | null];
   info: [node: DocNodeDTO];
   memo: [node: DocNodeDTO];
+  /** Icône et couleur d'un dossier. */
+  style: [node: DocNodeDTO];
   /** Masque la colonne des fichiers. */
   collapse: [];
 }>();
@@ -347,6 +350,7 @@ const menuItems = computed<MenuItem[]>(() => {
         { label: t('Nouvelle note'), icon: 'pi pi-file-plus', command: () => emit('create', 'markdown', folder) },
         { label: t('Nouveau dossier'), icon: 'pi pi-folder-plus', command: () => emit('create', 'folder', folder) },
         ...(node ? [{ label: t('Renommer'), icon: 'pi pi-pencil', command: () => emit('rename', node) }] : []),
+        ...(node?.kind === 'folder' ? [{ label: t('Icône et couleur…'), icon: 'pi pi-palette', command: () => emit('style', node) }] : []),
         ...(node?.kind === 'markdown' ? [{ label: t('Enregistrer comme modèle'), icon: 'pi pi-clone', command: () => emit('saveAsTemplate', node) }] : []),
         { separator: true },
       ]
@@ -460,7 +464,7 @@ function dropOn(folder: string): void {
             @click="revealRow(row)"
           >
             <button type="button" class="chevron" tabindex="-1" :aria-label="$t('Replier')" @click.stop="toggle(row.node)"><i class="pi pi-chevron-down"></i></button>
-            <i class="pi pi-folder-open kind folder"></i>
+            <i :class="folderIcon(row.node, true)" :style="folderIconStyle(row.node)" class="kind folder"></i>
             <span class="name truncate">{{ docBaseName(row.node.path) }}</span>
           </div>
         </div>
@@ -492,7 +496,7 @@ function dropOn(folder: string): void {
         <button v-if="row.node.kind === 'folder'" type="button" class="chevron" tabindex="-1" :aria-label="row.open ? $t('Replier') : $t('Déplier')" @click.stop="toggle(row.node)">
           <i class="pi" :class="row.open ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
         </button>
-        <i :class="[row.node.kind === 'folder' && row.open ? 'pi pi-folder-open' : ICONS[row.node.kind], row.node.kind]" class="kind"></i>
+        <i :class="[row.node.kind === 'folder' ? folderIcon(row.node, row.open) : ICONS[row.node.kind], row.node.kind]" :style="row.node.kind === 'folder' ? folderIconStyle(row.node) : undefined" class="kind"></i>
         <span class="name truncate">{{ row.node.kind === 'markdown' ? docTitle(row.node.path) : docBaseName(row.node.path) }}</span>
         <i v-if="row.node.memo" class="pi pi-comment mark" aria-hidden="true"></i>
         <i v-if="store.bookmarked.has(row.node.id)" class="pi pi-star-fill mark star" :aria-label="$t('Favori')"></i>

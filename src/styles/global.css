@@ -555,3 +555,9 @@ button {
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
+
+/* Un interrupteur garde toujours sa taille : son contenu est en position absolue, si bien que dans une ligne flex, un
+   long texte voisin pouvait l'écraser jusqu'à le couper (réglages du projet, recherche sémantique des espaces…). */
+.p-toggleswitch {
+  flex: none;
+}

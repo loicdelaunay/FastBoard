@@ -25,6 +25,7 @@ import DocHistoryDialog from '@/components/docs/DocHistoryDialog.vue';
 import DocImportDialog from '@/components/docs/DocImportDialog.vue';
 import DocMembersDialog from '@/components/docs/DocMembersDialog.vue';
 import DocNodeInfoDialog from '@/components/docs/DocNodeInfoDialog.vue';
+import DocFolderStyleDialog from '@/components/docs/DocFolderStyleDialog.vue';
 import DocOutline from '@/components/docs/DocOutline.vue';
 import DocPreview from '@/components/docs/DocPreview.vue';
 import DocSidePanel from '@/components/docs/DocSidePanel.vue';
@@ -825,6 +826,18 @@ function showInfo(node: DocNodeDTO, view: 'info' | 'memo'): void {
   infoOpen.value = true;
 }
 
+// --- Icône et couleur d'un dossier ---
+const styleNode = ref<DocNodeDTO | null>(null);
+const styleOpen = ref(false);
+function askStyle(node: DocNodeDTO): void {
+  styleNode.value = node;
+  styleOpen.value = true;
+}
+/** Sans attendre l'arbre diffusé par le serveur, qui arrive aussitôt après (le même dossier, idempotent). */
+function applyFolderStyle(node: DocNodeDTO): void {
+  store.nodes = store.nodes.map((entry) => (entry.id === node.id ? node : entry));
+}
+
 // --- Export et réimport ---
 const importOpen = ref(false);
 const importNode = ref<DocNodeDTO | null>(null);
@@ -1172,6 +1185,7 @@ const recent = computed(() =>
         @import="askImport"
         @info="showInfo($event, 'info')"
         @memo="showInfo($event, 'memo')"
+        @style="askStyle"
         @collapse="treeHidden = true"
       />
       <footer class="space-foot">
@@ -1493,6 +1507,7 @@ const recent = computed(() =>
     <DocSpaceDialog v-model:visible="settingsOpen" :space="store.space" @saved="store.reload(spaceId)" />
     <DocSiteDialog v-model:visible="siteOpen" :space="store.space" @saved="store.reload(spaceId)" />
     <DocNodeInfoDialog v-model:visible="infoOpen" :node="infoNode" :mode="infoMode" :can-edit="store.canEdit" />
+    <DocFolderStyleDialog v-model:visible="styleOpen" :node="styleNode" @saved="applyFolderStyle" />
   </div>
 
   <div v-else class="page muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>

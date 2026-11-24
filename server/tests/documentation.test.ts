@@ -55,7 +55,7 @@ describe('chemins de la documentation', () => {
 });
 
 describe('liens entre les fichiers d’un espace', () => {
-  const node = (id: number, path: string, kind: DocNodeDTO['kind'] = 'markdown'): DocNodeDTO => ({ id, spaceId: 1, path, kind, size: 0, updatedAt: '', updatedBy: null, deletedAt: null, memo: '' });
+  const node = (id: number, path: string, kind: DocNodeDTO['kind'] = 'markdown'): DocNodeDTO => ({ id, spaceId: 1, path, kind, size: 0, updatedAt: '', updatedBy: null, deletedAt: null, memo: '', icon: null, color: null });
   const nodes = [node(1, 'Guides', 'folder'), node(2, 'Guides/Installation.md'), node(3, 'Guides/images/schéma 1.png', 'image'), node(4, 'Accueil.md'), node(5, 'Autre/Installation.md')];
 
   it('réécrit les liens wiki, sauf dans le code', () => {

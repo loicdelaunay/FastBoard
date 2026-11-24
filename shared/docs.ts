@@ -67,7 +67,7 @@ export interface WikiDTO {
   name: string;
   description: string;
   obsidian: boolean;
-  nodes: Array<Pick<DocNodeDTO, 'id' | 'path' | 'kind'>>;
+  nodes: Array<Pick<DocNodeDTO, 'id' | 'path' | 'kind' | 'icon' | 'color'>>;
   updatedAt: string;
   /** Espace à ouvrir pour « Modifier cette page » : seulement pour qui peut y écrire. */
   editSpaceId: number | null;
@@ -131,7 +131,27 @@ export interface DocNodeDTO {
   deletedAt: string | null;
   /** Note libre : à quoi sert ce fichier ou ce dossier. */
   memo: string;
+  /** Dossier : son icône (classe PrimeIcons, parmi `DOC_FOLDER_ICONS`), `null` pour le dossier habituel. */
+  icon: string | null;
+  /** Dossier : la couleur de son icône (`#RRGGBB`), `null` pour celle par défaut. */
+  color: string | null;
 }
+
+/** Icônes proposées pour un dossier de la documentation (PrimeIcons). */
+export const DOC_FOLDER_ICONS = [
+  'pi pi-folder', 'pi pi-book', 'pi pi-bookmark', 'pi pi-briefcase', 'pi pi-box', 'pi pi-inbox', 'pi pi-warehouse', 'pi pi-home',
+  'pi pi-building', 'pi pi-users', 'pi pi-user', 'pi pi-id-card', 'pi pi-graduation-cap', 'pi pi-lightbulb', 'pi pi-sparkles', 'pi pi-star',
+  'pi pi-heart', 'pi pi-flag', 'pi pi-trophy', 'pi pi-crown', 'pi pi-gift', 'pi pi-megaphone', 'pi pi-comments', 'pi pi-envelope',
+  'pi pi-calendar', 'pi pi-clock', 'pi pi-history', 'pi pi-check-circle', 'pi pi-exclamation-triangle', 'pi pi-question-circle', 'pi pi-info-circle', 'pi pi-verified',
+  'pi pi-code', 'pi pi-microchip', 'pi pi-server', 'pi pi-database', 'pi pi-cloud', 'pi pi-desktop', 'pi pi-mobile', 'pi pi-sitemap',
+  'pi pi-cog', 'pi pi-wrench', 'pi pi-hammer', 'pi pi-shield', 'pi pi-lock', 'pi pi-key', 'pi pi-globe', 'pi pi-language',
+  'pi pi-map', 'pi pi-compass', 'pi pi-truck', 'pi pi-send', 'pi pi-palette', 'pi pi-image', 'pi pi-images', 'pi pi-video',
+  'pi pi-file', 'pi pi-file-edit', 'pi pi-file-pdf', 'pi pi-chart-bar', 'pi pi-chart-line', 'pi pi-chart-pie', 'pi pi-objects-column', 'pi pi-th-large',
+  'pi pi-list', 'pi pi-tags', 'pi pi-ticket', 'pi pi-receipt', 'pi pi-wallet', 'pi pi-money-bill', 'pi pi-shopping-cart', 'pi pi-search',
+] as const;
+
+/** Couleurs proposées pour un dossier ; toute couleur `#RRGGBB` est acceptée. */
+export const DOC_FOLDER_COLORS = ['#3b82f6', '#0ea5e9', '#14b8a6', '#10b981', '#84cc16', '#f59e0b', '#f97316', '#ef4444', '#ec4899', '#8b5cf6', '#6366f1', '#64748b'] as const;
 
 export interface DocMemberDTO {
   userId: number;

@@ -833,6 +833,13 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE UNIQUE INDEX idx_board_versions_tag ON board_versions (board_id, tag COLLATE NOCASE) WHERE tag IS NOT NULL;
     `);
   },
+  // 31 — Apparence des dossiers de la documentation : une icône (PrimeIcons) et une couleur, `NULL` pour celles par défaut.
+  (db) => {
+    db.exec(`
+      ALTER TABLE doc_nodes ADD COLUMN icon TEXT;
+      ALTER TABLE doc_nodes ADD COLUMN color TEXT;
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

@@ -41,6 +41,8 @@ import {
   saveDocSettings,
   setMember,
   setMemo,
+  setFolderStyle,
+  nodeDTO,
   storeImage,
   updateSpace,
   writeContent,
@@ -48,7 +50,7 @@ import {
 } from '../docs/store.ts';
 import { badRequest, conflict, notFound } from '../http/errors.ts';
 import { actorOf, csrfGuard, currentUser, requireAuth, sessionOnly } from '../http/middleware.ts';
-import { docCommentResolveSchema, docCommentSchema, docContentSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemoSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSiteSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema, tagSearchSchema, versionTagSchema, versionTagUpdateSchema } from '../http/schemas.ts';
+import { docCommentResolveSchema, docCommentSchema, docContentSchema, docFolderStyleSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemoSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSiteSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema, tagSearchSchema, versionTagSchema, versionTagUpdateSchema } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal } from '../services/access.ts';
 import { appInfo } from '../services/appSettings.ts';
@@ -290,7 +292,7 @@ export function documentationRouter(ctx: AppContext): Router {
 
   router.get('/documentation/nodes/:id', (req, res) => {
     const { node, role } = nodeAccess(res, idParam(req.params.id));
-    res.json({ node: { id: node.id, spaceId: node.space_id, path: node.path, kind: node.kind, size: node.size, updatedAt: node.updated_at, updatedBy: node.updated_by, deletedAt: node.deleted_at, memo: node.memo }, role, content: isTextNode(node) && !node.deleted_at ? (ctx.docRooms.currentText(node.id) ?? readText(ctx, node)) : null });
+    res.json({ node: nodeDTO(node), role, content: isTextNode(node) && !node.deleted_at ? (ctx.docRooms.currentText(node.id) ?? readText(ctx, node)) : null });
   });
 
   router.put('/documentation/nodes/:id/content', (req, res) => {
@@ -338,6 +340,11 @@ export function documentationRouter(ctx: AppContext): Router {
   router.put('/documentation/nodes/:id/memo', (req, res) => {
     const { node } = nodeAccess(res, idParam(req.params.id), 'editor');
     res.json({ node: setMemo(ctx, node.id, parse(docMemoSchema, req.body).memo) });
+  });
+
+  router.put('/documentation/nodes/:id/style', (req, res) => {
+    const { node } = nodeAccess(res, idParam(req.params.id), 'editor');
+    res.json({ node: setFolderStyle(ctx, node.id, parse(docFolderStyleSchema, req.body)) });
   });
 
   router.put('/documentation/nodes/:id/bookmark', (req, res) => {

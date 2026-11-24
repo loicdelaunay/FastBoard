@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.25.0';
+export const APP_VERSION = '2.26.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.26.0',
+    date: '2026-11-24',
+    changes: [
+      { category: 'Nouveauté', text: 'Documentation : un dossier peut changer d’icône et de couleur (clic droit, « Icône et couleur… ») pour se repérer d’un coup d’œil dans l’arbre ; le site web de l’espace les reprend.' },
+      { category: 'Correction', text: 'Les interrupteurs ne sont plus écrasés ni coupés à côté d’un long texte (recherche sémantique d’un projet ou d’un espace, réglages, HTTPS…), et l’administration ne déborde plus de l’écran sur téléphone.' },
+    ],
+  },
   {
     version: '2.25.0',
     date: '2026-11-24',

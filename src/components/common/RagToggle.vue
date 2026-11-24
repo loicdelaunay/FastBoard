@@ -31,12 +31,8 @@ const enabled = defineModel<boolean>({ required: true });
   flex-direction: column;
   gap: 0.15rem;
 }
-.text strong {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
 .text .pi {
+  margin-right: 0.3rem;
   color: var(--fb-accent);
   font-size: 0.85rem;
 }

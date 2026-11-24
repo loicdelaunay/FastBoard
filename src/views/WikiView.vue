@@ -39,6 +39,9 @@ type WikiNode = DocNodeDTO;
 interface Section {
   path: string;
   name: string;
+  /** Icône et couleur choisies pour le dossier dans la documentation (`null` : celles par défaut). */
+  icon: string | null;
+  color: string | null;
   notes: WikiNode[];
   folders: Section[];
 }
@@ -53,18 +56,18 @@ const home = computed(() => notes.value.find((node) => !node.path.includes('/') 
 
 const byTitle = (a: WikiNode, b: WikiNode): number => docTitle(a.path).localeCompare(docTitle(b.path), undefined, { sensitivity: 'base', numeric: true });
 const tree = computed<Section>(() => {
-  const root: Section = { path: '', name: '', notes: [], folders: [] };
+  const root: Section = { path: '', name: '', icon: null, color: null, notes: [], folders: [] };
   const sections = new Map<string, Section>([['', root]]);
   const ensure = (path: string): Section => {
     const known = sections.get(path);
     if (known) return known;
-    const section: Section = { path, name: docBaseName(path), notes: [], folders: [] };
+    const section: Section = { path, name: docBaseName(path), icon: null, color: null, notes: [], folders: [] };
     ensure(docParent(path)).folders.push(section);
     sections.set(path, section);
     return section;
   };
   for (const node of nodes.value) {
-    if (node.kind === 'folder') ensure(node.path);
+    if (node.kind === 'folder') Object.assign(ensure(node.path), { icon: node.icon, color: node.color });
     else if (node.kind === 'markdown') ensure(docParent(node.path)).notes.push(node);
   }
   // Un dossier sans page (images seulement, ou vide) n'a pas sa place dans le menu.
@@ -490,7 +493,7 @@ onBeforeUnmount(() => {
         </section>
         <section v-if="sections.length || looseNotes.length" class="cards">
           <a v-for="entry in sections" :key="entry.folder.path" :href="entry.first ? pageHref(entry.first) : homeHref" class="card" @click.prevent="open(entry.first)">
-            <span class="card-icon"><i class="pi pi-folder-open"></i></span>
+            <span class="card-icon" :style="entry.folder.color ? { color: entry.folder.color, background: `color-mix(in srgb, ${entry.folder.color} 14%, transparent)` } : undefined"><i :class="entry.folder.icon ?? 'pi pi-folder-open'"></i></span>
             <strong class="card-title">{{ entry.folder.name }}</strong>
             <span class="muted small">{{ $t('{n} page|{n} pages', { n: entry.count }) }}</span>
             <ul class="card-pages">
@@ -519,6 +522,7 @@ onBeforeUnmount(() => {
           <ul class="menu-list">
             <li v-for="row in rows" :key="row.key" :style="{ '--depth': row.depth }">
               <button v-if="row.section" type="button" class="menu-item folder" :class="{ category: row.depth === 0, current: activeSection === row.section.path }" :aria-expanded="row.open" @click="toggleFolder(row.section.path)">
+                <i v-if="row.section.icon || row.section.color" :class="row.section.icon ?? 'pi pi-folder'" :style="row.section.color ? { color: row.section.color } : undefined" class="folder-icon" aria-hidden="true"></i>
                 <span class="truncate">{{ row.section.name }}</span>
                 <i class="pi chevron" :class="row.open ? 'pi-chevron-down' : 'pi-chevron-right'"></i>
               </button>
@@ -860,6 +864,11 @@ a.card:hover {
   box-shadow: 0 12px 28px -12px color-mix(in srgb, var(--fb-accent) 40%, transparent);
   transform: translateY(-2px);
 }
+.folder-icon {
+  flex: none;
+  color: var(--fb-muted);
+  font-size: 0.85em;
+}
 .card-icon {
   display: grid;
   place-items: center;
@@ -971,6 +980,10 @@ a.card:hover .card-more .pi {
   justify-content: space-between;
   color: var(--fb-text);
   font-weight: 500;
+}
+.menu-item.folder .truncate {
+  flex: 1;
+  text-align: left;
 }
 .menu-item.category {
   margin-top: 0.6rem;

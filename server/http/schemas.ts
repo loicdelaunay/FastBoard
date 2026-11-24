@@ -8,7 +8,7 @@ import { BOARD_ICON_LIMITS, BOARD_LIMITS, BOARD_SHARE_AUDIENCES, BOARD_SHARE_LIM
 import { LIMITS, NOTIFICATION_LEVELS, TICKET_STATUSES } from '../../shared/constants.ts';
 import { isISODate } from '../../shared/dates.ts';
 import { DOC_COMMENT_LIMITS } from '../../shared/docComments.ts';
-import { DOC_LIMITS, DOC_ROLES, DOC_SITE_VISIBILITIES, normalizeImageFolder } from '../../shared/docs.ts';
+import { DOC_FOLDER_ICONS, DOC_LIMITS, DOC_ROLES, DOC_SITE_VISIBILITIES, normalizeImageFolder } from '../../shared/docs.ts';
 import { LDAP_LIMITS, LDAP_PROFILES, LDAP_SECURITY, LDAP_USER_TOKEN } from '../../shared/ldap.ts';
 import { RAG_FORMATS, RAG_LIMITS } from '../../shared/rag.ts';
 import { VERSION_TAG_LIMITS } from '../../shared/versionTags.ts';
@@ -625,6 +625,10 @@ export const docNodeSchema = z.object({
 export const docMoveSchema = z.object({ path: z.string().min(1).max(1000).describe('Nouveau chemin (renommage ou déplacement).') });
 export const docContentSchema = z.object({ content: z.string().max(DOC_LIMITS.fileChars) });
 export const docMemoSchema = z.object({ memo: z.string().max(DOC_LIMITS.memoMax).describe('À quoi sert ce fichier ou ce dossier (vide pour effacer).') });
+export const docFolderStyleSchema = z.object({
+  icon: z.enum(DOC_FOLDER_ICONS).nullable().optional().describe('Icône du dossier (PrimeIcons) ; `null` : le dossier habituel ; absente : inchangée.'),
+  color: color.nullable().optional().describe('Couleur de l’icône, `#RRGGBB` ; `null` : celle par défaut ; absente : inchangée.'),
+});
 export const docSiteSchema = z.object({
   visibility: z.enum(DOC_SITE_VISIBILITIES).describe('`members` : membres de l’espace ; `people` : personnes choisies et propriétaires ; `public` : tout le monde, sans compte.'),
   people: z.array(id).max(200).default([]).describe('Personnes qui peuvent lire le site (`people`).'),

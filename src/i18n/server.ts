@@ -245,6 +245,7 @@ const EXACT: Record<string, string> = {
   'Le message est vide.': 'The message is empty.',
   'Donnez un nom au jeton.': 'Give the token a name.',
   'Donnez un nom à l’étiquette.': 'Give the tag a name.',
+  'Seuls les dossiers ont une icône et une couleur.': 'Only folders have an icon and a colour.',
   'Une autre version porte déjà cette étiquette.': 'Another version already has this tag.',
   'Livraison introuvable.': 'Delivery not found.',
   'Membre introuvable.': 'Member not found.',

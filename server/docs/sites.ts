@@ -105,7 +105,7 @@ export function wikiTree(ctx: AppContext, request: IncomingMessage, site: WikiSi
     name: site.name,
     description: site.description,
     obsidian: site.obsidian === 1,
-    nodes: listNodes(ctx.db, site.space_id).map((node) => ({ id: node.id, path: node.path, kind: node.kind })),
+    nodes: listNodes(ctx.db, site.space_id).map((node) => ({ id: node.id, path: node.path, kind: node.kind, icon: node.icon, color: node.color })),
     updatedAt: site.space_updated,
   };
 }

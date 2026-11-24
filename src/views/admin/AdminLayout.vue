@@ -90,7 +90,8 @@ nav {
 }
 @media (max-width: 760px) {
   .admin {
-    grid-template-columns: 1fr;
+    /* `minmax(0, …)` : sinon la colonne s'élargit à toute la rangée d'onglets, et la page déborde de l'écran. */
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr);
   }
   .side {

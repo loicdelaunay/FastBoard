@@ -427,6 +427,7 @@ export const api = {
   docNode: (nodeId: number) => http<{ node: DocNodeDTO; role: DocRole; content: string | null }>('GET', `/documentation/nodes/${nodeId}`),
   docNodeInfo: (nodeId: number) => http<DocNodeInfoDTO>('GET', `/documentation/nodes/${nodeId}/info`),
   docSetMemo: (nodeId: number, memo: string) => http<{ node: DocNodeDTO }>('PUT', `/documentation/nodes/${nodeId}/memo`, { body: { memo } }),
+  docSetFolderStyle: (nodeId: number, style: { icon?: string | null; color?: string | null }) => http<{ node: DocNodeDTO }>('PUT', `/documentation/nodes/${nodeId}/style`, { body: style }),
   docBookmarks: () => http<{ bookmarks: DocBookmarkDTO[] }>('GET', '/documentation/bookmarks'),
   docSetBookmark: (nodeId: number, on: boolean) => http<{ bookmarks: DocBookmarkDTO[] }>(on ? 'PUT' : 'DELETE', `/documentation/nodes/${nodeId}/bookmark`),
   docSite: (spaceId: number) => http<{ site: DocSiteDTO | null }>('GET', `/documentation/spaces/${spaceId}/site`),

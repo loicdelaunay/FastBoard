@@ -35,6 +35,8 @@ export interface NodeRow {
   updated_at: string;
   deleted_at: string | null;
   memo: string;
+  icon: string | null;
+  color: string | null;
 }
 
 export interface VersionRow {
@@ -50,7 +52,7 @@ export interface VersionRow {
 }
 
 /** Tout sauf le texte cherchable, qui pèse autant que la note. */
-const NODE_COLUMNS = 'id, space_id, path, kind, size, updated_by, updated_at, deleted_at, memo';
+const NODE_COLUMNS = 'id, space_id, path, kind, size, updated_by, updated_at, deleted_at, memo, icon, color';
 
 /** Dossier des fichiers mis à la corbeille (images), hors de l'arbre visible. */
 const TRASH = '.trash';
@@ -86,7 +88,7 @@ export function requireDocsEnabled(db: Db): void {
 }
 
 function toNodeDTO(row: NodeRow): DocNodeDTO {
-  return { id: row.id, spaceId: row.space_id, path: row.path, kind: row.kind, size: row.size, updatedAt: row.updated_at, updatedBy: row.updated_by, deletedAt: row.deleted_at, memo: row.memo };
+  return { id: row.id, spaceId: row.space_id, path: row.path, kind: row.kind, size: row.size, updatedAt: row.updated_at, updatedBy: row.updated_by, deletedAt: row.deleted_at, memo: row.memo, icon: row.icon, color: row.color };
 }
 
 export function nodeDTO(row: NodeRow): DocNodeDTO {
@@ -812,6 +814,18 @@ export function setMemo(ctx: AppContext, nodeId: number, memo: string): DocNodeD
   const node = requireNode(ctx.db, nodeId);
   if (node.deleted_at) throw conflict('Cet élément est dans la corbeille.');
   ctx.db.run('UPDATE doc_nodes SET memo = ? WHERE id = ?', memo.trim().slice(0, DOC_LIMITS.memoMax), nodeId);
+  ctx.docRooms.publishTree(node.space_id);
+  return toNodeDTO(requireNode(ctx.db, nodeId));
+}
+
+/** Icône et couleur d'un dossier dans l'arbre (et sur le site web de l'espace) ; `null` : celles par défaut, absent : inchangée. */
+export function setFolderStyle(ctx: AppContext, nodeId: number, style: { icon?: string | null; color?: string | null }): DocNodeDTO {
+  const node = requireNode(ctx.db, nodeId);
+  if (node.kind !== 'folder') throw badRequest('Seuls les dossiers ont une icône et une couleur.');
+  if (node.deleted_at) throw conflict('Cet élément est dans la corbeille.');
+  const icon = style.icon === undefined ? node.icon : style.icon === 'pi pi-folder' ? null : style.icon;
+  const color = style.color === undefined ? node.color : (style.color?.toLowerCase() ?? null);
+  ctx.db.run('UPDATE doc_nodes SET icon = ?, color = ? WHERE id = ?', icon, color, nodeId);
   ctx.docRooms.publishTree(node.space_id);
   return toNodeDTO(requireNode(ctx.db, nodeId));
 }
