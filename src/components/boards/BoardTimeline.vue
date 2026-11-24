@@ -3,10 +3,12 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
+import Select from 'primevue/select';
 import Slider from 'primevue/slider';
 import { useConfirm } from 'primevue/useconfirm';
 import { BOARD_LIMITS, diffElements, type BoardElement, type BoardNodeDTO, type BoardVersionDTO } from '@shared/boards';
 import type { UserSummaryDTO } from '@shared/types';
+import { VERSION_TAG_LIMITS } from '@shared/versionTags';
 import { api } from '@/api';
 import { t } from '@/i18n';
 import { BoardSnapshotSession, type BoardSessionLike } from '@/realtime/boardSession';
@@ -27,12 +29,14 @@ const props = defineProps<{
   canEdit: boolean;
   users: UserSummaryDTO[];
   isTemplate?: boolean;
+  /** Version à montrer d'abord (mention d'une version étiquetée) ; sinon la plus récente. */
+  initialVersion?: number | null;
 }>();
 const emit = defineEmits<{ close: []; forked: [node: BoardNodeDTO] }>();
 const confirm = useConfirm();
 
 /** Arrêt de la frise : une version, ou l'état actuel quand il n'est pas encore noté dans l'historique. */
-type Stop = BoardVersionDTO | { id: null; createdAt: null; userId: null; kind: 'edit'; elementCount: number };
+type Stop = BoardVersionDTO | { id: null; createdAt: null; userId: null; kind: 'edit'; elementCount: number; tag: null; taggedAt: null };
 
 const liveElements = (): BoardElement[] => [...props.session.elements.values()];
 const snapshot = new BoardSnapshotSession(props.boardId, liveElements());
@@ -60,15 +64,19 @@ async function elementsOf(entry: Stop): Promise<BoardElement[]> {
   return elements;
 }
 
-async function load(): Promise<void> {
+/** Charge la frise ; `keep` : rester sur cette version (après une étiquette), sinon la version demandée ou la dernière. */
+async function load(keep: number | null = null): Promise<void> {
   loading.value = true;
   try {
     const history = await api.boardVersions(props.boardId);
     currentVersionId.value = history.currentVersionId;
     // L'état à l'écran n'est pas encore une version (modification en cours d'enregistrement) : il ferme la frise.
-    const now: Stop[] = history.currentVersionId === null ? [{ id: null, createdAt: null, userId: null, kind: 'edit', elementCount: props.session.elements.size }] : [];
+    const now: Stop[] = history.currentVersionId === null ? [{ id: null, createdAt: null, userId: null, kind: 'edit', elementCount: props.session.elements.size, tag: null, taggedAt: null }] : [];
     stops.value = [...history.versions, ...now];
-    position.value = Math.max(0, stops.value.length - 1);
+    const wanted = keep ?? props.initialVersion ?? null;
+    const at = wanted === null ? -1 : stops.value.findIndex((entry) => entry.id === wanted);
+    if (wanted !== null && at < 0 && keep === null) notify('warn', t('Version introuvable'), t('Elle a peut-être quitté l’historique : voici la plus récente.'));
+    position.value = at >= 0 ? at : Math.max(0, stops.value.length - 1);
   } catch (error) {
     notifyError(error, t('Historique indisponible'));
     emit('close');
@@ -121,7 +129,7 @@ function stopPlay(): void {
 
 function onKey(event: KeyboardEvent): void {
   const target = event.target as HTMLElement | null;
-  if (forkOpen.value || target?.closest('input, textarea, [contenteditable="true"], .p-dialog, .p-confirmdialog')) return;
+  if (forkOpen.value || tagOpen.value || target?.closest('input, textarea, [contenteditable="true"], .p-dialog, .p-confirmdialog')) return;
   if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
     event.preventDefault();
     stopPlay();
@@ -140,6 +148,63 @@ onBeforeUnmount(() => {
 });
 
 const when = (entry: Stop | undefined): string => (entry?.createdAt ? formatDateTime(entry.createdAt) : t('Maintenant'));
+
+// --- Étiquettes : une version nommée reste dans l'historique et se cite avec @ ---
+const taggedStops = computed(() => stops.value.filter((entry): entry is BoardVersionDTO => entry.id !== null && Boolean(entry.tag)));
+const tagOptions = computed(() => taggedStops.value.map((entry) => ({ value: entry.id, label: `${entry.tag} · ${formatDateTime(entry.createdAt)}` })));
+const tagJump = computed({
+  get: () => (stop.value?.id && stop.value.tag ? stop.value.id : null),
+  set: (id: number | null) => {
+    const at = stops.value.findIndex((entry) => entry.id === id);
+    if (at >= 0) {
+      stopPlay();
+      position.value = at;
+    }
+  },
+});
+const tagOpen = ref(false);
+const tagName = ref('');
+function askTag(): void {
+  stopPlay();
+  tagName.value = stop.value?.tag ?? '';
+  tagOpen.value = true;
+}
+async function saveTag(): Promise<void> {
+  const entry = stop.value;
+  const name = tagName.value.trim();
+  if (!entry || !name) return;
+  busy.value = true;
+  try {
+    // L'arrêt « Maintenant » n'est pas encore une version : le serveur la crée.
+    const { version } = entry.id !== null && entry.tag ? await api.boardSetVersionTag(props.boardId, entry.id, name) : await api.boardTagVersion(props.boardId, name, entry.id);
+    tagOpen.value = false;
+    notify('success', t('Version étiquetée « {name} »', { name }), t('Elle reste dans l’historique et se cite avec @.'));
+    await load(version.id);
+  } catch (error) {
+    notifyError(error, t('Étiquette non enregistrée'));
+  } finally {
+    busy.value = false;
+  }
+}
+async function untag(): Promise<void> {
+  const entry = stop.value;
+  if (!entry || entry.id === null || !entry.tag) return;
+  busy.value = true;
+  try {
+    await api.boardSetVersionTag(props.boardId, entry.id, null);
+    notify('info', t('Étiquette retirée'), t('Cette version suit de nouveau la durée de conservation de l’historique.'));
+    await load(entry.id);
+  } catch (error) {
+    notifyError(error, t('Étiquette non retirée'));
+  } finally {
+    busy.value = false;
+  }
+}
+/** Revenir à la dernière version : le dernier arrêt de la frise. */
+function latest(): void {
+  stopPlay();
+  position.value = Math.max(0, stops.value.length - 1);
+}
 
 // --- Restaurer ---
 const busy = ref(false);
@@ -209,6 +274,7 @@ async function fork(): Promise<void> {
         <span v-tooltip.bottom="stop.createdAt ? formatRelative(stop.createdAt) : undefined">{{ when(stop) }}</span>
         <span v-if="author" class="muted">· {{ author }}</span>
         <span v-if="stop.kind === 'restore'" class="chip restore"><i class="pi pi-replay"></i> {{ $t('Restauration') }}</span>
+        <span v-if="stop.tag" v-tooltip.bottom="$t('Version étiquetée : jamais effacée de l’historique')" class="chip tagged"><i class="pi pi-tag"></i> {{ stop.tag }}</span>
         <span v-if="isCurrent" class="chip current">{{ $t('Version actuelle') }}</span>
         <template v-if="changes">
           <span v-if="changes.added.size" class="chip added">{{ $t('+{n} ajouté|+{n} ajoutés', { n: changes.added.size }) }}</span>
@@ -221,9 +287,9 @@ async function fork(): Promise<void> {
 
     <div class="scrubber board-ui">
       <p v-if="loading" class="muted small note"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</p>
-      <p v-else-if="stops.length < 2" class="muted small note">{{ $t('Pas encore d’autre version : l’historique se remplit au fil des modifications du tableau.') }}</p>
       <template v-else>
-        <div class="track">
+        <p v-if="stops.length < 2" class="muted small note">{{ $t('Pas encore d’autre version : l’historique se remplit au fil des modifications du tableau.') }}</p>
+        <div v-else class="track">
           <Button v-tooltip.top="playing ? $t('Pause') : $t('Faire défiler les versions')" :icon="playing ? 'pi pi-pause' : 'pi pi-play'" size="small" severity="secondary" text rounded :aria-label="playing ? $t('Pause') : $t('Faire défiler les versions')" @click="togglePlay" />
           <Button v-tooltip.top="$t('Version précédente (←)')" icon="pi pi-angle-left" size="small" severity="secondary" text rounded :disabled="position === 0" :aria-label="$t('Version précédente')" @click="(stopPlay(), step(-1))" />
           <Slider v-model="position" :min="0" :max="stops.length - 1" :step="1" class="slider" :aria-label="$t('Version affichée')" @slideend="stopPlay" />
@@ -235,15 +301,40 @@ async function fork(): Promise<void> {
             <input v-model="showChanges" type="checkbox" />
             <span>{{ $t('Entourer les changements') }}</span>
           </label>
+          <Select v-if="tagOptions.length" v-model="tagJump" :options="tagOptions" option-label="label" option-value="value" :placeholder="$t('Versions étiquetées')" size="small" class="tag-jump" :aria-label="$t('Versions étiquetées')">
+            <template #dropdownicon><i class="pi pi-tags"></i></template>
+          </Select>
+          <template v-if="canEdit">
+            <Button v-if="!stop?.tag" :label="$t('Étiqueter…')" icon="pi pi-tag" size="small" severity="secondary" text :disabled="busy" @click="askTag" />
+            <template v-else>
+              <Button :label="$t('Renommer l’étiquette…')" icon="pi pi-pencil" size="small" severity="secondary" text :disabled="busy" @click="askTag" />
+              <Button v-tooltip.top="$t('Retirer l’étiquette')" icon="pi pi-times" size="small" severity="secondary" text :aria-label="$t('Retirer l’étiquette')" :disabled="busy" @click="untag" />
+            </template>
+          </template>
           <span v-if="isCurrent" class="muted small">{{ $t('C’est l’état actuel du tableau.') }}</span>
-          <template v-else-if="canEdit">
+          <template v-else>
+            <span class="muted small readonly">{{ $t('Lecture seule : copiez cette version pour la modifier, ou repartez de la dernière version.') }}</span>
+            <Button :label="$t('Dernière version')" icon="pi pi-arrow-right" icon-pos="right" size="small" severity="secondary" text @click="latest" />
+          </template>
+          <template v-if="!isCurrent && canEdit">
             <Button :label="isTemplate ? $t('Copier dans un nouveau modèle…') : $t('Copier dans un nouveau tableau…')" icon="pi pi-clone" size="small" severity="secondary" outlined :disabled="busy" @click="askFork" />
             <Button :label="$t('Restaurer cette version…')" icon="pi pi-history" size="small" :loading="busy" @click="askRestore" />
           </template>
-          <span v-else class="muted small">{{ $t('Lecture seule : vous ne pouvez pas restaurer une version.') }}</span>
         </div>
       </template>
     </div>
+
+    <Dialog v-model:visible="tagOpen" modal :header="stop?.tag ? $t('Renommer l’étiquette') : $t('Étiqueter cette version')" :style="{ width: 'min(28rem, calc(100vw - 2rem))' }">
+      <form class="field" @submit.prevent="saveTag">
+        <label for="board-tag-name">{{ $t('Nom de l’étiquette') }}</label>
+        <InputText id="board-tag-name" v-model="tagName" :maxlength="VERSION_TAG_LIMITS.nameMax" :placeholder="$t('v1.0, Validé client…')" autofocus fluid />
+        <small class="muted">{{ $t('Une version étiquetée n’est jamais effacée de l’historique. Citez-la avec @ (son nom ou celui du tableau) : le lien l’ouvre ici, telle qu’elle était.') }}</small>
+      </form>
+      <template #footer>
+        <Button :label="$t('Annuler')" severity="secondary" text @click="tagOpen = false" />
+        <Button :label="$t('Étiqueter')" icon="pi pi-tag" :loading="busy" :disabled="!tagName.trim()" @click="saveTag" />
+      </template>
+    </Dialog>
 
     <Dialog v-model:visible="forkOpen" modal :header="isTemplate ? $t('Copier cette version dans un nouveau modèle') : $t('Copier cette version dans un nouveau tableau')" :style="{ width: 'min(30rem, calc(100vw - 2rem))' }">
       <p class="muted small fork-intro">{{ $t('Un nouveau tableau est créé à côté de celui-ci, avec le contenu du {when}. Le tableau actuel ne change pas.', { when: when(stop) }) }}</p>
@@ -313,6 +404,16 @@ async function fork(): Promise<void> {
   font-size: 0.78rem;
   font-weight: 600;
   white-space: nowrap;
+}
+.chip.tagged {
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  color: #b45309;
+}
+:global(.app-dark) .chip.tagged {
+  color: #fbbf24;
+}
+.tag-jump {
+  max-width: 14rem;
 }
 .chip.current {
   background: var(--fb-accent-soft);

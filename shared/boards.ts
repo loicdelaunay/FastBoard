@@ -41,6 +41,9 @@ export interface BoardVersionDTO {
   userId: number | null;
   kind: BoardVersionKind;
   elementCount: number;
+  /** Étiquette : version nommée, jamais effacée de l'historique. */
+  tag: string | null;
+  taggedAt: string | null;
 }
 
 /** Ce qui change entre deux états d'un tableau : identifiants ajoutés, modifiés et retirés. */

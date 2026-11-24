@@ -295,6 +295,15 @@ function onClick(event: MouseEvent): void {
   font-variant-numeric: tabular-nums;
   opacity: 0.75;
 }
+.markdown .md-mention-tag {
+  margin-left: 0.3rem;
+  font-size: 0.72em;
+  opacity: 0.8;
+}
+.markdown .md-board-tag {
+  color: var(--fb-accent);
+  font-size: 0.8em;
+}
 .markdown .md-mention.cited.board::after {
   content: '\ea32';
   margin-left: 0.3rem;

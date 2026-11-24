@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useConfirm } from 'primevue/useconfirm';
 import Button from 'primevue/button';
@@ -9,12 +9,13 @@ import InputText from 'primevue/inputtext';
 import Menu from 'primevue/menu';
 import Select from 'primevue/select';
 import type { MenuItem } from 'primevue/menuitem';
-import { citedLinesFromQuery, linesLabel, linesParam } from '@shared/citations';
+import { citedLinesFromQuery, linesLabel, linesParam, versionFromQuery } from '@shared/citations';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
-import { docBaseName, docParent, docTitle, type DocLinksDTO, type DocNodeDTO } from '@shared/docs';
+import { docBaseName, docParent, docTitle, type DocLinksDTO, type DocNodeDTO, type DocVersionDTO } from '@shared/docs';
 import { docOutline } from '@shared/docOutline';
 import { searchHasMarkdown } from '@shared/noteSearch';
 import { applyDocTemplate, DOC_TEMPLATE_VARIABLES } from '@shared/docTemplates';
+import { VERSION_TAG_LIMITS } from '@shared/versionTags';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import FollowPill from '@/components/common/FollowPill.vue';
@@ -914,6 +915,142 @@ async function insertTemplate(template: DocNodeDTO): Promise<void> {
 const membersOpen = ref(false);
 const trashOpen = ref(false);
 const historyOpen = ref(false);
+
+// --- Versions : sélecteur rapide, étiquettes, lecture d'une version (`?version=`) ---
+/** Version ouverte (lecture seule) : l'écriture passe par une copie, ou par le retour à la dernière version. */
+const versionId = computed(() => {
+  const file = queryFile();
+  return file !== null && file === selected.value?.id ? versionFromQuery(route.query.version) : null;
+});
+const versionView = shallowRef<{ id: number; content: string; version: DocVersionDTO } | null>(null);
+const noteVersions = ref<DocVersionDTO[]>([]);
+const versionMenu = ref<InstanceType<typeof Menu> | null>(null);
+
+watch(
+  versionId,
+  async (id) => {
+    if (!id) {
+      versionView.value = null;
+      return;
+    }
+    try {
+      const found = await api.docVersion(id);
+      if (versionId.value !== id) return;
+      if (found.node.id !== selected.value?.id) throw new Error(t('Version introuvable.'));
+      versionView.value = { id, content: found.content, version: found.version };
+    } catch (error) {
+      notifyError(error, t('Version introuvable'));
+      leaveVersion();
+    }
+  },
+  { immediate: true },
+);
+
+async function loadNoteVersions(): Promise<void> {
+  if (!selected.value || !isText(selected.value)) return;
+  try {
+    noteVersions.value = (await api.docVersions(selected.value.id)).versions;
+  } catch {
+    noteVersions.value = [];
+  }
+}
+
+function openVersion(id: number): void {
+  if (!selected.value) return;
+  void router.push({ query: { file: String(selected.value.id), version: String(id) } });
+}
+
+function leaveVersion(): void {
+  const { version: _version, ...rest } = route.query;
+  void router.replace({ query: rest });
+}
+
+const versionLabel = (version: DocVersionDTO): string => version.tag ?? t('Version du {date}', { date: formatDateTime(version.createdAt) });
+const tagged = computed(() => noteVersions.value.filter((version) => version.tag));
+
+/** Sélecteur : la dernière version, les versions étiquetées, les plus récentes, et de quoi étiqueter. */
+const versionItems = computed<MenuItem[]>(() => {
+  const current = versionView.value;
+  const items: MenuItem[] = [{ label: t('Dernière version'), icon: current ? 'pi pi-circle' : 'pi pi-check', command: () => leaveVersion() }];
+  if (tagged.value.length) {
+    items.push({ separator: true }, { label: t('Versions étiquetées'), disabled: true, class: 'menu-heading' });
+    for (const version of tagged.value) items.push({ label: `${version.tag} · ${formatDateTime(version.createdAt)}`, icon: current?.id === version.id ? 'pi pi-check' : 'pi pi-tag', command: () => openVersion(version.id) });
+  }
+  const recent = noteVersions.value.filter((version) => !version.tag).slice(0, 8);
+  if (recent.length) {
+    items.push({ separator: true }, { label: t('Versions récentes'), disabled: true, class: 'menu-heading' });
+    for (const version of recent) items.push({ label: `${formatDateTime(version.createdAt)}${version.authors.length ? ` · ${version.authors.join(', ')}` : ''}`, icon: current?.id === version.id ? 'pi pi-check' : 'pi pi-clock', command: () => openVersion(version.id) });
+  }
+  items.push({ separator: true });
+  if (store.canEdit) {
+    if (!current) items.push({ label: t('Étiqueter la version actuelle…'), icon: 'pi pi-tag', command: () => askTag(null, '') });
+    else if (current.version.tag) {
+      items.push({ label: t('Renommer l’étiquette…'), icon: 'pi pi-pencil', command: () => askTag(current.id, current.version.tag ?? '') });
+      items.push({ label: t('Retirer l’étiquette'), icon: 'pi pi-times', command: () => void untag(current.id) });
+    } else items.push({ label: t('Étiqueter cette version…'), icon: 'pi pi-tag', command: () => askTag(current.id, '') });
+  }
+  items.push({ label: t('Historique complet…'), icon: 'pi pi-history', command: () => (historyOpen.value = true) });
+  return items;
+});
+
+async function openVersionMenu(event: MouseEvent): Promise<void> {
+  versionMenu.value?.toggle(event);
+  await loadNoteVersions();
+}
+
+// Étiqueter : la version actuelle (`versionId` nul), ou celle qu'on regarde ; renommer si elle l'est déjà.
+const tagDialog = reactive({ open: false, name: '', versionId: null as number | null, saving: false });
+function askTag(versionId: number | null, name: string): void {
+  Object.assign(tagDialog, { open: true, name, versionId, saving: false });
+}
+async function saveTag(): Promise<void> {
+  const node = selected.value;
+  const name = tagDialog.name.trim();
+  if (!node || !name) return;
+  tagDialog.saving = true;
+  try {
+    const { version } = tagDialog.versionId && noteVersions.value.some((entry) => entry.id === tagDialog.versionId && entry.tag) ? await api.docSetVersionTag(tagDialog.versionId, name) : await api.docTagVersion(node.id, name, tagDialog.versionId);
+    tagDialog.open = false;
+    if (versionView.value?.id === version.id) versionView.value = { ...versionView.value, version };
+    await loadNoteVersions();
+    notify('success', t('Version étiquetée « {name} »', { name }), t('Elle reste dans l’historique et se cite avec @.'));
+  } catch (error) {
+    notifyError(error, t('Étiquette non enregistrée'));
+  } finally {
+    tagDialog.saving = false;
+  }
+}
+async function untag(versionId: number): Promise<void> {
+  try {
+    const { version } = await api.docSetVersionTag(versionId, null);
+    if (versionView.value?.id === version.id) versionView.value = { ...versionView.value, version };
+    await loadNoteVersions();
+    notify('info', t('Étiquette retirée'), t('Cette version suit de nouveau la durée de conservation de l’historique.'));
+  } catch (error) {
+    notifyError(error, t('Étiquette non retirée'));
+  }
+}
+
+/** Copier la version dans une nouvelle note, qu'on peut écrire : « Guide (v1.0) ». */
+const forking = ref(false);
+async function forkVersion(): Promise<void> {
+  const current = versionView.value;
+  if (!current) return;
+  forking.value = true;
+  try {
+    const { node } = await api.docForkVersion(current.id);
+    await store.reload(spaceId.value);
+    const created = allNodes.value.find((entry) => entry.id === node.id);
+    if (created) openNode(created);
+    notify('success', t('Copie créée'), t('« {name} » reprend cette version : vous pouvez l’écrire.', { name: docTitle(node.path) }));
+  } catch (error) {
+    notifyError(error, t('Copie impossible'));
+  } finally {
+    forking.value = false;
+  }
+}
+// Une autre note : ses versions se rechargent à l'ouverture du sélecteur.
+watch(() => selected.value?.id, () => (noteVersions.value = []));
 const settingsOpen = ref(false);
 const siteOpen = ref(false);
 const spaceMenu = ref<InstanceType<typeof Menu> | null>(null);
@@ -1103,9 +1240,22 @@ const recent = computed(() =>
             </button>
           </div>
           <template v-if="isText(selected)">
-            <span v-if="writing && savedAt" v-tooltip.bottom="formatDateTime(savedAt)" class="muted small saved"><i class="pi pi-check"></i> {{ $t('Enregistré') }}</span>
+            <span v-if="writing && savedAt && !versionView" v-tooltip.bottom="formatDateTime(savedAt)" class="muted small saved"><i class="pi pi-check"></i> {{ $t('Enregistré') }}</span>
             <span v-else-if="synced && !canWrite" class="muted small saved"><i class="pi pi-lock"></i> {{ $t('Lecture seule') }}</span>
-            <div v-if="canWrite" class="modes" role="radiogroup" :aria-label="$t('Mode d’affichage')">
+            <!-- Sélecteur de version : dernière version, versions étiquetées, récentes ; une ancienne s'ouvre en lecture seule. -->
+            <Button
+              v-tooltip.bottom="$t('Changer de version')"
+              :label="versionView ? versionLabel(versionView.version) : $t('Dernière version')"
+              :icon="versionView ? (versionView.version.tag ? 'pi pi-tag' : 'pi pi-history') : 'pi pi-tags'"
+              size="small"
+              text
+              :severity="versionView ? 'warn' : 'secondary'"
+              class="version-switch"
+              aria-haspopup="true"
+              @click="openVersionMenu"
+            />
+            <Menu ref="versionMenu" :model="versionItems" popup class="version-menu" />
+            <div v-if="canWrite && !versionView" class="modes" role="radiogroup" :aria-label="$t('Mode d’affichage')">
               <button v-for="option in modeOptions" :key="option.value" v-tooltip.bottom="option.label" type="button" class="mode" :class="{ active: mode === option.value }" role="radio" :aria-checked="mode === option.value" :aria-label="option.label" @click="chooseMode(option.value)">
                 <i :class="option.icon"></i>
               </button>
@@ -1156,6 +1306,26 @@ const recent = computed(() =>
             <Button v-if="store.canEdit" :label="$t('Nouvelle note')" icon="pi pi-file-plus" size="small" text @click="askCreate('markdown', '', selected.id)" />
           </div>
           <div v-if="!synced" class="waiting muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
+          <!-- Une version de l'historique : en lecture seule ; pour écrire, une copie ou la dernière version. -->
+          <div v-else-if="versionView" class="note-body version-body">
+            <div class="version-banner" role="status">
+              <i :class="versionView.version.tag ? 'pi pi-tag' : 'pi pi-history'"></i>
+              <span class="version-text">
+                <strong>{{ versionLabel(versionView.version) }}</strong>
+                <span class="muted small">
+                  {{ $t('Version du {date}', { date: formatDateTime(versionView.version.createdAt) }) }}<template v-if="versionView.version.authors.length"> · {{ versionView.version.authors.join(', ') }}</template>
+                </span>
+                <span class="small">{{ $t('Lecture seule : pour écrire, copiez cette version dans une nouvelle note, ou repartez de la dernière version.') }}</span>
+              </span>
+              <span class="version-actions">
+                <Button v-if="store.canEdit" :label="$t('Copier pour modifier')" icon="pi pi-clone" size="small" severity="secondary" outlined :loading="forking" @click="forkVersion" />
+                <Button :label="$t('Dernière version')" icon="pi pi-arrow-right" icon-pos="right" size="small" @click="leaveVersion" />
+              </span>
+            </div>
+            <div class="pane preview version-pane">
+              <DocPreview :text="versionView.content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="[]" :obsidian="obsidian" :editable="false" @open="openNode" />
+            </div>
+          </div>
           <div v-else class="note-body" :class="{ 'with-outline': showOutline }">
             <DocOutline v-if="showOutline" class="outline" :headings="headings" :active="activeHeading" @go="goToHeading" @close="outlineOpen = false" />
             <div ref="panes" class="panes" :class="{ split: writing && !live && showPreview, writing }" @pointerdown.capture="onFollowAction" @wheel.capture.passive="onFollowAction" @keydown.capture="onFollowAction">
@@ -1308,6 +1478,17 @@ const recent = computed(() =>
     <DocMembersDialog v-model:visible="membersOpen" :users="users" />
     <DocImportDialog v-model:visible="importOpen" :space-id="spaceId" :node="importNode" @done="store.reload(spaceId)" />
     <DocTrashDialog v-model:visible="trashOpen" :space-id="spaceId" />
+    <Dialog v-model:visible="tagDialog.open" modal :header="tagDialog.versionId ? $t('Étiqueter cette version') : $t('Étiqueter la version actuelle')" :style="{ width: 'min(28rem, calc(100vw - 2rem))' }">
+      <form class="tag-form" @submit.prevent="saveTag">
+        <label for="doc-tag-name">{{ $t('Nom de l’étiquette') }}</label>
+        <InputText id="doc-tag-name" v-model="tagDialog.name" :maxlength="VERSION_TAG_LIMITS.nameMax" :placeholder="$t('v1.0, Validé client…')" autofocus fluid />
+        <small class="muted">{{ $t('Une version étiquetée n’est jamais effacée de l’historique. Citez-la avec @ (son nom ou celui de la note) : le lien l’ouvre telle qu’elle était, en lecture seule.') }}</small>
+      </form>
+      <template #footer>
+        <Button :label="$t('Annuler')" severity="secondary" text @click="tagDialog.open = false" />
+        <Button :label="$t('Étiqueter')" icon="pi pi-tag" :loading="tagDialog.saving" :disabled="!tagDialog.name.trim()" @click="saveTag" />
+      </template>
+    </Dialog>
     <DocHistoryDialog v-if="selected && isText(selected)" v-model:visible="historyOpen" :node="selected" :nodes="store.nodes" :users="users" :can-restore="canWrite" :current="content" />
     <DocSpaceDialog v-model:visible="settingsOpen" :space="store.space" @saved="store.reload(spaceId)" />
     <DocSiteDialog v-model:visible="siteOpen" :space="store.space" @saved="store.reload(spaceId)" />
@@ -1538,6 +1719,56 @@ const recent = computed(() =>
 }
 /* En bas, au-dessus de la barre des liens et du compte des mots ; le haut est pris par les outils de l'éditeur. */
 /* En bas à gauche : le panneau de l'assistant, d'où vient souvent la citation, couvre la droite. */
+/* Version de l'historique, en lecture seule. */
+.note-body.version-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.version-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.9rem;
+  margin: 0.6rem 1rem 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid color-mix(in srgb, #f59e0b 45%, var(--fb-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, #f59e0b 10%, var(--fb-panel));
+}
+.version-banner > .pi {
+  color: #d97706;
+  font-size: 1.1rem;
+}
+.version-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 14rem;
+}
+.version-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.version-pane {
+  flex: 1;
+  min-height: 0;
+}
+.version-switch {
+  max-width: 14rem;
+}
+.version-switch :deep(.p-button-label) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
 .cited-banner {
   position: absolute;
   bottom: 3.1rem;

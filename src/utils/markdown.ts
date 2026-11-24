@@ -2,7 +2,7 @@ import DOMPurify from 'dompurify';
 import katex from 'katex';
 import { Marked, type Tokens, type TokenizerAndRendererExtension } from 'marked';
 import { boardMentionView, MENTION_VIEW_SUFFIX, type BoardMentionView } from '@shared/boards';
-import { citedElementsOf, citedLinesOf, linesLabel, linesParam } from '@shared/citations';
+import { citedElementsOf, citedLinesOf, citedVersionOf, linesLabel, linesParam } from '@shared/citations';
 import { headingKey } from '@shared/docLinks';
 import { headingTitle } from '@shared/docOutline';
 import { highlightColor, highlightMarker } from '@shared/docObsidian';
@@ -33,17 +33,21 @@ export interface RenderOptions {
  * Tableau blanc cité seul sur sa ligne. `card` : son nom et son aperçu, un clic l'ouvre ; `image` : son image seule ;
  * `embed` : une vue où l'on se déplace et où l'on zoome (rendue vivante par `mountBoardEmbeds`).
  */
-export function boardPreviewHtml(id: number, label: string, view: Exclude<BoardMentionView, 'link'> = 'card'): string {
+export function boardPreviewHtml(id: number, label: string, view: Exclude<BoardMentionView, 'link'> = 'card', version: number | null = null): string {
   const name = escapeHtml(label);
+  // Version étiquetée citée : son dessin, et le lien l'ouvre dans l'historique.
+  const versionQuery = version ? `&amp;version=${version}` : '';
+  const href = `/tableaux/t/${id}${version ? `?version=${version}` : ''}`;
+  const data = `data-board="${id}"${version ? ` data-version="${version}"` : ''}`;
   const image = (theme: 'light' | 'dark', width: number): string =>
-    `<img class="md-board-preview ${theme}" src="/api/boards/nodes/${id}/preview?width=${width}${theme === 'dark' ? '&amp;theme=dark' : ''}" alt="${name}" loading="lazy" draggable="false">`;
+    `<img class="md-board-preview ${theme}" src="/api/boards/nodes/${id}/preview?width=${width}${theme === 'dark' ? '&amp;theme=dark' : ''}${versionQuery}" alt="${name}" loading="lazy" draggable="false">`;
   const images = (width: number): string => image('light', width) + image('dark', width);
-  const head = `<i class="pi pi-objects-column"></i><span class="md-board-title">${name}</span><i class="pi pi-external-link md-board-open"></i>`;
-  if (view === 'image') return `<a class="md-board md-board-image" href="/tableaux/t/${id}" data-board="${id}" title="${name}">${images(1600)}</a>`;
+  const head = `<i class="pi pi-objects-column"></i><span class="md-board-title">${name}</span>${version ? '<i class="pi pi-tag md-board-tag"></i>' : ''}<i class="pi pi-external-link md-board-open"></i>`;
+  if (view === 'image') return `<a class="md-board md-board-image" href="${href}" ${data} title="${name}">${images(1600)}</a>`;
   if (view === 'embed') {
-    return `<div class="md-board md-board-embed" data-embed="${id}"><a class="md-board-head" href="/tableaux/t/${id}" data-board="${id}">${head}</a><div class="fb-board-view">${images(1600)}</div></div>`;
+    return `<div class="md-board md-board-embed" data-embed="${id}"><a class="md-board-head" href="${href}" ${data}>${head}</a><div class="fb-board-view">${images(1600)}</div></div>`;
   }
-  return `<a class="md-board" href="/tableaux/t/${id}" data-board="${id}"><span class="md-board-head">${head}</span>${images(960)}</a>`;
+  return `<a class="md-board" href="${href}" ${data}><span class="md-board-head">${head}</span>${images(960)}</a>`;
 }
 
 export function escapeHtml(text: string): string {
@@ -192,9 +196,9 @@ function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews
       const match = BOARD_LINE.exec(src);
       const view = boardMentionView(match?.[3]) ?? 'card';
       // « Lien » : la mention reste une simple pastille, même seule sur sa ligne ; de même pour des éléments cités.
-      return match && view !== 'link' && !citedElementsOf(match[3]) ? { type: 'boardPreview', raw: match[0], label: match[1], id: Number(match[2]), view } : undefined;
+      return match && view !== 'link' && !citedElementsOf(match[3]) ? { type: 'boardPreview', raw: match[0], label: match[1], id: Number(match[2]), view, version: citedVersionOf(match[3]) } : undefined;
     },
-    renderer: (token) => boardPreviewHtml(token.id as number, token.label as string, token.view as Exclude<BoardMentionView, 'link'>),
+    renderer: (token) => boardPreviewHtml(token.id as number, token.label as string, token.view as Exclude<BoardMentionView, 'link'>, (token.version as number | null) ?? null),
   };
   const mention: TokenizerAndRendererExtension = {
     name: 'mention',
@@ -212,6 +216,12 @@ function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews
         return `<a class="md-mention user" href="/users/${id}" data-user="${id}">@${escapeHtml(name)}</a>`;
       }
       const label = token.label as string;
+      // Version étiquetée citée (`doc:12#v:345`) : le lien ouvre cette version, en lecture seule.
+      const version = citedVersionOf(token.suffix as string);
+      if (version && (token.kind === 'doc' || token.kind === 'board')) {
+        const path = token.kind === 'doc' ? `/documentation/f/${id}` : `/tableaux/t/${id}`;
+        return `<a class="md-mention ${token.kind} versioned" href="${path}?version=${version}" data-${token.kind}="${id}" data-version="${version}">${escapeHtml(label)}<i class="pi pi-tag md-mention-tag"></i></a>`;
+      }
       if (token.kind === 'doc') {
         const lines = citedLinesOf(token.suffix as string);
         if (!lines) return `<a class="md-mention doc" href="/documentation/f/${id}" data-doc="${id}">${escapeHtml(label)}</a>`;

@@ -819,6 +819,20 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE INDEX idx_rag_chunks_container ON rag_chunks (kind, container_id);
     `);
   },
+  // 30 — Étiquettes de versions (notes et tableaux) : une version étiquetée a un nom, unique pour son élément, et n'est
+  // jamais effacée par la purge de l'historique.
+  (db) => {
+    db.exec(`
+      ALTER TABLE doc_versions ADD COLUMN tag TEXT;
+      ALTER TABLE doc_versions ADD COLUMN tagged_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE doc_versions ADD COLUMN tagged_at TEXT;
+      CREATE UNIQUE INDEX idx_doc_versions_tag ON doc_versions (node_id, tag COLLATE NOCASE) WHERE tag IS NOT NULL;
+      ALTER TABLE board_versions ADD COLUMN tag TEXT;
+      ALTER TABLE board_versions ADD COLUMN tagged_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE board_versions ADD COLUMN tagged_at TEXT;
+      CREATE UNIQUE INDEX idx_board_versions_tag ON board_versions (board_id, tag COLLATE NOCASE) WHERE tag IS NOT NULL;
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

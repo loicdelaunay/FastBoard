@@ -12,6 +12,7 @@ import { useProjectStore } from '@/stores/project';
 import { activeMentionQuery, mentionToken, type MentionKind } from '@/utils/mentions';
 import { matchesQuery } from '@/utils/search';
 import { ticketKey } from '@/utils/tickets';
+import type { VersionTagHitDTO } from '@shared/versionTags';
 
 /**
  * Zone de texte avec mentions : taper `@` propose les membres du projet, ses tickets et les fichiers de documentation ;
@@ -28,6 +29,8 @@ const app = useAppStore();
 const docFiles = ref<DocSearchHitDTO[]>([]);
 const foundTickets = ref<SearchTicketHit[]>([]);
 const foundBoards = ref<BoardSearchHitDTO[]>([]);
+/** Versions étiquetées des notes et des tableaux (`@Guide v1`). */
+const foundTags = ref<VersionTagHitDTO[]>([]);
 const peopleList = computed(() => props.people ?? project.users);
 const textarea = ref<{ $el: HTMLTextAreaElement } | null>(null);
 const mention = ref<{ start: number; query: string } | null>(null);
@@ -38,6 +41,8 @@ interface Suggestion {
   id: number;
   label: string;
   hint: string;
+  /** Version étiquetée d'une note ou d'un tableau : `v:345`. */
+  suffix?: string;
 }
 
 const suggestions = computed<Suggestion[]>(() => {
@@ -56,7 +61,8 @@ const suggestions = computed<Suggestion[]>(() => {
         .map((ticket): Suggestion => ({ kind: 'ticket', id: ticket.id, label: ticketKey(project.project, ticket), hint: ticket.title }));
   const docs = docFiles.value.slice(0, 4).map((file): Suggestion => ({ kind: 'doc', id: file.id, label: file.title, hint: `${file.spaceName} · ${file.path}` }));
   const boards = foundBoards.value.map((board): Suggestion => ({ kind: 'board', id: board.id, label: board.title, hint: `${t('Tableau blanc')} · ${board.spaceName}` }));
-  return [...users, ...tickets, ...docs, ...boards];
+  const tags = foundTags.value.slice(0, 4).map((hit): Suggestion => ({ kind: hit.kind, id: hit.id, label: `${hit.title} · ${hit.tag}`, hint: `${t('Version étiquetée')} · ${hit.spaceName}`, suffix: `v:${hit.versionId}` }));
+  return [...users, ...tickets, ...docs, ...boards, ...tags];
 });
 
 // Les fichiers de documentation viennent du serveur, après une courte pause dans la frappe.
@@ -69,6 +75,7 @@ watch(
       docFiles.value = [];
       foundTickets.value = [];
       foundBoards.value = [];
+      foundTags.value = [];
       return;
     }
     searchTimer = window.setTimeout(() => {
@@ -82,6 +89,9 @@ watch(
           if (mention.value?.query === query) foundBoards.value = result.boards;
         }, () => undefined);
       }
+      void Promise.all([app.info.docs ? api.docTags(query).catch(() => null) : null, app.info.boards ? api.boardTags(query).catch(() => null) : null]).then(([docs, boards]) => {
+        if (mention.value?.query === query) foundTags.value = [...(docs?.tags ?? []), ...(boards?.tags ?? [])];
+      });
       if (!app.info.docs) return;
       api.docSearch(query).then((result) => {
         if (mention.value?.query === query) docFiles.value = result.files;
@@ -105,7 +115,7 @@ function insert(suggestion: Suggestion): void {
   const el = element();
   if (!el || !mention.value) return;
   const caret = el.selectionStart ?? model.value.length;
-  const token = `${mentionToken(suggestion.kind, suggestion.id, suggestion.label)} `;
+  const token = `${mentionToken(suggestion.kind, suggestion.id, suggestion.label, null, suggestion.suffix)} `;
   model.value = model.value.slice(0, mention.value.start) + token + model.value.slice(caret);
   const position = mention.value.start + token.length;
   mention.value = null;
@@ -165,7 +175,7 @@ defineExpose({ focus: () => element()?.focus(), element });
     <ul v-if="mention && suggestions.length" class="suggestions" role="listbox" :aria-label="$t('Mentionner')">
       <li
         v-for="(suggestion, index) in suggestions"
-        :key="`${suggestion.kind}-${suggestion.id}`"
+        :key="`${suggestion.kind}-${suggestion.id}-${suggestion.suffix ?? ''}`"
         role="option"
         :aria-selected="index === highlighted"
         :class="{ active: index === highlighted }"
@@ -173,7 +183,7 @@ defineExpose({ focus: () => element()?.focus(), element });
         @mouseenter="highlighted = index"
       >
         <UserAvatar v-if="suggestion.kind === 'user'" :user="peopleList.find((user) => user.id === suggestion.id)" size="small" />
-        <i v-else :class="suggestion.kind === 'doc' ? 'pi pi-file' : suggestion.kind === 'board' ? 'pi pi-objects-column' : 'pi pi-ticket'" class="ticket-icon"></i>
+        <i v-else :class="suggestion.suffix ? 'pi pi-tag' : suggestion.kind === 'doc' ? 'pi pi-file' : suggestion.kind === 'board' ? 'pi pi-objects-column' : 'pi pi-ticket'" class="ticket-icon"></i>
         <strong class="truncate">{{ suggestion.label }}</strong>
         <span class="muted small truncate">{{ suggestion.hint }}</span>
       </li>

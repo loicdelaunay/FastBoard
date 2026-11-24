@@ -57,14 +57,14 @@ export function useDocLinks(nodes: () => readonly DocNodeDTO[], open: (node: Doc
       void router.push({ name: 'user', params: { id: link.dataset.user } });
     } else if (link.dataset.board) {
       event.preventDefault();
-      void router.push(boardCitationRoute(Number(link.dataset.board), citedElementsOf(link.dataset.elements ? `el:${link.dataset.elements}` : null)));
+      void router.push(boardCitationRoute(Number(link.dataset.board), citedElementsOf(link.dataset.elements ? `el:${link.dataset.elements}` : null), link.dataset.version ? Number(link.dataset.version) : null));
     } else if (link.dataset.project) {
       event.preventDefault();
       void router.push({ name: 'project', params: { projectId: link.dataset.project } });
-    } else if (link.dataset.doc && link.dataset.lines && !wantsNewTab(event)) {
-      // Lignes citées : la note s'ouvre, ces lignes surlignées.
+    } else if (link.dataset.doc && (link.dataset.lines || link.dataset.version) && !wantsNewTab(event)) {
+      // Lignes citées : la note s'ouvre, ces lignes surlignées ; version étiquetée : cette version, en lecture seule.
       event.preventDefault();
-      void router.push(docCitationRoute(Number(link.dataset.doc), citedLinesOf(`L${link.dataset.lines}`)));
+      void router.push(docCitationRoute(Number(link.dataset.doc), link.dataset.lines ? citedLinesOf(`L${link.dataset.lines}`) : null, link.dataset.version ? Number(link.dataset.version) : null));
     } else if (link.dataset.doc) {
       event.preventDefault();
       openNode(Number(link.dataset.doc), wantsNewTab(event));

@@ -154,6 +154,7 @@ function askSaveResult(): void {
         <li v-for="version in versions" :key="version.id">
           <button type="button" class="version" :class="{ active: version.id === selectedId }" @click="show(version)">
             <strong>{{ formatDateTime(version.createdAt) }}</strong>
+            <span v-if="version.tag" v-tooltip.top="$t('Version étiquetée : jamais effacée de l’historique')" class="tag-chip"><i class="pi pi-tag"></i> {{ version.tag }}</span>
             <span class="muted small">{{ originLabels[version.origin] }} · {{ formatBytes(version.size) }}</span>
             <span v-if="version.authors.length" class="muted small truncate">{{ version.authors.join(', ') }}</span>
           </button>
@@ -232,6 +233,25 @@ function askSaveResult(): void {
 }
 .version:hover {
   background: var(--fb-panel-alt);
+}
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, #f59e0b 16%, transparent);
+  color: #b45309;
+  font-size: 0.75rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:global(.app-dark) .tag-chip {
+  color: #fbbf24;
 }
 .version.active {
   background: var(--fb-accent-soft);

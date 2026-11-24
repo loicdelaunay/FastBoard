@@ -12,7 +12,7 @@ import ContextMenu from 'primevue/contextmenu';
 import type { MenuItem } from 'primevue/menuitem';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
 import * as Y from 'yjs';
-import { citedElementsOf, citedLinesOf, linesLabel, type LineRange } from '@shared/citations';
+import { citedElementsOf, citedLinesOf, citedVersionOf, linesLabel, type LineRange } from '@shared/citations';
 import { findQuote, quoteFromSource, sourceOffset, type DocCommentDTO, type DocQuote } from '@shared/docComments';
 import { findHeading, imageMarkdown, resolveDocLink } from '@shared/docLinks';
 import { docOutline } from '@shared/docOutline';
@@ -141,11 +141,22 @@ async function mentions(context: CompletionContext): Promise<CompletionResult | 
     .slice(0, 5)
     .map((user) => option('user', user.id, user.name, user.email, 'variable'));
   if (!query) return { from: match.from + at, options: people, filter: false };
-  const [tickets, files, boards] = await Promise.all([
+  const [tickets, files, boards, docTags, boardTags] = await Promise.all([
     api.search(query, { type: ['tickets'], limit: 5 }).catch(() => null),
     api.docSearch(query).catch(() => null),
     app.info.boards ? api.boardSearch(query, 4).catch(() => null) : Promise.resolve(null),
+    api.docTags(query).catch(() => null),
+    app.info.boards ? api.boardTags(query).catch(() => null) : Promise.resolve(null),
   ]);
+  // Version étiquetée d'une note ou d'un tableau : la mention garde la version (`#v:345`).
+  const tagged = [...(docTags?.tags ?? []), ...(boardTags?.tags ?? [])].slice(0, 5).map(
+    (hit): Completion => ({
+      label: `${hit.title} · ${hit.tag}`,
+      detail: `${t('Version étiquetée')} · ${hit.spaceName}`,
+      type: 'keyword',
+      apply: `${mentionToken(hit.kind, hit.id, `${hit.title} · ${hit.tag}`, null, `v:${hit.versionId}`)} `,
+    }),
+  );
   if (context.aborted) return null;
   return {
     from: match.from + at,
@@ -155,6 +166,7 @@ async function mentions(context: CompletionContext): Promise<CompletionResult | 
       ...(tickets?.tickets.items ?? []).map((ticket) => option('ticket', ticket.id, ticket.key, ticket.title, 'class')),
       ...(files?.files ?? []).slice(0, 5).map((file) => option('doc', file.id, file.title, `${file.spaceName} · ${file.path}`, 'text')),
       ...(boards?.boards ?? []).map((board) => option('board', board.id, board.title, `${t('Tableau blanc')} · ${board.spaceName}`, 'type')),
+      ...tagged,
     ],
   };
 }
@@ -380,11 +392,12 @@ function followRendered(element: HTMLElement, event: MouseEvent): boolean {
   const { kind, id, href, wiki, suffix } = element.dataset;
   if (kind && id) {
     const lines = citedLinesOf(suffix);
+    const version = citedVersionOf(suffix);
     if (kind === 'user') void router.push({ name: 'user', params: { id } });
     else if (kind === 'ticket') void openTicket(Number(id));
-    else if (kind === 'board') void router.push(boardCitationRoute(Number(id), citedElementsOf(suffix)));
+    else if (kind === 'board') void router.push(boardCitationRoute(Number(id), citedElementsOf(suffix), version));
     else if (kind === 'project') void router.push({ name: 'project', params: { projectId: id } });
-    else if (lines && !wantsNewTab(event)) void router.push(docCitationRoute(Number(id), lines));
+    else if ((lines || version) && !wantsNewTab(event)) void router.push(docCitationRoute(Number(id), lines, version));
     else openNode(Number(id), wantsNewTab(event));
     return true;
   }
@@ -483,9 +496,10 @@ function sourceLink(editor: EditorView, position: number): MenuTarget['link'] {
     if (position < line.from + match.index || position > line.from + match.index + match[0].length) continue;
     if (match[1] === 'ticket') return { address: null, open: () => void openTicket(Number(match[2])) };
     const lines = citedLinesOf(match[3]);
-    if (match[1] === 'doc' && lines) return { address: null, open: () => void router.push(docCitationRoute(Number(match[2]), lines)) };
+    const version = citedVersionOf(match[3]);
+    if (match[1] === 'doc' && (lines || version)) return { address: null, open: () => void router.push(docCitationRoute(Number(match[2]), lines, version)) };
     if (match[1] === 'doc') return { address: null, open: () => openNode(Number(match[2])) };
-    if (match[1] === 'board') return { address: null, open: () => void router.push(boardCitationRoute(Number(match[2]), citedElementsOf(match[3]))) };
+    if (match[1] === 'board') return { address: null, open: () => void router.push(boardCitationRoute(Number(match[2]), citedElementsOf(match[3]), version)) };
     if (match[1] === 'project') return { address: null, open: () => void router.push({ name: 'project', params: { projectId: match[2]! } }) };
     if (match[1]) return null;
     const target = (match[4] ?? match[5])!;

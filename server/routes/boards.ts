@@ -53,11 +53,16 @@ import {
   boardShareSchema,
   boardSpaceSchema,
   boardSpaceUpdateSchema,
+  tagSearchSchema,
+  versionTagSchema,
+  versionTagUpdateSchema,
 } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal } from '../services/access.ts';
 import { appInfo } from '../services/appSettings.ts';
 import { setRagScope } from '../rag/index.ts';
+import { searchBoardTags, tagBoardVersion } from '../boards/tags.ts';
+import { versionFromQuery } from '../../shared/citations.ts';
 
 /** Tableaux blancs : espaces, membres, arbre de dossiers et de tableaux, éléments et aperçus. */
 export function boardsRouter(ctx: AppContext): Router {
@@ -265,6 +270,24 @@ export function boardsRouter(ctx: AppContext): Router {
     res.json({ count: elements.length });
   });
 
+  // --- Étiquettes de versions ------------------------------------------------------------------------------------------
+
+  router.post('/boards/nodes/:id/tags', (req, res) => {
+    const { node } = requireBoard(ctx, currentUser(res), idParam(req.params.id), 'editor');
+    const input = parse(versionTagSchema, req.body);
+    res.status(201).json({ version: tagBoardVersion(ctx, actorOf(req, res), node, input.versionId ?? null, input.name) });
+  });
+
+  router.put('/boards/nodes/:id/versions/:versionId/tag', (req, res) => {
+    const { node } = requireBoard(ctx, currentUser(res), idParam(req.params.id), 'editor');
+    res.json({ version: tagBoardVersion(ctx, actorOf(req, res), node, idParam(req.params.versionId), parse(versionTagUpdateSchema, req.body).name) });
+  });
+
+  router.get('/boards/tags', (req, res) => {
+    requireBoardsEnabled(ctx.db);
+    res.json({ tags: searchBoardTags(ctx, currentUser(res), parse(tagSearchSchema, req.query).q) });
+  });
+
   router.post('/boards/nodes/:id/versions/:versionId/fork', (req, res) => {
     const { node } = requireBoard(ctx, currentUser(res), idParam(req.params.id), 'editor');
     res.status(201).json({ node: forkBoardVersion(ctx, actorOf(req, res), node, idParam(req.params.versionId), parse(boardForkSchema, req.body ?? {}).name) });
@@ -315,6 +338,9 @@ export function boardsRouter(ctx: AppContext): Router {
 
   router.get('/boards/nodes/:id/preview', (req, res) => {
     const { node } = requireBoard(ctx, currentUser(res), idParam(req.params.id));
+    // Une version de l'historique (mention d'une version étiquetée), sinon l'état actuel.
+    const version = versionFromQuery(req.query.version);
+    const elements = version === null ? readBoardElements(ctx, node) : boardVersion(ctx, node, version).elements;
     const width = Math.min(2048, Math.max(120, Number(req.query.width) || 640));
     // Une zone du tableau (x, y, w, h dans ses coordonnées) : ce que l'assistant regarde de près.
     const [x, y, w, h] = ['x', 'y', 'w', 'h'].map((key) => Number(req.query[key]));
@@ -324,7 +350,7 @@ export function boardsRouter(ctx: AppContext): Router {
     res.setHeader('Content-Security-Policy', "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox");
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-cache');
-    res.send(boardPreviewSvg(readBoardElements(ctx, node), { maxWidth: width, dark: req.query.theme === 'dark', ...(region ? { region } : {}), ...previewResources(ctx) }));
+    res.send(boardPreviewSvg(elements, { maxWidth: width, dark: req.query.theme === 'dark', ...(region ? { region } : {}), ...previewResources(ctx) }));
   });
 
   return router;

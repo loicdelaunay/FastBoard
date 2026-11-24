@@ -34,6 +34,7 @@ import {
   requireNode,
   requireSpace,
   requireVersion,
+  versionById,
   restoreNode,
   searchNodes,
   setBookmark,
@@ -47,12 +48,13 @@ import {
 } from '../docs/store.ts';
 import { badRequest, conflict, notFound } from '../http/errors.ts';
 import { actorOf, csrfGuard, currentUser, requireAuth, sessionOnly } from '../http/middleware.ts';
-import { docCommentResolveSchema, docCommentSchema, docContentSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemoSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSiteSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema } from '../http/schemas.ts';
+import { docCommentResolveSchema, docCommentSchema, docContentSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemoSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSiteSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema, tagSearchSchema, versionTagSchema, versionTagUpdateSchema } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal } from '../services/access.ts';
 import { appInfo } from '../services/appSettings.ts';
 import { contentDisposition } from '../services/attachments.ts';
 import { setRagScope } from '../rag/index.ts';
+import { forkDocVersion, searchDocTags, tagDocVersion } from '../docs/tags.ts';
 
 function decodedName(raw: string | undefined): string {
   if (!raw) return '';
@@ -404,8 +406,33 @@ export function documentationRouter(ctx: AppContext): Router {
 
   router.get('/documentation/versions/:id', (req, res) => {
     const version = requireVersion(ctx.db, idParam(req.params.id));
-    nodeAccess(res, version.node_id);
-    res.json({ content: version.content, createdAt: version.created_at });
+    const { node } = nodeAccess(res, version.node_id);
+    res.json({ content: version.content, createdAt: version.created_at, version: versionById(ctx.db, version.id), node: { id: node.id, spaceId: node.space_id, path: node.path } });
+  });
+
+  // --- Étiquettes de versions ------------------------------------------------------------------------------------------
+
+  router.post('/documentation/nodes/:id/tags', (req, res) => {
+    const node = activeNote(res, idParam(req.params.id), 'editor');
+    const input = parse(versionTagSchema, req.body);
+    res.status(201).json({ version: tagDocVersion(ctx, actorOf(req, res), node, input.versionId ?? null, input.name) });
+  });
+
+  router.put('/documentation/versions/:id/tag', (req, res) => {
+    const version = requireVersion(ctx.db, idParam(req.params.id));
+    const node = activeNote(res, version.node_id, 'editor');
+    res.json({ version: tagDocVersion(ctx, actorOf(req, res), node, version.id, parse(versionTagUpdateSchema, req.body).name) });
+  });
+
+  router.post('/documentation/versions/:id/fork', (req, res) => {
+    const version = requireVersion(ctx.db, idParam(req.params.id));
+    const node = activeNote(res, version.node_id, 'editor');
+    res.status(201).json({ node: forkDocVersion(ctx, actorOf(req, res), node, version.id) });
+  });
+
+  router.get('/documentation/tags', (req, res) => {
+    requireDocsEnabled(ctx.db);
+    res.json({ tags: searchDocTags(ctx, currentUser(res), parse(tagSearchSchema, req.query).q) });
   });
 
   router.post('/documentation/versions/:id/restore', (req, res) => {

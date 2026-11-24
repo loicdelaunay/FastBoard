@@ -543,3 +543,15 @@ button {
 .module-card.module-boards {
   --module-color: var(--fb-module-boards);
 }
+
+/* Titre de rubrique dans un menu (élément désactivé qui sert d'en-tête : « Versions étiquetées »…). */
+.p-menu .menu-heading .p-menu-item-content {
+  opacity: 1;
+}
+.p-menu .menu-heading .p-menu-item-label {
+  color: var(--fb-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}

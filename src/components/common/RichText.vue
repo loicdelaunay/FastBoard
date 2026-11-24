@@ -4,7 +4,7 @@ import { RouterLink } from 'vue-router';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useTicketRoute } from '@/composables/useTicketRoute';
 import { useProjectStore } from '@/stores/project';
-import { citedElementsOf, citedLinesOf, linesLabel } from '@shared/citations';
+import { citedElementsOf, citedLinesOf, citedVersionOf, linesLabel } from '@shared/citations';
 import { boardCitationRoute, docCitationRoute } from '@/utils/citations';
 import { parseRichText } from '@/utils/mentions';
 import { ticketKey } from '@/utils/tickets';
@@ -29,11 +29,11 @@ function ticketOf(id: number) {
       <RouterLink v-else-if="segment.kind === 'user'" :to="{ name: 'user', params: { id: segment.id } }" class="mention user" @click.stop>
         <UserAvatar :user="project.usersById.get(segment.id)" size="small" class="mini" />@{{ project.usersById.get(segment.id)?.name ?? segment.label }}
       </RouterLink>
-      <RouterLink v-else-if="segment.kind === 'doc'" :to="docCitationRoute(segment.id, citedLinesOf(segment.suffix))" class="mention ticket" @click.stop>
-        <i class="pi pi-file"></i>{{ segment.label }}<span v-if="citedLinesOf(segment.suffix)" class="lines">l. {{ linesLabel(citedLinesOf(segment.suffix)!) }}</span>
+      <RouterLink v-else-if="segment.kind === 'doc'" :to="docCitationRoute(segment.id, citedLinesOf(segment.suffix), citedVersionOf(segment.suffix))" class="mention ticket" @click.stop>
+        <i class="pi pi-file"></i>{{ segment.label }}<span v-if="citedLinesOf(segment.suffix)" class="lines">l. {{ linesLabel(citedLinesOf(segment.suffix)!) }}</span><i v-if="citedVersionOf(segment.suffix)" class="pi pi-tag tag-icon"></i>
       </RouterLink>
-      <RouterLink v-else-if="segment.kind === 'board'" :to="boardCitationRoute(segment.id, citedElementsOf(segment.suffix))" class="mention ticket" :data-board="segment.id" @click.stop>
-        <i class="pi pi-objects-column"></i>{{ segment.label }}
+      <RouterLink v-else-if="segment.kind === 'board'" :to="boardCitationRoute(segment.id, citedElementsOf(segment.suffix), citedVersionOf(segment.suffix))" class="mention ticket" :data-board="segment.id" @click.stop>
+        <i class="pi pi-objects-column"></i>{{ segment.label }}<i v-if="citedVersionOf(segment.suffix)" class="pi pi-tag tag-icon"></i>
       </RouterLink>
       <RouterLink v-else-if="segment.kind === 'project'" :to="{ name: 'project', params: { projectId: segment.id } }" class="mention ticket" @click.stop>
         <i class="pi pi-folder"></i>{{ segment.label }}
@@ -81,6 +81,10 @@ function ticketOf(id: number) {
   padding-left: 0.4rem;
   font-family: var(--fb-mono, inherit);
   font-size: 0.9em;
+}
+.tag-icon {
+  font-size: 0.75em;
+  opacity: 0.8;
 }
 .lines {
   margin-left: 0.25rem;

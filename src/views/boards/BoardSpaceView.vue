@@ -9,7 +9,7 @@ import Menu from 'primevue/menu';
 import type { MenuItem } from 'primevue/menuitem';
 import { useConfirm } from 'primevue/useconfirm';
 import { boardTitle, type BoardLinksDTO, type BoardNodeDTO } from '@shared/boards';
-import { citedElementsFromQuery } from '@shared/citations';
+import { citedElementsFromQuery, versionFromQuery } from '@shared/citations';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import { darkMode } from '@/theme/themeManager';
@@ -334,7 +334,17 @@ const canvas = ref<InstanceType<typeof BoardCanvas> | null>(null);
 const timelineOpen = ref(false);
 // L'historique montre des versions figées : on n'y suit personne.
 watch(timelineOpen, (open) => open && follow.stop());
-watch(boardId, () => (timelineOpen.value = false));
+/** Version citée (`?version=`, mention d'une version étiquetée) : le tableau s'ouvre dans son historique, sur elle. */
+const versionFocus = computed(() => versionFromQuery(route.query.version));
+watch([boardId, versionFocus], () => (timelineOpen.value = versionFocus.value !== null), { immediate: true });
+/** Quitter l'historique : la version citée quitte aussi l'adresse. */
+function closeTimeline(): void {
+  timelineOpen.value = false;
+  if (route.query.version !== undefined) {
+    const { version: _version, ...rest } = route.query;
+    void router.replace({ query: rest });
+  }
+}
 /** Une version copiée dans un nouveau tableau : on l'ouvre. */
 function onForked(node: BoardNodeDTO): void {
   timelineOpen.value = false;
@@ -441,7 +451,19 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
       </header>
 
       <div v-if="board && session" class="board-area">
-        <BoardTimeline v-if="timelineOpen" :key="`h${board.id}`" :board-id="board.id" :title="boardTitle(board.path)" :session="session" :can-edit="store.canEdit && session.canWrite.value" :users="users" :is-template="isTemplate" @close="timelineOpen = false" @forked="onForked" />
+        <BoardTimeline
+          v-if="timelineOpen"
+          :key="`h${board.id}`"
+          :board-id="board.id"
+          :title="boardTitle(board.path)"
+          :session="session"
+          :can-edit="store.canEdit && session.canWrite.value"
+          :users="users"
+          :is-template="isTemplate"
+          :initial-version="versionFocus"
+          @close="closeTimeline"
+          @forked="onForked"
+        />
         <BoardCanvas v-else :key="board.id" ref="canvas" :session="session" :focus="focus" :can-edit="store.canEdit" :users="users" :board-title="boardTitle(board.path)" :space-id="spaceId" :templates="templates" :is-template="isTemplate" history v-model:follow="follow.following.value" @open-template="openTemplate" @history="timelineOpen = true" />
         <BoardLinksPanel v-if="linksOpen && !isTemplate" :links="links" :loading="linksLoading" @close="linksOpen = false" />
       </div>

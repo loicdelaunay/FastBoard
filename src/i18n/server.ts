@@ -244,6 +244,8 @@ const EXACT: Record<string, string> = {
   'Le titre est obligatoire.': 'The title is required.',
   'Le message est vide.': 'The message is empty.',
   'Donnez un nom au jeton.': 'Give the token a name.',
+  'Donnez un nom à l’étiquette.': 'Give the tag a name.',
+  'Une autre version porte déjà cette étiquette.': 'Another version already has this tag.',
   'Livraison introuvable.': 'Delivery not found.',
   'Membre introuvable.': 'Member not found.',
   'Origine de la requête non autorisée.': 'Request origin not allowed.',

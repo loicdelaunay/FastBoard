@@ -12,7 +12,11 @@ onMounted(async () => {
   try {
     const { node } = await api.docNode(Number(route.params.nodeId));
     // Lignes citées (`?lines=12-18`) : la note s'ouvre sur elles, surlignées.
-    const lines = typeof route.query.lines === 'string' && route.query.lines ? { lines: route.query.lines } : {};
+    const lines = {
+      ...(typeof route.query.lines === 'string' && route.query.lines ? { lines: route.query.lines } : {}),
+      // Version étiquetée citée : la note s'ouvre sur elle, en lecture seule.
+      ...(typeof route.query.version === 'string' && route.query.version ? { version: route.query.version } : {}),
+    };
     await router.replace({ name: 'doc-space', params: { spaceId: node.spaceId }, query: { file: String(node.id), ...lines } });
   } catch {
     failed.value = true;

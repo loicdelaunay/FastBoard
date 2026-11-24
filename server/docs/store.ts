@@ -37,13 +37,16 @@ export interface NodeRow {
   memo: string;
 }
 
-interface VersionRow {
+export interface VersionRow {
   id: number;
   node_id: number;
   content: string;
   authors: string;
   origin: DocVersionOrigin;
   created_at: string;
+  tag: string | null;
+  tagged_by: number | null;
+  tagged_at: string | null;
 }
 
 /** Tout sauf le texte cherchable, qui pèse autant que la note. */
@@ -662,10 +665,25 @@ export function writeContent(ctx: AppContext, actor: Actor, node: NodeRow, conte
   addVersion(ctx, actor, requireNode(ctx.db, node.id), content, origin, authorNames(ctx, actor.userId), previous);
 }
 
+const versionDTO = (row: Omit<VersionRow, 'content'> & { size: number }): DocVersionDTO => ({
+  id: row.id,
+  nodeId: row.node_id,
+  authors: JSON.parse(row.authors) as string[],
+  origin: row.origin,
+  size: row.size,
+  createdAt: row.created_at,
+  tag: row.tag,
+  taggedAt: row.tagged_at,
+});
+const VERSION_LIST_COLUMNS = 'id, node_id, authors, origin, created_at, tag, tagged_by, tagged_at, LENGTH(CAST(content AS BLOB)) AS size';
+
 export function listVersions(db: Db, nodeId: number): DocVersionDTO[] {
-  return db
-    .all<Omit<VersionRow, 'content'> & { size: number }>('SELECT id, node_id, authors, origin, created_at, LENGTH(CAST(content AS BLOB)) AS size FROM doc_versions WHERE node_id = ? ORDER BY id DESC', nodeId)
-    .map((row) => ({ id: row.id, nodeId: row.node_id, authors: JSON.parse(row.authors) as string[], origin: row.origin, size: row.size, createdAt: row.created_at }));
+  return db.all<Omit<VersionRow, 'content'> & { size: number }>(`SELECT ${VERSION_LIST_COLUMNS} FROM doc_versions WHERE node_id = ? ORDER BY id DESC`, nodeId).map(versionDTO);
+}
+
+export function versionById(db: Db, versionId: number): DocVersionDTO | null {
+  const row = db.get<Omit<VersionRow, 'content'> & { size: number }>(`SELECT ${VERSION_LIST_COLUMNS} FROM doc_versions WHERE id = ?`, versionId);
+  return row ? versionDTO(row) : null;
 }
 
 /** Note active, sans erreur si elle a disparu. */
@@ -683,7 +701,8 @@ export function requireVersion(db: Db, versionId: number): VersionRow {
 export function purgeDocs(ctx: AppContext, now = Date.now()): void {
   const { db } = ctx;
   const limit = new Date(now - DOC_LIMITS.retentionDays * 86_400_000).toISOString();
-  db.run('DELETE FROM doc_versions WHERE created_at < ? AND node_id IN (SELECT id FROM doc_nodes WHERE deleted_at IS NULL)', limit);
+  // Une version étiquetée reste, quel que soit son âge.
+  db.run('DELETE FROM doc_versions WHERE created_at < ? AND tag IS NULL AND node_id IN (SELECT id FROM doc_nodes WHERE deleted_at IS NULL)', limit);
   db.run('DELETE FROM doc_exports WHERE created_at < ?', new Date(now - DOC_LIMITS.exportDays * 86_400_000).toISOString());
   for (const node of db.all<NodeRow>(`SELECT ${NODE_COLUMNS} FROM doc_nodes WHERE deleted_at IS NOT NULL AND deleted_at < ?`, limit)) {
     fs.rmSync(path.join(spaceDir(ctx, node.space_id), TRASH, String(node.id)), { force: true });

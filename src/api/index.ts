@@ -39,6 +39,7 @@ import type { LogEntryDTO, LogLevel, MonitoringRange, MonitoringSnapshotDTO } fr
 import type { AiContext, AiConversationDTO, AiConversationSummaryDTO, AiModelChoiceDTO, AiModelDTO, AiSettingsDTO, DetectedModelDTO } from '@shared/ai';
 import type { AppearanceDTO, CustomThemeDef, SharedThemeDTO } from '@shared/themes';
 import type { RagFormat, RagSettingsDTO, RagStatusDTO, RagTestResultDTO } from '@shared/rag';
+import type { VersionTagHitDTO } from '@shared/versionTags';
 import type { CustomFieldValue } from '@shared/ticketFields';
 import type { CertificateFormat, CertificateInfoDTO, HttpsSettingsDTO, HttpsStatusDTO } from '@shared/https';
 import type { BackupDestinationDTO, BackupOverviewDTO, BackupRunDTO } from '@shared/backup';
@@ -387,6 +388,10 @@ export const api = {
   boardVersion: (nodeId: number, versionId: number) => http<{ version: BoardVersionDTO; elements: BoardElement[] }>('GET', `/boards/nodes/${nodeId}/versions/${versionId}`),
   boardRestoreVersion: (nodeId: number, versionId: number) => http<{ count: number }>('POST', `/boards/nodes/${nodeId}/versions/${versionId}/restore`, { body: {} }),
   boardForkVersion: (nodeId: number, versionId: number, name?: string) => http<{ node: BoardNodeDTO }>('POST', `/boards/nodes/${nodeId}/versions/${versionId}/fork`, { body: name ? { name } : {} }),
+  /** Étiquette une version (`versionId`) ou l'état actuel du tableau. */
+  boardTagVersion: (nodeId: number, name: string, versionId?: number | null) => http<{ version: BoardVersionDTO }>('POST', `/boards/nodes/${nodeId}/tags`, { body: versionId ? { name, versionId } : { name } }),
+  boardSetVersionTag: (nodeId: number, versionId: number, name: string | null) => http<{ version: BoardVersionDTO }>('PUT', `/boards/nodes/${nodeId}/versions/${versionId}/tag`, { body: { name } }),
+  boardTags: (q: string) => http<{ tags: VersionTagHitDTO[] }>('GET', `/boards/tags?q=${encodeURIComponent(q)}`),
   board: (nodeId: number) => http<{ node: BoardNodeDTO; space: { id: number; name: string }; role: BoardRole; elements: BoardElement[] }>('GET', `/boards/nodes/${nodeId}`),
   boardSearch: (q: string, limit = 10) => http<{ boards: BoardSearchHitDTO[] }>('GET', `/boards/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   boardShare: (nodeId: number) => http<{ share: BoardShareDTO | null }>('GET', `/boards/nodes/${nodeId}/share`),
@@ -435,7 +440,12 @@ export const api = {
   docDeleteNode: (nodeId: number) => http<{ ok: true }>('DELETE', `/documentation/nodes/${nodeId}`),
   docRestoreNode: (nodeId: number) => http<{ node: DocNodeDTO }>('POST', `/documentation/nodes/${nodeId}/restore`, { body: {} }),
   docVersions: (nodeId: number) => http<{ versions: DocVersionDTO[]; retentionDays: number }>('GET', `/documentation/nodes/${nodeId}/versions`),
-  docVersion: (versionId: number) => http<{ content: string; createdAt: string }>('GET', `/documentation/versions/${versionId}`),
+  docVersion: (versionId: number) => http<{ content: string; createdAt: string; version: DocVersionDTO; node: { id: number; spaceId: number; path: string } }>('GET', `/documentation/versions/${versionId}`),
+  /** Étiquette une version (`versionId`) ou l'état actuel de la note. */
+  docTagVersion: (nodeId: number, name: string, versionId?: number | null) => http<{ version: DocVersionDTO }>('POST', `/documentation/nodes/${nodeId}/tags`, { body: versionId ? { name, versionId } : { name } }),
+  docSetVersionTag: (versionId: number, name: string | null) => http<{ version: DocVersionDTO }>('PUT', `/documentation/versions/${versionId}/tag`, { body: { name } }),
+  docForkVersion: (versionId: number) => http<{ node: DocNodeDTO }>('POST', `/documentation/versions/${versionId}/fork`, { body: {} }),
+  docTags: (q: string) => http<{ tags: VersionTagHitDTO[] }>('GET', `/documentation/tags?q=${encodeURIComponent(q)}`),
   docRestoreVersion: (versionId: number, content?: string) => http<{ ok: true }>('POST', `/documentation/versions/${versionId}/restore`, { body: content === undefined ? {} : { content } }),
   docSearch: (q: string) => http<{ files: DocSearchHitDTO[] }>('GET', `/documentation/search?q=${encodeURIComponent(q)}`),
   docApplyImport: (spaceId: number, importId: string, decisions: Array<{ path: string; action: DocImportAction; content?: string }>) =>

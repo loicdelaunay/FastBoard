@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.24.3';
+export const APP_VERSION = '2.25.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,15 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.25.0',
+    date: '2026-11-24',
+    changes: [
+      { category: 'Nouveauté', text: 'Étiquettes de versions : donnez un nom (« v1.0 », « Validé client »…) à une version d’une note ou d’un tableau blanc. Une version étiquetée n’est jamais supprimée de l’historique, et se cite avec @ : le lien ouvre cette version précise, et l’aperçu d’un tableau cité la dessine.' },
+      { category: 'Nouveauté', text: 'Documentation : un sélecteur de version dans la barre de la note passe rapidement à une version étiquetée ou récente. Une ancienne version s’affiche en lecture seule : copiez-la dans une nouvelle note pour l’écrire, ou repartez de la dernière version.' },
+      { category: 'Amélioration', text: 'Tableaux blancs : le mode Historique montre les étiquettes, permet d’étiqueter, de renommer ou de retirer une étiquette, de sauter à une version étiquetée et de revenir à la dernière version.' },
+    ],
+  },
   {
     version: '2.24.3',
     date: '2026-11-24',

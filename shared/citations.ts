@@ -81,3 +81,15 @@ export function citedElementsOf(suffix: string | null | undefined): string[] | n
 export function citedElementsFromQuery(value: unknown): string[] | null {
   return typeof value === 'string' && value ? elementsOf(value.split(',')) : null;
 }
+
+/** Version étiquetée citée (`@[Guide · v1.0](doc:12#v:345)`) : l'identifiant de la version, ou `null`. */
+export function citedVersionOf(suffix: string | null | undefined): number | null {
+  const match = /^v:(\d{1,12})$/.exec(suffix ?? '');
+  return match ? Number(match[1]) : null;
+}
+
+/** Version demandée par une adresse (`?version=345`), ou `null`. */
+export function versionFromQuery(value: unknown): number | null {
+  const number = typeof value === 'string' && /^\d{1,12}$/.test(value) ? Number(value) : NaN;
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
+}

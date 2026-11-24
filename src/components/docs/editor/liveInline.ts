@@ -3,6 +3,7 @@ import type { EditorState, Extension, Range } from '@codemirror/state';
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from '@codemirror/view';
 import katex from 'katex';
 import { boardMentionView, type BoardMentionView } from '@shared/boards';
+import { citedVersionOf } from '@shared/citations';
 import { imageSize } from '@shared/docLinks';
 import { highlightColor, highlightMarker } from '@shared/docObsidian';
 import { docBaseName } from '@shared/docs';
@@ -160,17 +161,20 @@ class BoardWidget extends WidgetType {
   readonly label: string;
   readonly length: number;
   readonly shown: Exclude<BoardMentionView, 'link'>;
+  /** Version étiquetée citée (`board:7#v:88`) : son dessin, et le clic l'ouvre dans l'historique. */
+  readonly version: number | null;
 
-  constructor(id: number, label: string, length: number, shown: Exclude<BoardMentionView, 'link'>) {
+  constructor(id: number, label: string, length: number, shown: Exclude<BoardMentionView, 'link'>, version: number | null = null) {
     super();
     this.id = id;
     this.label = label;
     this.length = length;
     this.shown = shown;
+    this.version = version;
   }
 
   override eq(other: BoardWidget): boolean {
-    return other.id === this.id && other.label === this.label && other.length === this.length && other.shown === this.shown;
+    return other.id === this.id && other.label === this.label && other.length === this.length && other.shown === this.shown && other.version === this.version;
   }
 
   override toDOM(view: EditorView): HTMLElement {
@@ -179,6 +183,7 @@ class BoardWidget extends WidgetType {
     card.dataset.kind = 'board';
     card.dataset.id = String(this.id);
     card.dataset.length = String(this.length);
+    if (this.version) card.dataset.suffix = `v:${this.version}`;
     const button = (icon: string, label: string, run: () => void, active = false): HTMLButtonElement => {
       const element = document.createElement('button');
       element.type = 'button';
@@ -196,7 +201,8 @@ class BoardWidget extends WidgetType {
     };
     const tools = document.createElement('span');
     tools.className = 'cm-lp-board-tools';
-    for (const choice of boardViewChoices()) {
+    // Une version citée garde son suffixe : pas de choix d'affichage, qui le remplacerait.
+    for (const choice of this.version ? [] : boardViewChoices()) {
       tools.append(
         button(choice.icon, t('Afficher en : {name}', { name: choice.label.toLowerCase() }), () => {
           const mention = boardMentionAt(view.state, view.posAtDOM(card));
@@ -212,7 +218,7 @@ class BoardWidget extends WidgetType {
     const images = (['light', 'dark'] as const).map((theme) => {
       const image = document.createElement('img');
       image.className = `cm-lp-board-preview ${theme}`;
-      image.src = `/api/boards/nodes/${this.id}/preview?width=${width}${theme === 'dark' ? '&theme=dark' : ''}`;
+      image.src = `/api/boards/nodes/${this.id}/preview?width=${width}${theme === 'dark' ? '&theme=dark' : ''}${this.version ? `&version=${this.version}` : ''}`;
       image.alt = this.label;
       image.loading = 'lazy';
       image.draggable = false;
@@ -440,7 +446,7 @@ function build(view: EditorView, options: LiveInlineOptions): DecorationSet {
                 // Un tableau blanc seul sur sa ligne s'affiche en bloc (carte, image ou vue intégrée), sauf demandé en lien.
                 const shown = boardMentionView(mention[3]) ?? 'card';
                 if (mention[1] === 'board' && shown !== 'link' && doc.lineAt(from).text.trim() === doc.sliceString(from - 1, to)) {
-                  swap(from - 1, to, new BoardWidget(Number(mention[2]), label, to - from + 1, shown));
+                  swap(from - 1, to, new BoardWidget(Number(mention[2]), label, to - from + 1, shown, citedVersionOf(mention[3])));
                   return false;
                 }
                 swap(

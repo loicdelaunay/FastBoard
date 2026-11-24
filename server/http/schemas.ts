@@ -11,6 +11,7 @@ import { DOC_COMMENT_LIMITS } from '../../shared/docComments.ts';
 import { DOC_LIMITS, DOC_ROLES, DOC_SITE_VISIBILITIES, normalizeImageFolder } from '../../shared/docs.ts';
 import { LDAP_LIMITS, LDAP_PROFILES, LDAP_SECURITY, LDAP_USER_TOKEN } from '../../shared/ldap.ts';
 import { RAG_FORMATS, RAG_LIMITS } from '../../shared/rag.ts';
+import { VERSION_TAG_LIMITS } from '../../shared/versionTags.ts';
 import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
@@ -628,6 +629,16 @@ export const docSiteSchema = z.object({
   visibility: z.enum(DOC_SITE_VISIBILITIES).describe('`members` : membres de l’espace ; `people` : personnes choisies et propriétaires ; `public` : tout le monde, sans compte.'),
   people: z.array(id).max(200).default([]).describe('Personnes qui peuvent lire le site (`people`).'),
 });
+// --- Étiquettes de versions (notes et tableaux) ------------------------------------------------------------------------
+
+const tagName = z.string().trim().min(1, 'Donnez un nom à l’étiquette.').max(VERSION_TAG_LIMITS.nameMax).describe('Nom de l’étiquette (« v1.0 », « Validé client »…), unique pour cet élément.');
+export const versionTagSchema = z.object({
+  name: tagName,
+  versionId: id.optional().describe('Version à étiqueter ; absente : l’état actuel (une version est créée au besoin).'),
+});
+export const versionTagUpdateSchema = z.object({ name: tagName.nullable().describe('Nouveau nom ; `null` retire l’étiquette (la version suit alors la durée de conservation de l’historique).') });
+export const tagSearchSchema = z.object({ q: z.string().trim().max(100).default('').describe('Mots à trouver dans le nom de l’étiquette ou celui de l’élément.') });
+
 export const docRestoreSchema = z.object({ content: z.string().max(DOC_LIMITS.fileChars).optional().describe('Texte final, si l’on ne reprend qu’une partie de la version ; absent : la version entière.') });
 export const docImportCompareSchema = z.object({ path: z.string().min(1).max(1000).describe('Chemin du fichier, tel que renvoyé par l’analyse.') });
 export const docCommentSchema = z.object({

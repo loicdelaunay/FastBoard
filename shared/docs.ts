@@ -148,6 +148,9 @@ export interface DocVersionDTO {
   origin: DocVersionOrigin;
   size: number;
   createdAt: string;
+  /** Étiquette : version nommée, jamais effacée de l'historique. */
+  tag: string | null;
+  taggedAt: string | null;
 }
 
 export interface DocSearchHitDTO {

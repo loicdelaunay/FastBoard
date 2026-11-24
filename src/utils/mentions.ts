@@ -19,9 +19,10 @@ const MENTION = new RegExp(String.raw`@\[([^\]\n]{1,80})\]\((user|ticket|doc|boa
 const URL = /\bhttps?:\/\/[^\s<>"')\]]+/g;
 
 /** `view` : affichage d'un tableau blanc (`image`, `embed`, `link`) ; absent, il s'affiche en carte ou en lien. */
-export function mentionToken(kind: MentionKind, id: number, label: string, view?: BoardMentionView | null): string {
-  const suffix = kind === 'board' && view && view !== 'card' ? `#${view}` : '';
-  return `@[${label.replace(/[[\]\n]/g, ' ').trim().slice(0, 80)}](${kind}:${id}${suffix})`;
+/** `suffix` : ce qui suit le `#` (version étiquetée `v:345`…) ; il l'emporte sur l'affichage d'un tableau. */
+export function mentionToken(kind: MentionKind, id: number, label: string, view?: BoardMentionView | null, suffix?: string): string {
+  const after = suffix ? `#${suffix}` : kind === 'board' && view && view !== 'card' ? `#${view}` : '';
+  return `@[${label.replace(/[[\]\n]/g, ' ').trim().slice(0, 80)}](${kind}:${id}${after})`;
 }
 
 function splitLinks(text: string): TextSegment[] {

@@ -18,11 +18,13 @@ interface VersionRow {
   element_count: number;
   hash: string;
   created_at: string;
+  tag: string | null;
+  tagged_at: string | null;
 }
 
-const COLUMNS = 'id, board_id, user_id, kind, element_count, hash, created_at';
+const COLUMNS = 'id, board_id, user_id, kind, element_count, hash, created_at, tag, tagged_at';
 
-const toDTO = (row: VersionRow): BoardVersionDTO => ({ id: row.id, createdAt: row.created_at, userId: row.user_id, kind: row.kind, elementCount: row.element_count });
+const toDTO = (row: VersionRow): BoardVersionDTO => ({ id: row.id, createdAt: row.created_at, userId: row.user_id, kind: row.kind, elementCount: row.element_count, tag: row.tag, taggedAt: row.tagged_at });
 
 /** Empreinte du contenu d'un tableau, quel que soit l'ordre de ses éléments (une salle d'édition a le sien). */
 export function elementsHash(json: string): string {
@@ -39,8 +41,8 @@ export function elementsHash(json: string): string {
 
 const lastVersion = (db: Db, boardId: number): VersionRow | undefined => db.get<VersionRow>(`SELECT ${COLUMNS} FROM board_versions WHERE board_id = ? ORDER BY id DESC LIMIT 1`, boardId);
 
-function insert(db: Db, boardId: number, json: string, hash: string, count: number, userId: number | null, kind: BoardVersionKind, at: string): void {
-  db.run('INSERT INTO board_versions (board_id, user_id, kind, element_count, hash, elements, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', boardId, userId, kind, count, hash, gzipSync(json), at);
+function insert(db: Db, boardId: number, json: string, hash: string, count: number, userId: number | null, kind: BoardVersionKind, at: string): number {
+  return db.run('INSERT INTO board_versions (board_id, user_id, kind, element_count, hash, elements, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', boardId, userId, kind, count, hash, gzipSync(json), at).lastInsertRowid;
 }
 
 /**
@@ -51,13 +53,19 @@ export function recordBoardVersion(db: Db, boardId: number, json: string, count:
   const last = lastVersion(db, boardId);
   const hash = elementsHash(json);
   if (last?.hash === hash) return;
-  if (last && kind === 'edit' && last.kind === 'edit' && last.user_id === userId && now - Date.parse(last.created_at) < BOARD_VERSION_LIMITS.mergeMs) {
+  // Une version étiquetée ne change plus : la modification suivante a toujours la sienne.
+  if (last && !last.tag && kind === 'edit' && last.kind === 'edit' && last.user_id === userId && now - Date.parse(last.created_at) < BOARD_VERSION_LIMITS.mergeMs) {
     db.run('UPDATE board_versions SET element_count = ?, hash = ?, elements = ? WHERE id = ?', count, hash, gzipSync(json), last.id);
     return;
   }
   insert(db, boardId, json, hash, count, userId, kind, new Date(now).toISOString());
-  // Au-delà de la limite, les plus anciennes versions partent.
-  db.run('DELETE FROM board_versions WHERE board_id = ? AND id NOT IN (SELECT id FROM board_versions WHERE board_id = ? ORDER BY id DESC LIMIT ?)', boardId, boardId, BOARD_VERSION_LIMITS.perBoard);
+  // Au-delà de la limite, les plus anciennes versions partent, sauf les versions étiquetées.
+  db.run(
+    'DELETE FROM board_versions WHERE board_id = ? AND tag IS NULL AND id NOT IN (SELECT id FROM board_versions WHERE board_id = ? AND tag IS NULL ORDER BY id DESC LIMIT ?)',
+    boardId,
+    boardId,
+    BOARD_VERSION_LIMITS.perBoard,
+  );
 }
 
 /** Avant la première version d'un tableau qui avait déjà un contenu : ce contenu, à la date de son dernier enregistrement. */
@@ -86,4 +94,23 @@ export function readBoardVersion(db: Db, boardId: number, versionId: number): { 
     // Version illisible : un tableau vide plutôt qu'une erreur.
   }
   return { version: toDTO(row), elements };
+}
+
+/** Version de l'état actuel (`json`) : la dernière si elle est identique, sinon une nouvelle. */
+export function currentBoardVersion(db: Db, boardId: number, json: string, count: number, userId: number | null): number {
+  const last = lastVersion(db, boardId);
+  const hash = elementsHash(json);
+  return last && last.hash === hash ? last.id : insert(db, boardId, json, hash, count, userId, 'edit', nowIso());
+}
+
+/** Pose (ou retire, `null`) l'étiquette d'une version ; `false` si une autre version de ce tableau porte déjà ce nom. */
+export function setBoardVersionTag(db: Db, boardId: number, versionId: number, name: string | null, userId: number | null): boolean {
+  if (name !== null && db.get('SELECT id FROM board_versions WHERE board_id = ? AND tag = ? COLLATE NOCASE AND id != ?', boardId, name, versionId)) return false;
+  db.run('UPDATE board_versions SET tag = ?, tagged_by = ?, tagged_at = ? WHERE id = ? AND board_id = ?', name, name === null ? null : userId, name === null ? null : nowIso(), versionId, boardId);
+  return true;
+}
+
+export function boardVersionById(db: Db, boardId: number, versionId: number): BoardVersionDTO | null {
+  const row = db.get<VersionRow>(`SELECT ${COLUMNS} FROM board_versions WHERE id = ? AND board_id = ?`, versionId, boardId);
+  return row ? toDTO(row) : null;
 }
