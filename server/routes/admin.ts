@@ -20,6 +20,9 @@ import {
   selfSignedSchema,
   logQuerySchema,
   monitoringQuerySchema,
+  ragProbeSchema,
+  ragReindexSchema,
+  ragSettingsSchema,
   serviceActionSchema,
   updateRoleSchema,
   updateTokenSchema,
@@ -34,6 +37,9 @@ import { bindPasswordForTest, ldapSettingsDTO, saveLdapSettings } from '../auth/
 import { AI_LIMITS, parseModelRef } from '../../shared/ai.ts';
 import { aiSettingsDTO, detectModels, keyForTest, saveAiSettings } from '../ai/settings.ts';
 import { testAiConnection } from '../ai/agent.ts';
+import { ragStatus, requestRagRun, runRagIndex } from '../rag/index.ts';
+import { testRag } from '../rag/probe.ts';
+import { ragConfig, ragKeyForTest, ragSettingsDTO, saveRagSettings } from '../rag/settings.ts';
 import { appInfo } from '../services/appSettings.ts';
 import { APP_ICON_SIZES, getBranding, getMaintenance, setAppIcons, setAppLogo, setAppName, setMaintenance, type AppIconName } from '../services/appSettings.ts';
 import { sniffImageMime } from '../../shared/attachments.ts';
@@ -274,6 +280,60 @@ export function adminRouter(ctx: AppContext): Router {
     } catch (error) {
       throw new HttpError(502, (error as Error).message, 'ai_provider');
     }
+  });
+
+  // --- RAG (recherche sémantique de l'assistant) -----------------------------------------------------------------------
+
+  router.get('/admin/rag', (_req, res) => {
+    requireGlobal(currentUser(res), 'ai.manage');
+    res.json({ settings: ragSettingsDTO(ctx), status: ragStatus(ctx) });
+  });
+
+  router.put('/admin/rag', (req, res) => {
+    requireGlobal(currentUser(res), 'ai.manage');
+    const input = parse(ragSettingsSchema, req.body);
+    const before = ragConfig(ctx)?.signature ?? null;
+    const settings = saveRagSettings(ctx, input);
+    audit(res, `Recherche sémantique (RAG) ${settings.enabled ? 'activée' : 'désactivée'} (${settings.model || 'sans modèle'}, toutes les ${settings.intervalHours} h)`, {
+      baseUrl: settings.baseUrl,
+      model: settings.model,
+      format: settings.format,
+      keyChanged: input.apiKey !== undefined,
+    });
+    const after = ragConfig(ctx);
+    // Nouveau modèle ou nouveau format : l'index est reconstruit tout de suite.
+    if (after && after.signature !== before) requestRagRun(ctx, 1_000);
+    ctx.hub.broadcast({ t: 'app', app: appInfo(ctx.db) });
+    res.json({ settings, status: ragStatus(ctx) });
+  });
+
+  /** Essai du modèle d'embeddings avec les réglages du formulaire (enregistrés ou non). */
+  router.post('/admin/rag/test', async (req, res) => {
+    requireGlobal(currentUser(res), 'ai.manage');
+    const probe = parse(ragProbeSchema, req.body);
+    res.json({ result: await testRag({ ...probe, baseUrl: probe.baseUrl.replace(/\/+$/, ''), apiKey: ragKeyForTest(ctx, probe.apiKey), timeoutMs: probe.timeoutSeconds * 1000 }) });
+  });
+
+  /** Modèles proposés par le serveur d'embeddings (`GET /models`). */
+  router.post('/admin/rag/models', async (req, res) => {
+    requireGlobal(currentUser(res), 'ai.manage');
+    const probe = parse(ragProbeSchema, req.body);
+    try {
+      const models = await detectModels(probe.baseUrl, ragKeyForTest(ctx, probe.apiKey), Math.min(60, probe.timeoutSeconds) * 1000, probe.verifyCertificate);
+      res.json({ models: models.map((model) => model.id) });
+    } catch (error) {
+      throw new HttpError(502, (error as Error).message, 'ai_provider');
+    }
+  });
+
+  /** Indexe maintenant (ce qui a changé, ou tout avec `rebuild`), sans attendre la fin. */
+  router.post('/admin/rag/reindex', (req, res) => {
+    requireGlobal(currentUser(res), 'ai.manage');
+    const { rebuild } = parse(ragReindexSchema, req.body ?? {});
+    if (!ragConfig(ctx)) throw badRequest('Activez la recherche sémantique et choisissez un modèle avant d’indexer.');
+    void runRagIndex(ctx, { rebuild });
+    audit(res, rebuild ? 'Index de la recherche sémantique reconstruit' : 'Indexation de la recherche sémantique lancée', {});
+    res.json({ status: ragStatus(ctx) });
   });
 
   // --- Personnalisation et maintenance -------------------------------------------------------------------------------

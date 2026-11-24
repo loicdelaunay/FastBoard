@@ -67,6 +67,8 @@ export interface ProjectDTO {
   ownerId: number | null;
   /** Automatisations et colonnes du Kanban. */
   settings: ProjectSettingsDTO;
+  /** Recherche sémantique (RAG) : ses tickets sont indexés pour l'assistant IA. */
+  rag: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -550,6 +552,8 @@ export interface AppInfoDTO {
   docs: boolean;
   /** Les tableaux blancs sont activés sur le site. */
   boards: boolean;
+  /** Recherche sémantique (RAG) en service : les projets et espaces peuvent l'activer pour l'assistant IA. */
+  rag: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

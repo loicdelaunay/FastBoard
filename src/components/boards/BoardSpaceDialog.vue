@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Textarea from 'primevue/textarea';
 import { BOARD_LIMITS, type BoardSpaceDTO } from '@shared/boards';
 import { api } from '@/api';
+import RagToggle from '@/components/common/RagToggle.vue';
 import { t } from '@/i18n';
+import { useAppStore } from '@/stores/app';
 import { notifyError } from '@/utils/notify';
 
 /** Création ou réglages d'un espace de tableaux blancs. */
@@ -17,11 +19,16 @@ const visible = defineModel<boolean>('visible', { required: true });
 const name = ref('');
 const description = ref('');
 const busy = ref(false);
+/** Recherche sémantique : proposée quand l'administrateur l'a mise en service (ou pour la couper). */
+const rag = ref(false);
+const app = useAppStore();
+const ragShown = computed(() => Boolean(props.space) && (app.info.rag || props.space?.rag));
 
 watch(visible, (value) => {
   if (!value) return;
   name.value = props.space?.name ?? '';
   description.value = props.space?.description ?? '';
+  rag.value = props.space?.rag ?? false;
 });
 
 async function save(): Promise<void> {
@@ -29,7 +36,9 @@ async function save(): Promise<void> {
   busy.value = true;
   try {
     const input = { name: name.value.trim(), description: description.value.trim() };
-    const { space } = props.space ? await api.boardUpdateSpace(props.space.id, input) : await api.boardCreateSpace(input);
+    const { space } = props.space
+      ? await api.boardUpdateSpace(props.space.id, { ...input, ...(rag.value !== props.space.rag ? { rag: rag.value } : {}) })
+      : await api.boardCreateSpace(input);
     visible.value = false;
     emit('saved', space);
   } catch (error) {
@@ -51,6 +60,7 @@ async function save(): Promise<void> {
         <span>{{ $t('Description') }}</span>
         <Textarea v-model="description" :maxlength="BOARD_LIMITS.descriptionMax" rows="3" auto-resize fluid />
       </label>
+      <RagToggle v-if="ragShown" v-model="rag" input-id="board-space-rag" class="rag" :what="$t('les tableaux de cet espace')" />
     </form>
     <template #footer>
       <Button :label="$t('Annuler')" severity="secondary" text @click="visible = false" />
@@ -70,6 +80,9 @@ async function save(): Promise<void> {
   flex-direction: column;
   gap: 0.35rem;
   font-weight: 600;
+  font-size: 0.9rem;
+}
+.rag {
   font-size: 0.9rem;
 }
 </style>

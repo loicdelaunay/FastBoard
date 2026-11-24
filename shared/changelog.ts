@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.22.0';
+export const APP_VERSION = '2.23.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,13 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.23.0',
+    date: '2026-11-24',
+    changes: [
+      { category: 'Nouveauté', text: 'Recherche sémantique (RAG) pour l’assistant IA : dans Administration → IA, on branche un modèle d’embeddings compatible OpenAI (Ollama, LM Studio…) avec le bon format pour EmbeddingGemma, Nomic Embed ou Qwen3 Embedding, un bouton « Tester » et une réindexation automatique toutes les X heures ou jours. Chaque projet, espace de documentation et espace de tableaux l’active dans ses réglages (désactivé par défaut) ; l’assistant y cherche alors par le sens, dans les seuls projets et espaces de la personne qui pose la question, et cite les passages trouvés.' },
+    ],
+  },
   {
     version: '2.22.0',
     date: '2026-11-24',

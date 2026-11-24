@@ -13,6 +13,7 @@ import { describeNetworkError, outboundRequest, type OutboundResponse } from '..
 import { aiConfig, resolveModel, type AiEndpoint } from './settings.ts';
 import { availableTools, runTool, toolLabel, TOOLS, type ToolContext } from './tools.ts';
 import { requestRender } from './vision.ts';
+import { ragEnabled } from '../rag/settings.ts';
 
 /** Nom affiché dans l'historique et l'activité pour les modifications faites par l'assistant (« via … »). */
 export const AI_VIA = 'Assistant IA';
@@ -79,7 +80,7 @@ export async function chatCompletion(config: AiCallConfig, model: string, body: 
   return message;
 }
 
-function systemPrompt(ctx: AppContext, user: AuthUser, request: AiChatRequest, allowWrite: boolean, propose: boolean, vision: boolean, render: boolean): string {
+function systemPrompt(ctx: AppContext, user: AuthUser, request: AiChatRequest, allowWrite: boolean, propose: boolean, vision: boolean, render: boolean, rag = false): string {
   const docs = docsEnabled(ctx.db);
   const lines = [
     `Tu es l'assistant IA de ${getBranding(ctx.db).name}, un outil de suivi de projet (Kanban, tickets, livraisons)${docs ? ' et de documentation' : ''}. Nous sommes le ${todayISO()}.`,
@@ -87,6 +88,11 @@ function systemPrompt(ctx: AppContext, user: AuthUser, request: AiChatRequest, a
     "Utilise les outils pour lire les données avant de répondre : n'invente jamais un ticket, une personne ou un identifiant.",
     citationRules(docs, boardsEnabled(ctx.db)),
     "Pour une recherche générale, utilise « search » (tous les champs) ; pour un ticket précis, « get_ticket ».",
+    ...(rag
+      ? [
+          "La recherche sémantique « search_knowledge » (RAG) trouve par le sens des passages de tickets, de notes et de tableaux indexés : utilise-la pour une question ouverte ou formulée autrement que les textes, puis cite les passages trouvés (lignes d'une note, éléments d'un tableau) et relis l'élément au besoin. Elle ne couvre que les projets et espaces où le RAG est activé.",
+        ]
+      : []),
     allowWrite
       ? propose
         ? "Tu peux proposer des modifications avec les outils d'écriture, uniquement quand la demande le justifie clairement : elles ne sont appliquées que lorsque la personne les valide dans le panneau. Termine en listant les modifications proposées."
@@ -232,14 +238,15 @@ export async function runAgent(ctx: AppContext, user: AuthUser, request: AiChatR
     },
   };
   emit({ type: 'model', model: model.id, label: model.label || model.id });
-  const tools = availableTools(request.allowWrite, docsEnabled(ctx.db), boardsEnabled(ctx.db), vision, Boolean(render)).map((definition) => ({
+  const rag = ragEnabled(ctx);
+  const tools = availableTools(request.allowWrite, docsEnabled(ctx.db), boardsEnabled(ctx.db), vision, Boolean(render), rag).map((definition) => ({
     type: 'function' as const,
     function: { name: definition.name, description: definition.description, parameters: definition.parameters },
   }));
   const budget = Math.max(4_000, model.contextWindow - RESERVED_TOKENS);
   const toolOutputMax = Math.max(2_000, Math.min(MAX_TOOL_OUTPUT * 4, Math.floor(budget * CHARS_PER_TOKEN * 0.25)));
   const messages: ChatMessage[] = [
-    { role: 'system', content: systemPrompt(ctx, user, request, request.allowWrite, propose, vision, Boolean(render)) },
+    { role: 'system', content: systemPrompt(ctx, user, request, request.allowWrite, propose, vision, Boolean(render), rag) },
     ...fitConversation(request, model, budget, config.maxTurns),
   ];
   // Tableau blanc ouvert : le modèle le voit d'emblée, dessiné, avec la question.

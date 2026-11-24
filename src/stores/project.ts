@@ -718,7 +718,7 @@ export const useProjectStore = defineStore('project', () => {
 
   // --- Configuration du projet ---
 
-  async function updateProjectInfo(patch: { name?: string; key?: string; description?: string; archived?: boolean; settings?: Partial<ProjectSettingsDTO> }): Promise<void> {
+  async function updateProjectInfo(patch: { name?: string; key?: string; description?: string; archived?: boolean; settings?: Partial<ProjectSettingsDTO>; rag?: boolean }): Promise<void> {
     if (projectId.value === null) {
       return;
     }

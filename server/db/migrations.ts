@@ -781,6 +781,44 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE INDEX idx_board_versions_board ON board_versions (board_id, id);
     `);
   },
+  // 29 — RAG (recherche sémantique) : projets et espaces où il est activé (aucun par défaut), éléments indexés et leurs
+  // passages avec leur vecteur (flottants 32 bits). `kind` : ticket, doc, board ; `container_id` : projet ou espace.
+  (db) => {
+    db.exec(`
+      CREATE TABLE rag_scopes (
+        scope        TEXT NOT NULL,
+        container_id INTEGER NOT NULL,
+        enabled_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        enabled_at   TEXT NOT NULL,
+        PRIMARY KEY (scope, container_id)
+      );
+      CREATE TABLE rag_sources (
+        kind         TEXT NOT NULL,
+        source_id    INTEGER NOT NULL,
+        container_id INTEGER NOT NULL,
+        hash         TEXT NOT NULL,
+        signature    TEXT NOT NULL,
+        chunk_count  INTEGER NOT NULL DEFAULT 0,
+        indexed_at   TEXT NOT NULL,
+        PRIMARY KEY (kind, source_id)
+      );
+      CREATE TABLE rag_chunks (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind         TEXT NOT NULL,
+        source_id    INTEGER NOT NULL,
+        container_id INTEGER NOT NULL,
+        position     INTEGER NOT NULL,
+        title        TEXT NOT NULL,
+        text         TEXT NOT NULL,
+        line_from    INTEGER,
+        line_to      INTEGER,
+        elements     TEXT,
+        embedding    BLOB NOT NULL
+      );
+      CREATE INDEX idx_rag_chunks_source ON rag_chunks (kind, source_id);
+      CREATE INDEX idx_rag_chunks_container ON rag_chunks (kind, container_id);
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

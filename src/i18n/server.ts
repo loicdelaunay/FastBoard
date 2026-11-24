@@ -287,6 +287,12 @@ const EXACT: Record<string, string> = {
   'Date invalide (AAAA-MM-JJ).': 'Invalid date (YYYY-MM-DD).',
   'adresse e-mail invalide': 'invalid email address',
   'date et heure ISO invalide': 'invalid ISO date and time',
+  // 2.23 — Recherche sémantique (RAG).
+  "La recherche sémantique (RAG) n’est pas activée.": "Semantic search (RAG) is not enabled.",
+  "Indiquez ce que vous cherchez.": "Say what you are looking for.",
+  "L’index de la recherche sémantique est en cours de reconstruction (nouveau modèle) : réessayez dans quelques minutes.": "The semantic search index is being rebuilt (new model): try again in a few minutes.",
+  "Activez la recherche sémantique et choisissez un modèle avant d’indexer.": "Enable semantic search and choose a model before indexing.",
+  "Indiquez le modèle d’embeddings.": "Enter the embedding model.",
 };
 
 EXACT['(route inconnue)'] = '(unknown route)';
@@ -338,6 +344,13 @@ const PATTERNS: Array<[RegExp, (match: RegExpExecArray) => string]> = [
   [/^Le port HTTPS doit être différent du port HTTP \((\d+)\)\.$/, (m) => `The HTTPS port must differ from the HTTP port (${m[1]}).`],
   [/^Fournisseur d'IA injoignable \((.+?)\) : (.+)$/, (m) => `AI provider unreachable (${m[1]}): ${translateServerMessage(m[2]!)}`],
   [/^Le fournisseur d'IA a répondu (\d+) : (.*)$/, (m) => `The AI provider answered ${m[1]}: ${m[2]}`],
+  [/^Le serveur d'embeddings n'a pas répondu dans le délai \((\d+) s\)\.$/, (m) => `The embedding server did not answer in time (${m[1]} s).`],
+  [/^Serveur d'embeddings injoignable \((.+?)\) : (.+)$/, (m) => `Embedding server unreachable (${m[1]}): ${translateServerMessage(m[2]!)}`],
+  [/^Le serveur d'embeddings a répondu (\d+) : (.*)$/, (m) => `The embedding server answered ${m[1]}: ${m[2]}`],
+  [
+    /^Réponse inattendue du serveur d'embeddings : (\d+) vecteur\(s\) pour (\d+) texte\(s\)\. Ce modèle calcule-t-il des embeddings \?$/,
+    (m) => `Unexpected answer from the embedding server: ${m[1]} vector(s) for ${m[2]} text(s). Does this model compute embeddings?`,
+  ],
   [/^Connexion réussie \((.+?)\) : (.*)$/, (m) => `Connection succeeded (${m[1]}): ${m[2]}`],
   [/^Un ticket ne peut pas avoir plus de (\d+) sous-tâches\.$/, (m) => `A ticket cannot have more than ${m[1]} subtasks.`],
   [/^Un ticket ne peut pas avoir plus de (\d+) dépendances\.$/, (m) => `A ticket cannot have more than ${m[1]} dependencies.`],

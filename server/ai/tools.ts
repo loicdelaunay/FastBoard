@@ -13,6 +13,7 @@ import { createPart, requirePart, updatePart } from '../services/parts.ts';
 import { createTicket, foldText, getTicketDTO, listTicketDTOs, moveTicket, requireTicket, ticketKeyOf, updateTicket } from '../services/tickets.ts';
 import { BOARD_TOOLS } from './boardTools.ts';
 import { DOC_TOOLS } from './docTools.ts';
+import { RAG_TOOLS } from './ragTools.ts';
 import { VISION_TOOLS } from './visionTools.ts';
 import { clip, PROPOSED, record, type ToolContext, type ToolDefinition } from './toolKit.ts';
 
@@ -580,13 +581,14 @@ export const TOOLS: ToolDefinition[] = [
     },
   },
   ...DOC_TOOLS,
+  ...RAG_TOOLS,
   ...BOARD_TOOLS,
   ...VISION_TOOLS,
 ];
 
 /** Outils proposés au modèle : l'écriture si la personne l'a autorisée, la documentation et les tableaux s'ils sont activés. */
-export function availableTools(allowWrite: boolean, docs: boolean, boards = false, vision = false, render = false): ToolDefinition[] {
-  return TOOLS.filter((tool) => (allowWrite || !tool.write) && (docs || !tool.docs) && (boards || !tool.boards) && (vision || !tool.vision) && (render || !tool.render));
+export function availableTools(allowWrite: boolean, docs: boolean, boards = false, vision = false, render = false, rag = false): ToolDefinition[] {
+  return TOOLS.filter((tool) => (allowWrite || !tool.write) && (docs || !tool.docs) && (boards || !tool.boards) && (vision || !tool.vision) && (render || !tool.render) && (rag || !tool.rag));
 }
 
 /** Exécute un outil ; une erreur devient un message pour le modèle, pas un échec de la discussion. */

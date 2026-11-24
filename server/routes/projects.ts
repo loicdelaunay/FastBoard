@@ -47,6 +47,7 @@ import { createItem, deleteItem, updateItem } from '../services/projectLists.ts'
 import { exportFileName, exportProjectCsv, exportProjectJson } from '../services/export.ts';
 import { createTicket, queryTickets } from '../services/tickets.ts';
 import { getProjectSettings } from '../services/projectSettings.ts';
+import { setRagScope } from '../rag/index.ts';
 
 export function projectsRouter(ctx: AppContext): Router {
   const router = express.Router();
@@ -87,7 +88,10 @@ export function projectsRouter(ctx: AppContext): Router {
   router.patch('/projects/:id', (req, res) => {
     const projectId = idParam(req.params.id);
     requireProject(ctx, currentUser(res), projectId, 'project.edit');
-    const project = updateProject(ctx, actorOf(req, res), projectId, parse(updateProjectSchema, req.body));
+    const input = parse(updateProjectSchema, req.body);
+    // Recherche sémantique : ses tickets entrent dans l'index (ou en sortent aussitôt).
+    if (input.rag !== undefined) setRagScope(ctx, 'project', projectId, input.rag, currentUser(res).id);
+    const project = updateProject(ctx, actorOf(req, res), projectId, input);
     res.json({ project });
   });
 

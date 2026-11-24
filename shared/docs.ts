@@ -19,6 +19,8 @@ export interface DocSpaceDTO {
   id: number;
   name: string;
   description: string;
+  /** Recherche sémantique (RAG) : ses notes sont indexées pour l'assistant IA. */
+  rag: boolean;
   /** Rôle de la personne dans cet espace. */
   role: DocRole;
   /** La personne n'a ce rôle que par ses droits d'administration : elle n'est pas propriétaire de l'espace. */

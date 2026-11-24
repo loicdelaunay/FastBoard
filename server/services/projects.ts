@@ -32,13 +32,14 @@ import {
   parseSettings,
 } from './rows.ts';
 import { listTicketDTOs } from './tickets.ts';
+import { ragScopeEnabled } from '../rag/scopes.ts';
 
 export function getProjectDTO(db: Db, projectId: number): ProjectDTO {
   const row = db.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', projectId);
   if (!row) {
     throw notFound('Projet introuvable.');
   }
-  return toProjectDTO(row);
+  return toProjectDTO(row, ragScopeEnabled(db, 'project', row.id));
 }
 
 export function listMembers(db: Db, projectId: number): { members: ProjectMemberDTO[]; users: UserSummaryDTO[] } {
@@ -63,7 +64,7 @@ export function buildSnapshot(db: Db, access: ProjectAccess): ProjectSnapshotDTO
   const projectId = access.project.id;
   const { members, users } = listMembers(db, projectId);
   return {
-    project: toProjectDTO(access.project),
+    project: toProjectDTO(access.project, ragScopeEnabled(db, 'project', projectId)),
     members,
     users,
     categories: db
@@ -129,7 +130,7 @@ export function listProjectSummaries(db: Db, user: AuthUser): ProjectSummaryDTO[
       : 0;
     const { users } = listMembers(db, row.id);
     return {
-      ...toProjectDTO(row),
+      ...toProjectDTO(row, ragScopeEnabled(db, 'project', row.id)),
       memberCount: users.length,
       ticketCount: tickets.length,
       doneCount: tickets.filter((ticket) => ticket.status === 'done').length,

@@ -79,6 +79,12 @@ export function getMaintenance(db: Db): MaintenanceDTO {
 }
 
 /** Informations publiques de l'application (aussi affichées sur la page de connexion). */
+/** Recherche sémantique (RAG) activée avec un modèle, et l'assistant IA aussi : les projets et espaces peuvent l'activer. */
+function ragOn(db: Db): boolean {
+  const rag = readSetting<{ enabled?: boolean; model?: string }>(db, 'rag');
+  return rag?.enabled === true && Boolean(rag.model?.trim()) && readSetting<{ enabled?: boolean }>(db, 'ai')?.enabled === true;
+}
+
 export function appInfo(db: Db): AppInfoDTO {
   const branding = getBranding(db);
   const maintenance = getMaintenance(db);
@@ -97,6 +103,7 @@ export function appInfo(db: Db): AppInfoDTO {
     docs: readSetting<{ enabled?: boolean }>(db, 'docs')?.enabled === true,
     // Activés d'office : l'administrateur peut les couper.
     boards: readSetting<{ enabled?: boolean }>(db, 'boards')?.enabled !== false,
+    rag: ragOn(db),
   };
 }
 

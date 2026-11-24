@@ -7,6 +7,7 @@ import ToggleSwitch from 'primevue/toggleswitch';
 import { AI_LIMITS, modelRef, parseModelRef, type AiSettingsDTO } from '@shared/ai';
 import { api } from '@/api';
 import AiProviderEditor from '@/components/admin/AiProviderEditor.vue';
+import RagSettings from '@/components/admin/RagSettings.vue';
 import { draftFrom, newDraft, type DefaultModel, type ProviderDraft } from '@/components/admin/aiProviderDraft';
 import { useAppStore } from '@/stores/app';
 import { formatDateTime } from '@/utils/format';
@@ -179,6 +180,8 @@ async function save(): Promise<void> {
         <Button type="submit" :label="$t('Enregistrer')" icon="pi pi-check" :loading="saving" :disabled="!valid" />
       </div>
     </form>
+
+    <RagSettings />
 
     <section class="card block help">
       <h2 class="block-title"><i class="pi pi-shield"></i> {{ $t('Droits') }}</h2>

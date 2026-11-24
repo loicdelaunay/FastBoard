@@ -183,8 +183,9 @@ export function reindexDocs(ctx: AppContext): void {
 
 export function listSpaces(ctx: AppContext, user: AuthUser): DocSpaceDTO[] {
   const seesAll = hasPermission(user.permissions, 'docs.manage');
-  const rows = ctx.db.all<SpaceRow & { my_role: DocRole | null; files: number; members: number; site_slug: string | null; site_visibility: DocSiteVisibility | null }>(
+  const rows = ctx.db.all<SpaceRow & { my_role: DocRole | null; files: number; members: number; rag: number; site_slug: string | null; site_visibility: DocSiteVisibility | null }>(
     `SELECT s.*, m.role AS my_role, w.slug AS site_slug, w.visibility AS site_visibility,
+            EXISTS (SELECT 1 FROM rag_scopes r WHERE r.scope = 'docs' AND r.container_id = s.id) AS rag,
             (SELECT COUNT(*) FROM doc_nodes n WHERE n.space_id = s.id AND n.deleted_at IS NULL AND n.kind = 'markdown') AS files,
             (SELECT COUNT(*) FROM doc_members x WHERE x.space_id = s.id) AS members
        FROM doc_spaces s LEFT JOIN doc_members m ON m.space_id = s.id AND m.user_id = ? LEFT JOIN doc_sites w ON w.space_id = s.id
@@ -202,6 +203,7 @@ export function listSpaces(ctx: AppContext, user: AuthUser): DocSpaceDTO[] {
     fileCount: row.files,
     memberCount: row.members,
     obsidian: row.obsidian === 1,
+    rag: row.rag === 1,
     imageFolder: row.image_folder,
     defaultImageFolder,
     site: row.site_slug && row.site_visibility ? { slug: row.site_slug, visibility: row.site_visibility } : null,

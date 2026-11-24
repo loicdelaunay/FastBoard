@@ -38,6 +38,7 @@ import type {
 import type { LogEntryDTO, LogLevel, MonitoringRange, MonitoringSnapshotDTO } from '@shared/monitoring';
 import type { AiContext, AiConversationDTO, AiConversationSummaryDTO, AiModelChoiceDTO, AiModelDTO, AiSettingsDTO, DetectedModelDTO } from '@shared/ai';
 import type { AppearanceDTO, CustomThemeDef, SharedThemeDTO } from '@shared/themes';
+import type { RagFormat, RagSettingsDTO, RagStatusDTO, RagTestResultDTO } from '@shared/rag';
 import type { CustomFieldValue } from '@shared/ticketFields';
 import type { CertificateFormat, CertificateInfoDTO, HttpsSettingsDTO, HttpsStatusDTO } from '@shared/https';
 import type { BackupDestinationDTO, BackupOverviewDTO, BackupRunDTO } from '@shared/backup';
@@ -204,6 +205,26 @@ export async function uploadAttachment(ticketId: number, original: File, onProgr
   });
 }
 
+/** Réglages du modèle d'embeddings tels que le formulaire les envoie (pour un essai : sans `enabled` ni intervalle). */
+export interface RagProbeInput {
+  baseUrl: string;
+  model: string;
+  format: RagFormat;
+  queryTemplate: string;
+  documentTemplate: string;
+  dimensions: number | null;
+  timeoutSeconds: number;
+  /** Absent : garder la clé enregistrée ; chaîne vide : l'effacer. */
+  apiKey?: string;
+  verifyCertificate: boolean;
+}
+
+export interface RagSettingsInput extends RagProbeInput {
+  enabled: boolean;
+  intervalHours: number;
+  chunkChars: number;
+}
+
 export const api = {
   // --- Authentification et profil ---
   login: (email: string, password: string) =>
@@ -248,7 +269,7 @@ export const api = {
   createProject: (input: { name: string; key?: string; description?: string }) =>
     http<{ project: ProjectDTO }>('POST', '/projects', { body: input }),
   snapshot: (projectId: number) => http<ProjectSnapshotDTO>('GET', `/projects/${projectId}`),
-  updateProject: (projectId: number, patch: { name?: string; key?: string; description?: string; archived?: boolean; settings?: Partial<ProjectSettingsDTO> }) =>
+  updateProject: (projectId: number, patch: { name?: string; key?: string; description?: string; archived?: boolean; settings?: Partial<ProjectSettingsDTO>; rag?: boolean }) =>
     http<{ project: ProjectDTO }>('PATCH', `/projects/${projectId}`, { body: patch }),
   deleteProject: (projectId: number) => http<{ ok: true }>('DELETE', `/projects/${projectId}`),
 
@@ -351,7 +372,7 @@ export const api = {
   boardSpaces: () => http<{ spaces: BoardSpaceDTO[] }>('GET', '/boards/spaces'),
   boardCreateSpace: (input: { name: string; description: string }) => http<{ space: BoardSpaceDTO }>('POST', '/boards/spaces', { body: input }),
   boardSpace: (spaceId: number) => http<{ space: BoardSpaceDTO; role: BoardRole; nodes: BoardNodeDTO[]; members: BoardMemberDTO[] }>('GET', `/boards/spaces/${spaceId}`),
-  boardUpdateSpace: (spaceId: number, input: { name?: string; description?: string }) => http<{ space: BoardSpaceDTO }>('PATCH', `/boards/spaces/${spaceId}`, { body: input }),
+  boardUpdateSpace: (spaceId: number, input: { name?: string; description?: string; rag?: boolean }) => http<{ space: BoardSpaceDTO }>('PATCH', `/boards/spaces/${spaceId}`, { body: input }),
   boardDeleteSpace: (spaceId: number) => http<{ ok: true }>('DELETE', `/boards/spaces/${spaceId}`),
   boardAddMember: (spaceId: number, userId: number, role: BoardRole) => http<{ members: BoardMemberDTO[] }>('POST', `/boards/spaces/${spaceId}/members`, { body: { userId, role } }),
   boardSetMember: (spaceId: number, userId: number, role: BoardRole) => http<{ members: BoardMemberDTO[] }>('PUT', `/boards/spaces/${spaceId}/members/${userId}`, { body: { role } }),
@@ -389,7 +410,7 @@ export const api = {
   docSpaces: () => http<{ spaces: DocSpaceDTO[] }>('GET', '/documentation/spaces'),
   docCreateSpace: (input: { name: string; description: string; obsidian?: boolean; imageFolder?: string | null }) => http<{ space: DocSpaceDTO }>('POST', '/documentation/spaces', { body: input }),
   docSpace: (spaceId: number) => http<{ space: DocSpaceDTO; nodes: DocNodeDTO[]; templates: DocNodeDTO[]; members: DocMemberDTO[] }>('GET', `/documentation/spaces/${spaceId}`),
-  docUpdateSpace: (spaceId: number, input: { name?: string; description?: string; obsidian?: boolean; imageFolder?: string | null }) => http<{ space: DocSpaceDTO }>('PATCH', `/documentation/spaces/${spaceId}`, { body: input }),
+  docUpdateSpace: (spaceId: number, input: { name?: string; description?: string; obsidian?: boolean; imageFolder?: string | null; rag?: boolean }) => http<{ space: DocSpaceDTO }>('PATCH', `/documentation/spaces/${spaceId}`, { body: input }),
   docDeleteSpace: (spaceId: number) => http<{ ok: true }>('DELETE', `/documentation/spaces/${spaceId}`),
   docAddMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('POST', `/documentation/spaces/${spaceId}/members`, { body: { userId, role } }),
   docSetMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('PATCH', `/documentation/spaces/${spaceId}/members/${userId}`, { body: { role } }),
@@ -436,6 +457,11 @@ export const api = {
   adminSaveAuth: (input: LdapFields & { bindPassword?: string }) => http<{ ldap: LdapSettingsDTO; app: AppInfoDTO }>('PUT', '/admin/auth', { body: input }),
   adminTestLdap: (input: LdapFields & { bindPassword?: string; login: string; password: string }) => http<LdapTestResultDTO>('POST', '/admin/auth/ldap/test', { body: input }),
   adminAi: () => http<{ settings: AiSettingsDTO }>('GET', '/admin/ai'),
+  adminRag: () => http<{ settings: RagSettingsDTO; status: RagStatusDTO }>('GET', '/admin/rag'),
+  adminSaveRag: (input: RagSettingsInput) => http<{ settings: RagSettingsDTO; status: RagStatusDTO }>('PUT', '/admin/rag', { body: input }),
+  adminTestRag: (probe: RagProbeInput) => http<{ result: RagTestResultDTO }>('POST', '/admin/rag/test', { body: probe }),
+  adminRagModels: (probe: RagProbeInput) => http<{ models: string[] }>('POST', '/admin/rag/models', { body: probe }),
+  adminReindexRag: (rebuild = false) => http<{ status: RagStatusDTO }>('POST', '/admin/rag/reindex', { body: { rebuild } }),
   adminSaveAi: (input: { enabled: boolean; providers: AiProviderInput[]; defaultModel: string; maxSteps: number; maxTurns: number }) => http<{ settings: AiSettingsDTO; app: AppInfoDTO }>('PUT', '/admin/ai', { body: input }),
   adminTestAi: (probe: { providerId?: string; baseUrl: string; timeoutSeconds?: number; model?: string; apiKey?: string; verifyCertificate?: boolean }) => http<{ ok: boolean; message: string }>('POST', '/admin/ai/test', { body: probe }),
   adminDetectAiModels: (probe: { providerId?: string; baseUrl: string; apiKey?: string; verifyCertificate?: boolean }) => http<{ models: DetectedModelDTO[] }>('POST', '/admin/ai/models', { body: probe }),

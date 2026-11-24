@@ -41,6 +41,8 @@ export interface ToolDefinition {
   vision?: boolean;
   /** Outil qui fait dessiner une image au panneau : proposé seulement s'il sait le faire. */
   render?: boolean;
+  /** Recherche sémantique : proposée seulement si le RAG est activé. */
+  rag?: boolean;
   /** Libellé court affiché dans le panneau pendant l'exécution. */
   label: (args: Record<string, unknown>) => string;
   run: (tool: ToolContext, args: Record<string, unknown>) => unknown;

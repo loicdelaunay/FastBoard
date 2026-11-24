@@ -187,7 +187,8 @@ export function parseSettings(raw: string | null | undefined): ProjectSettingsDT
   }
 }
 
-export function toProjectDTO(row: ProjectRow): ProjectDTO {
+/** `rag` : tickets indexés pour la recherche sémantique (voir `server/rag/scopes.ts`). */
+export function toProjectDTO(row: ProjectRow, rag = false): ProjectDTO {
   return {
     id: row.id,
     name: row.name,
@@ -196,6 +197,7 @@ export function toProjectDTO(row: ProjectRow): ProjectDTO {
     archived: row.archived === 1,
     ownerId: row.owner_id,
     settings: parseSettings(row.settings),
+    rag,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

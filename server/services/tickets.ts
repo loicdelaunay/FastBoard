@@ -13,6 +13,7 @@ import { addHistory } from './history.ts';
 import { queueMentions, watchTicket } from './notifications.ts';
 import { assertStatusAvailable, getProjectSettings } from './projectSettings.ts';
 import { toLinkDTO, toPartDTO, toProjectDTO, toUserSummary, USER_COLUMNS, type LinkRow, type PartRow, type ProjectRow, type TicketRow, type UserRow } from './rows.ts';
+import { ragScopeEnabled } from '../rag/scopes.ts';
 
 export const POSITION_STEP = 1024;
 const MIN_GAP = 1e-6;
@@ -434,7 +435,7 @@ function applyCustomFields(db: Db, projectId: number, current: Record<string, Cu
 /** Nouveaux choix ajoutés depuis un ticket : les réglages du projet sont rediffusés. */
 function publishProject(ctx: AppContext, actor: Actor, projectId: number): void {
   const row = ctx.db.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', projectId);
-  if (row) ctx.hub.publish(projectId, [{ type: 'project.updated', project: toProjectDTO(row) }], actor);
+  if (row) ctx.hub.publish(projectId, [{ type: 'project.updated', project: toProjectDTO(row, ragScopeEnabled(ctx.db, 'project', projectId)) }], actor);
 }
 
 function parentLabel(db: Db, id: number | null): string | null {

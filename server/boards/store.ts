@@ -113,8 +113,9 @@ export function requireBoard(ctx: AppContext, user: AuthUser, nodeId: number, mi
 
 export function listBoardSpaces(ctx: AppContext, user: AuthUser): BoardSpaceDTO[] {
   const seesAll = hasPermission(user.permissions, 'boards.manage');
-  const rows = ctx.db.all<SpaceRow & { my_role: BoardRole | null; boards: number; members: number }>(
+  const rows = ctx.db.all<SpaceRow & { my_role: BoardRole | null; boards: number; members: number; rag: number }>(
     `SELECT s.*, m.role AS my_role,
+            EXISTS (SELECT 1 FROM rag_scopes r WHERE r.scope = 'boards' AND r.container_id = s.id) AS rag,
             (SELECT COUNT(*) FROM board_nodes n WHERE n.space_id = s.id AND n.deleted_at IS NULL AND n.kind = 'board') AS boards,
             (SELECT COUNT(*) FROM board_members x WHERE x.space_id = s.id) AS members
        FROM board_spaces s LEFT JOIN board_members m ON m.space_id = s.id AND m.user_id = ?
@@ -128,6 +129,7 @@ export function listBoardSpaces(ctx: AppContext, user: AuthUser): BoardSpaceDTO[
     description: row.description,
     role: seesAll ? 'owner' : row.my_role!,
     adminAccess: seesAll && row.my_role !== 'owner',
+    rag: row.rag === 1,
     boardCount: row.boards,
     memberCount: row.members,
     createdAt: row.created_at,

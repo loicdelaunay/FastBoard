@@ -10,6 +10,7 @@ import { isISODate } from '../../shared/dates.ts';
 import { DOC_COMMENT_LIMITS } from '../../shared/docComments.ts';
 import { DOC_LIMITS, DOC_ROLES, DOC_SITE_VISIBILITIES, normalizeImageFolder } from '../../shared/docs.ts';
 import { LDAP_LIMITS, LDAP_PROFILES, LDAP_SECURITY, LDAP_USER_TOKEN } from '../../shared/ldap.ts';
+import { RAG_FORMATS, RAG_LIMITS } from '../../shared/rag.ts';
 import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
@@ -271,6 +272,7 @@ export const updateProjectSchema = z.object({
   description: z.string().trim().max(2000).optional(),
   archived: z.boolean().optional(),
   settings: settingsPatchSchema.optional().describe('Réglages du projet (fusionnés avec les réglages actuels).'),
+  rag: z.boolean().optional().describe('Recherche sémantique (RAG) : indexer ses tickets pour l’assistant IA (désactivé par défaut ; l’administrateur règle le modèle dans Administration → IA).'),
 });
 
 export const memberSchema = z.object({ userId: id, roleId: id.describe('Identifiant d\'un rôle de projet (`GET /roles`).') });
@@ -508,6 +510,38 @@ export const aiProbeSchema = z.object({
   verifyCertificate: z.boolean().default(true).describe('`false` : accepter un certificat HTTPS non reconnu (auto-signé).'),
 });
 
+// --- RAG (recherche sémantique) ---------------------------------------------------------------------------------------
+
+const ragEndpointFields = {
+  baseUrl: z.url({ protocol: /^https?$/ }).max(500).describe('URL de base compatible OpenAI v1 (`POST {baseUrl}/embeddings`), ex. `http://localhost:11434/v1` pour Ollama.'),
+  model: z.string().trim().max(200).describe('Modèle d’embeddings, ex. `embeddinggemma`, `nomic-embed-text`, `qwen3-embedding:0.6b`.'),
+  format: z
+    .enum(RAG_FORMATS)
+    .default('auto')
+    .describe('Mise en forme des textes : `auto` (d’après le nom du modèle), `none`, `embeddinggemma`, `nomic`, `qwen3`, ou `custom` (gabarits).'),
+  queryTemplate: z.string().max(RAG_LIMITS.templateMax).default('').describe('Gabarit d’une question (`custom`) : `{text}`.'),
+  documentTemplate: z.string().max(RAG_LIMITS.templateMax).default('').describe('Gabarit d’un passage indexé (`custom`) : `{text}`, `{title}`.'),
+  dimensions: z.number().int().min(8).max(RAG_LIMITS.dimensionsMax).nullable().default(null).describe('Taille des vecteurs gardés (tronqués : modèles « Matryoshka ») ; `null` : celle du modèle.'),
+  timeoutSeconds: z.number().int().min(5).max(RAG_LIMITS.timeoutMax).default(RAG_LIMITS.timeoutSeconds),
+  apiKey: z.string().max(500).optional().describe('Absent : garder la clé actuelle (ou, pour un essai, la clé enregistrée) ; chaîne vide : l’effacer.'),
+  verifyCertificate: z.boolean().default(true).describe('`false` : accepter un certificat HTTPS non reconnu (auto-signé).'),
+};
+
+export const ragSettingsSchema = z.object({
+  enabled: z.boolean(),
+  ...ragEndpointFields,
+  intervalHours: z
+    .number()
+    .int()
+    .min(RAG_LIMITS.intervalHoursMin)
+    .max(RAG_LIMITS.intervalHoursMax)
+    .default(RAG_LIMITS.intervalHoursDefault)
+    .describe('Réindexation automatique, en heures (24 : chaque jour).'),
+  chunkChars: z.number().int().min(RAG_LIMITS.chunkCharsMin).max(RAG_LIMITS.chunkCharsMax).default(RAG_LIMITS.chunkChars).describe('Taille visée d’un passage, en caractères.'),
+});
+export const ragProbeSchema = z.object(ragEndpointFields);
+export const ragReindexSchema = z.object({ rebuild: z.boolean().default(false).describe('Tout recalculer, au lieu de ce qui a changé.') });
+
 export const aiConversationSchema = z.object({
   title: z.string().trim().min(1).max(120),
   context: aiContextSchema,
@@ -574,7 +608,9 @@ export const docSpaceSchema = z.object({
     .optional()
     .describe('Sous-dossier, à côté de la note, où vont les images collées ou glissées dans cet espace ; `null` ou vide : celui réglé dans l’administration.'),
 });
-export const docSpaceUpdateSchema = docSpaceSchema.partial();
+export const docSpaceUpdateSchema = docSpaceSchema.partial().extend({
+  rag: z.boolean().optional().describe('Recherche sémantique (RAG) : indexer ses notes pour l’assistant IA (désactivé par défaut ; l’administrateur règle le modèle dans Administration → IA).'),
+});
 
 export const docMemberRoleSchema = z.object({ role: z.enum(DOC_ROLES).describe('`reader` : lecture ; `editor` : écriture ; `owner` : membres et réglages.') });
 export const docMemberSchema = docMemberRoleSchema.extend({ userId: id });
@@ -611,7 +647,9 @@ export const boardSpaceSchema = z.object({
   name: z.string().trim().min(1, 'Donnez un nom à l’espace.').max(BOARD_LIMITS.nameMax),
   description: z.string().trim().max(BOARD_LIMITS.descriptionMax).default(''),
 });
-export const boardSpaceUpdateSchema = boardSpaceSchema.partial();
+export const boardSpaceUpdateSchema = boardSpaceSchema.partial().extend({
+  rag: z.boolean().optional().describe('Recherche sémantique (RAG) : indexer ses tableaux blancs pour l’assistant IA (désactivé par défaut ; l’administrateur règle le modèle dans Administration → IA).'),
+});
 export const boardMemberRoleSchema = docMemberRoleSchema;
 export const boardMemberSchema = docMemberSchema;
 const boardElements = z

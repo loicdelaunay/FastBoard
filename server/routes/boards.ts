@@ -57,6 +57,7 @@ import {
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal } from '../services/access.ts';
 import { appInfo } from '../services/appSettings.ts';
+import { setRagScope } from '../rag/index.ts';
 
 /** Tableaux blancs : espaces, membres, arbre de dossiers et de tableaux, éléments et aperçus. */
 export function boardsRouter(ctx: AppContext): Router {
@@ -145,7 +146,9 @@ export function boardsRouter(ctx: AppContext): Router {
   router.patch('/boards/spaces/:id', (req, res) => {
     const spaceId = idParam(req.params.id);
     spaceAccess(res, spaceId, 'owner');
-    res.json({ space: updateBoardSpace(ctx, currentUser(res), spaceId, parse(boardSpaceUpdateSchema, req.body)) });
+    const input = parse(boardSpaceUpdateSchema, req.body);
+    if (input.rag !== undefined) setRagScope(ctx, 'boards', spaceId, input.rag, currentUser(res).id);
+    res.json({ space: updateBoardSpace(ctx, currentUser(res), spaceId, input) });
   });
 
   router.delete('/boards/spaces/:id', (req, res) => {

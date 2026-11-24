@@ -61,6 +61,8 @@ export interface BoardSpaceDTO {
   id: number;
   name: string;
   description: string;
+  /** Recherche sémantique (RAG) : ses tableaux sont indexés pour l'assistant IA. */
+  rag: boolean;
   role: BoardRole;
   /** La personne n'a ce rôle que par ses droits d'administration : elle n'est pas propriétaire de l'espace. */
   adminAccess: boolean;

@@ -40,6 +40,7 @@ import { wikiRouter } from './routes/wiki.ts';
 import { docsRouter } from './routes/docs.ts';
 import { projectsRouter } from './routes/projects.ts';
 import { ticketsRouter } from './routes/tickets.ts';
+import { startRagScheduler } from './rag/index.ts';
 
 export interface RunningServer {
   ctx: AppContext;
@@ -226,6 +227,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   }, 60 * 60 * 1000);
   purge.unref();
   const stopBackups = startBackupScheduler(ctx);
+  const stopRag = startRagScheduler(ctx);
 
   return {
     ctx,
@@ -235,6 +237,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
     close: async () => {
       clearInterval(purge);
       stopBackups();
+      stopRag();
       ctx.docRooms.close();
       ctx.boardRooms.close();
       hub.close();

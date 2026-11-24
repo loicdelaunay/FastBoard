@@ -8,6 +8,8 @@ import Textarea from 'primevue/textarea';
 import ToggleSwitch from 'primevue/toggleswitch';
 import { todayISO } from '@shared/dates';
 import { api } from '@/api';
+import RagToggle from '@/components/common/RagToggle.vue';
+import { useAppStore } from '@/stores/app';
 import { useAuthStore } from '@/stores/auth';
 import { downloadFile } from '@/utils/csv';
 import { useProjectStore } from '@/stores/project';
@@ -18,6 +20,7 @@ const project = useProjectStore();
 const auth = useAuthStore();
 const router = useRouter();
 const confirm = useConfirm();
+const app = useAppStore();
 
 const name = ref('');
 const key = ref('');
@@ -58,6 +61,16 @@ async function toggleArchive(value: boolean): Promise<void> {
   try {
     await project.updateProjectInfo({ archived: value });
     notify('info', value ? t('Projet archivé') : t('Projet réactivé'), value ? t('Il est désormais en lecture seule.') : undefined);
+  } catch (error) {
+    notifyError(error);
+  }
+}
+
+/** Recherche sémantique : les tickets du projet entrent dans l'index de l'assistant (ou en sortent aussitôt). */
+async function toggleRag(value: boolean): Promise<void> {
+  try {
+    await project.updateProjectInfo({ rag: value });
+    notify('success', value ? t('Recherche sémantique activée pour ce projet') : t('Recherche sémantique désactivée pour ce projet'), value ? t('Ses tickets seront indexés dans quelques instants.') : undefined);
   } catch (error) {
     notifyError(error);
   }
@@ -147,6 +160,10 @@ function askLeave(): void {
         </div>
         <Button :label="$t('Exporter')" icon="pi pi-download" severity="secondary" outlined @click="exportProject" />
       </div>
+    </section>
+
+    <section v-if="canEdit && (app.info.rag || project.project?.rag)" class="zone card">
+      <RagToggle :model-value="project.project?.rag ?? false" input-id="project-rag" :what="$t('les tickets de ce projet (titre, description, avancement, commentaires)')" @update:model-value="toggleRag" />
     </section>
 
     <section v-if="canEdit" class="zone card">

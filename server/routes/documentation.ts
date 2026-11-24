@@ -52,6 +52,7 @@ import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal } from '../services/access.ts';
 import { appInfo } from '../services/appSettings.ts';
 import { contentDisposition } from '../services/attachments.ts';
+import { setRagScope } from '../rag/index.ts';
 
 function decodedName(raw: string | undefined): string {
   if (!raw) return '';
@@ -186,7 +187,9 @@ export function documentationRouter(ctx: AppContext): Router {
     const spaceId = idParam(req.params.id);
     const user = currentUser(res);
     requireSpace(ctx, user, spaceId, 'owner');
-    res.json({ space: updateSpace(ctx, user, spaceId, parse(docSpaceUpdateSchema, req.body)) });
+    const input = parse(docSpaceUpdateSchema, req.body);
+    if (input.rag !== undefined) setRagScope(ctx, 'docs', spaceId, input.rag, user.id);
+    res.json({ space: updateSpace(ctx, user, spaceId, input) });
   });
 
   router.delete('/documentation/spaces/:id', (req, res) => {
