@@ -76,4 +76,11 @@ export const enV48: Record<string, string> = {
     'Ctrl Alt I (Ctrl Option I on Mac) opens the AI assistant on a new conversation.',
   'Administration → Performance prend en compte la documentation, les tableaux blancs et l’assistant : notes, images, versions, commentaires, tableaux et leurs éléments, images des tableaux, corbeille, index de la recherche sémantique, conversations, et l’édition collaborative en cours (notes et tableaux ouverts, personnes connectées, visiteurs par un lien de partage), aussi dans le graphique temps réel.':
     'Administration → Performance takes the documentation, whiteboards and the assistant into account: notes, images, versions, comments, boards and their elements, board images, trash, semantic search index, conversations, and the collaborative editing in progress (open notes and boards, connected people, visitors through a share link), also in the real-time chart.',
+  // 2.24.2 — Aperçu du graphique pendant l’édition de ses données.
+  'Aperçu du graphique':
+    'Chart preview',
+  'Aperçu':
+    'Preview',
+  'Tableaux blancs : la fenêtre « Données du graphique » montre l’aperçu du graphique pendant l’édition (titre, type et valeurs, à chaque saisie), avant d’enregistrer.':
+    'Whiteboards: the “Chart data” window shows a preview of the chart while editing (title, type and values, as you type), before saving.',
 };

@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.24.1';
+export const APP_VERSION = '2.24.2';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,11 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.24.2',
+    date: '2026-11-24',
+    changes: [{ category: 'Amélioration', text: 'Tableaux blancs : la fenêtre « Données du graphique » montre l’aperçu du graphique pendant l’édition (titre, type et valeurs, à chaque saisie), avant d’enregistrer.' }],
+  },
   {
     version: '2.24.1',
     date: '2026-11-24',
