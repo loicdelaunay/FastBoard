@@ -90,6 +90,8 @@ export interface PreviewOptions {
   image?: (assetKey: string) => string | null;
   /** Contenu d'une icône ajoutée par un administrateur (`custom:12` → 12), en adresse `data:`. */
   customIcon?: (iconId: number) => string | null;
+  /** Zone dessinée (coordonnées du tableau) au lieu du tableau entier ; elle est dessinée à `maxWidth` exactement. */
+  region?: { x: number; y: number; w: number; h: number };
 }
 
 export function boardPreviewSvg(elements: readonly BoardElement[], options: PreviewOptions = {}): string {
@@ -97,8 +99,9 @@ export function boardPreviewSvg(elements: readonly BoardElement[], options: Prev
   const s = options.dark ? SURFACES.dark : SURFACES.light;
   const index = new Map(elements.map((element) => [element.id, element]));
   const bounds = boundsOf(elements, index) ?? { x: 0, y: 0, w: 400, h: 240 };
-  const view = { x: bounds.x - PAD, y: bounds.y - PAD, w: Math.max(bounds.w + PAD * 2, 120), h: Math.max(bounds.h + PAD * 2, 80) };
-  const width = Math.min(options.maxWidth ?? 640, view.w);
+  const view = options.region ?? { x: bounds.x - PAD, y: bounds.y - PAD, w: Math.max(bounds.w + PAD * 2, 120), h: Math.max(bounds.h + PAD * 2, 80) };
+  // Une zone est agrandie à la largeur demandée (pour lire un détail) ; le tableau entier n'est jamais agrandi.
+  const width = options.region ? (options.maxWidth ?? 640) : Math.min(options.maxWidth ?? 640, view.w);
   const height = (width / view.w) * view.h;
   const parts: string[] = [];
   const sorted = [...elements].sort((a, b) => a.z - b.z);

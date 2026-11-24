@@ -437,7 +437,17 @@ export const aiChatSchema = z.object({
   writeMode: z.enum(['apply', 'propose']).default('apply').describe('`apply` : modifications faites directement ; `propose` : proposées, à valider par la personne.'),
   model: z.string().max(300).optional().describe('Référence d’un modèle mis à disposition (`GET /ai/models` → `ref`) ; absent = modèle par défaut.'),
   reasoning: z.string().max(40).optional().describe('Réglage de réflexion : identifiant d’un réglage du modèle (`GET /ai/models` → `reasoningOptions`), ex. `high` ; absent = réglage du fournisseur.'),
+  canRender: z
+    .boolean()
+    .default(false)
+    .describe("Le client sait dessiner des images pour le modèle : il répond aux évènements `render` par `POST /ai/renders/{id}` (vue d'un tableau blanc, image réduite)."),
 });
+
+/** Image dessinée par le panneau à la demande du serveur, ou la raison de son échec. */
+export const aiRenderResultSchema = z.union([
+  z.object({ image: z.string().max(AI_LIMITS.imageChars).regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, 'Image invalide (PNG, JPEG ou WebP en base64).').describe('Image en adresse `data:`.') }),
+  z.object({ error: z.string().trim().min(1).max(500).describe('Pourquoi l’image n’a pas pu être dessinée.') }),
+]);
 
 const aiModelsSchema = z
   .array(

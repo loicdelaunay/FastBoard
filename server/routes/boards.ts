@@ -312,13 +312,16 @@ export function boardsRouter(ctx: AppContext): Router {
 
   router.get('/boards/nodes/:id/preview', (req, res) => {
     const { node } = requireBoard(ctx, currentUser(res), idParam(req.params.id));
-    const width = Math.min(1600, Math.max(120, Number(req.query.width) || 640));
+    const width = Math.min(2048, Math.max(120, Number(req.query.width) || 640));
+    // Une zone du tableau (x, y, w, h dans ses coordonnées) : ce que l'assistant regarde de près.
+    const [x, y, w, h] = ['x', 'y', 'w', 'h'].map((key) => Number(req.query[key]));
+    const region = [x, y, w, h].every((value) => Number.isFinite(value)) && w! > 0 && h! > 0 && w! <= 100_000 && h! <= 100_000 ? { x: x!, y: y!, w: w!, h: h! } : undefined;
     res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
     // Une image, rien d'autre : pas de script, pas de ressource externe.
     res.setHeader('Content-Security-Policy', "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox");
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-cache');
-    res.send(boardPreviewSvg(readBoardElements(ctx, node), { maxWidth: width, dark: req.query.theme === 'dark', ...previewResources(ctx) }));
+    res.send(boardPreviewSvg(readBoardElements(ctx, node), { maxWidth: width, dark: req.query.theme === 'dark', ...(region ? { region } : {}), ...previewResources(ctx) }));
   });
 
   return router;

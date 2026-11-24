@@ -149,7 +149,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   const json = express.json({ limit: '1mb' });
   const largeJson = express.json({ limit: '16mb' });
   // Assistant IA : images jointes et conversations enregistrées. Documentation : texte d'un fichier, décisions d'import.
-  api.use((req, res, next) => (req.path === '/ai/chat' || req.path.startsWith('/ai/conversations/') || req.path.startsWith('/documentation/') || req.path.startsWith('/boards/') ? largeJson : json)(req, res, next));
+  api.use((req, res, next) => (req.path === '/ai/chat' || req.path.startsWith('/ai/renders/') || req.path.startsWith('/ai/conversations/') || req.path.startsWith('/documentation/') || req.path.startsWith('/boards/') ? largeJson : json)(req, res, next));
   api.use(csrfGuard(ctx));
   api.get('/health', (_req, res) => {
     res.json({ status: 'ok' });

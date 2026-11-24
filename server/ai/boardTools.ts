@@ -5,6 +5,7 @@ import { BOARD_COLORS, boardTitle, elementText, isPlaced, newElementId, type Boa
 import { createBoardNode, listBoardSpaces, patchBoardElements, readBoardElements, requireBoard, requireBoardSpace, searchBoards, type BoardNodeRow } from '../boards/store.ts';
 import { badRequest } from '../http/errors.ts';
 import { clip, PROPOSED, record, type ToolContext, type ToolDefinition } from './toolKit.ts';
+import { boardBounds } from './visionTools.ts';
 
 /**
  * Outils de l'assistant sur les tableaux blancs : chercher et lire un tableau, y dessiner (Mermaid), poser des post-it,
@@ -90,7 +91,7 @@ export const BOARD_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'read_board',
-    description: 'Lit un tableau blanc : ses éléments (id, type, texte, position, couleur, liens, groupe) et sa structure en Mermaid.',
+    description: 'Lit un tableau blanc : ses éléments (id, type, texte, position, couleur, liens, groupe), son étendue (`bounds`, pour regarder une zone avec « view_board ») et sa structure en Mermaid.',
     parameters: { type: 'object', properties: { board: BOARD }, required: ['board'] },
     write: false,
     boards: true,
@@ -99,7 +100,7 @@ export const BOARD_TOOLS: ToolDefinition[] = [
       const node = boardOf(tool, args.board, false);
       const elements = readBoardElements(tool.ctx, node);
       return {
-        board: { id: node.id, title: boardTitle(node.path), path: node.path, kind: node.kind, count: elements.length },
+        board: { id: node.id, title: boardTitle(node.path), path: node.path, kind: node.kind, count: elements.length, bounds: boardBounds(elements) },
         elements: elements.slice(0, MAX_LISTED).map(describe),
         ...(elements.length > MAX_LISTED ? { truncated: true } : {}),
         mermaid: clip(exportMermaid(elements), 6000),

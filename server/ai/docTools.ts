@@ -21,7 +21,7 @@ const NOTE_PROPERTIES = {
   spaceId: { type: 'integer', description: 'Espace de la note, si elle est donnée par son chemin.' },
 };
 
-function findNote(tool: ToolContext, args: Record<string, unknown>, minimum: DocRole = 'reader'): NodeRow {
+export function findNote(tool: ToolContext, args: Record<string, unknown>, minimum: DocRole = 'reader'): NodeRow {
   const { db } = tool.ctx;
   const ref = args.note;
   let node: NodeRow | undefined;
@@ -44,7 +44,7 @@ function requireWrite(tool: ToolContext): void {
   if (!tool.allowWrite) throw forbidden("Modifications désactivées : la personne doit cocher « Autoriser les modifications » dans le panneau de l'assistant.");
 }
 
-const noteText = (tool: ToolContext, node: NodeRow): string => tool.ctx.docRooms.currentText(node.id) ?? readText(tool.ctx, node);
+export const noteText = (tool: ToolContext, node: NodeRow): string => tool.ctx.docRooms.currentText(node.id) ?? readText(tool.ctx, node);
 
 /** Modifie (ou propose de modifier) une note, en gardant le passage touché pour pouvoir annuler. */
 function changeNote(tool: ToolContext, node: NodeRow, next: string) {

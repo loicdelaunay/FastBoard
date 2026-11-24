@@ -207,6 +207,20 @@ const OPERATIONS: Operation[] = [
     summary: 'Modèles proposés dans le panneau de l’assistant',
     ok: obj({ models: arr({ type: 'object', description: 'ref (à passer dans `model`), id, label, provider, vision, contextWindow, reasoning, reasoningOptions (réglages de réflexion du modèle : `id` à passer dans `reasoning`, `label`)' }), defaultModel: str('Référence du modèle par défaut.') }),
   },
+  {
+    method: 'post',
+    path: '/ai/renders/{id}',
+    tag: 'Assistant IA',
+    access: 'session',
+    permission: 'ai.use',
+    summary: 'Renvoyer une image dessinée pour le modèle',
+    description:
+      "Pendant une réponse, l'évènement `render` demande au panneau une image que le serveur ne sait pas dessiner : un tableau blanc (`kind: board`, entier ou une zone, à la largeur donnée) ou une image réduite (`kind: image`). Le panneau la renvoie ici en adresse `data:` (PNG, JPEG ou WebP), ou explique pourquoi il n'a pas pu. Seule la personne qui a posé la question peut répondre, dans le délai.",
+    params: { id: 'Identifiant donné par l’évènement `render`.' },
+    stringParams: ['id'],
+    body: S.aiRenderResultSchema,
+    ok: obj({ ok: bool() }),
+  },
   { method: 'get', path: '/ai/conversations', tag: 'Assistant IA', access: 'session', permission: 'ai.use', summary: 'Mes 50 dernières conversations avec l’assistant', ok: obj({ conversations: arr({ type: 'object', description: 'id, title, messageCount, createdAt, updatedAt' }) }) },
   { method: 'get', path: '/ai/conversations/{id}', tag: 'Assistant IA', access: 'session', permission: 'ai.use', summary: 'Rouvrir une conversation', params: { id: 'Identifiant de la conversation.' }, stringParams: ['id'], ok: obj({ conversation: { type: 'object', description: 'id, title, context, turns, messageCount, createdAt, updatedAt' } }) },
   {
@@ -803,7 +817,14 @@ const OPERATIONS: Operation[] = [
   { method: 'get', path: '/boards/icons', tag: 'Tableaux blancs', summary: 'Icônes ajoutées par les administrateurs', description: 'En plus de la bibliothèque intégrée (`icon: "lucide:{nom}"`).', ok: obj({ icons: arr(ref('BoardIcon')) }) },
   { method: 'get', path: '/board-icons/{id}', tag: 'Tableaux blancs', access: 'public', summary: 'Lire une icône ajoutée', params: { id: 'Identifiant de l’icône.' }, okRaw: { contentType: 'image/svg+xml', description: 'Le SVG de l’icône.' } },
   { method: 'get', path: '/boards/nodes/{id}/links', tag: 'Tableaux blancs', summary: 'Liens et rétroliens d’un tableau', description: 'Les notes et tickets qui le mentionnent, les tableaux qui le montrent dans un Fast Element, et ce que montrent ses propres Fast Elements, limités à ce que la personne peut voir.', params: BOARD_ID, ok: ref('BoardLinks') },
-  { method: 'get', path: '/boards/nodes/{id}/preview', tag: 'Tableaux blancs', summary: 'Aperçu SVG d’un tableau', params: BOARD_ID, query: z.object({ width: z.number().int().min(120).max(1600).optional().describe('Largeur maximale en pixels (640 par défaut).'), theme: z.enum(['light', 'dark']).optional().describe('`dark` : couleurs du thème sombre.') }), okRaw: { contentType: 'image/svg+xml', description: 'Image SVG du tableau.' } },
+  { method: 'get', path: '/boards/nodes/{id}/preview', tag: 'Tableaux blancs', summary: 'Aperçu SVG d’un tableau', params: BOARD_ID, query: z.object({
+      width: z.number().int().min(120).max(2048).optional().describe('Largeur maximale en pixels (640 par défaut) ; avec une zone, largeur exacte.'),
+      theme: z.enum(['light', 'dark']).optional().describe('`dark` : couleurs du thème sombre.'),
+      x: z.number().optional().describe('Zone à dessiner, dans les coordonnées du tableau : x, y, w et h ensemble (sinon tout le tableau).'),
+      y: z.number().optional(),
+      w: z.number().positive().optional(),
+      h: z.number().positive().optional(),
+    }), okRaw: { contentType: 'image/svg+xml', description: 'Image SVG du tableau.' } },
 
   // --- Lignes d'avancement et dépendances -------------------------------------------------------------------------------
   {

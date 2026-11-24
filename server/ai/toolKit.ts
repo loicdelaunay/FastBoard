@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AiChangeDTO } from '../../shared/ai.ts';
+import type { AiChangeDTO, AiRenderRequest } from '../../shared/ai.ts';
 import type { Actor, AppContext } from '../context.ts';
 import type { AuthUser } from '../services/access.ts';
 
@@ -16,6 +16,14 @@ export interface ToolContext {
   changes: number;
   proposals: number;
   onChange?: (change: AiChangeDTO) => void;
+  /** Le modèle voit les images (réglage du modèle par l'administrateur). */
+  vision: boolean;
+  /** Demande une image au panneau (vue d'un tableau, image réduite) ; `null` : il ne sait pas en dessiner. */
+  render: ((request: AiRenderRequest) => Promise<string>) | null;
+  /** Montre une image au modèle : elle suit les résultats des outils, dans un message à part. */
+  attach: (label: string, image: string) => void;
+  /** Images regardées pendant cette réponse (bornées par `AI_LIMITS.viewsPerAnswer`). */
+  views: number;
 }
 
 export interface ToolDefinition {
@@ -27,6 +35,10 @@ export interface ToolDefinition {
   docs?: boolean;
   /** Outil des tableaux blancs : proposé seulement s'ils sont activés. */
   boards?: boolean;
+  /** Outil qui montre des images : proposé seulement aux modèles avec vision. */
+  vision?: boolean;
+  /** Outil qui fait dessiner une image au panneau : proposé seulement s'il sait le faire. */
+  render?: boolean;
   /** Libellé court affiché dans le panneau pendant l'exécution. */
   label: (args: Record<string, unknown>) => string;
   run: (tool: ToolContext, args: Record<string, unknown>) => unknown;

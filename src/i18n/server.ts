@@ -33,6 +33,17 @@ const EXACT: Record<string, string> = {
   "Fichier vide.": "Empty file.",
   "Ce fichier n’est pas un SVG.": "This file is not an SVG.",
   "SVG refusé : il contient du script ou du contenu externe.": "SVG refused: it contains script or external content.",
+  // 2.20 — L'assistant regarde les images et les tableaux blancs.
+  "Le panneau n’a pas dessiné l’image à temps.": "The panel did not draw the image in time.",
+  "Le panneau ne peut pas dessiner le tableau ici.": "The panel cannot draw the board here.",
+  "Rendu inconnu ou expiré.": "Unknown or expired rendering.",
+  "Identifiant de rendu invalide.": "Invalid rendering identifier.",
+  "Image trop grande pour être lue ici.": "Image too large to be read here.",
+  "Cette image (SVG) ne peut pas être lue ici.": "This image (SVG) cannot be read here.",
+  "Cette pièce jointe n’est pas une image.": "This attachment is not an image.",
+  "Référence d’image invalide : utilisez celle donnée par list_images (ex. doc:12).": "Invalid image reference: use the one given by list_images (e.g. doc:12).",
+  "Indiquez une note, un espace, un tableau ou un ticket.": "Give a note, a space, a board or a ticket.",
+  "Aucun de ces éléments n’est sur ce tableau.": "None of these elements is on this board.",
   // Causes d'un fournisseur d'IA injoignable.
   "certificat HTTPS auto-signé, non reconnu. Ajoutez-le aux certificats de confiance du système, ou désactivez « Vérifier le certificat HTTPS » pour ce fournisseur.": "self-signed HTTPS certificate, not recognised. Add it to the system’s trusted certificates, or turn off “Verify the HTTPS certificate” for this provider.",
   "certificat HTTPS signé par une autorité inconnue de ce serveur. Ajoutez-la aux certificats de confiance du système, ou désactivez « Vérifier le certificat HTTPS » pour ce fournisseur.": "HTTPS certificate signed by an authority this server does not know. Add it to the system’s trusted certificates, or turn off “Verify the HTTPS certificate” for this provider.",

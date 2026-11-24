@@ -1,13 +1,14 @@
 import express, { type Router } from 'express';
 import type { AiStreamEvent } from '../../shared/ai.ts';
 import { AiError, runAgent } from '../ai/agent.ts';
+import { deliverRender } from '../ai/vision.ts';
 import { deleteConversation, getConversation, listConversations, saveConversation } from '../ai/conversations.ts';
 import { aiAvailable, availableModels } from '../ai/settings.ts';
 import type { AppContext } from '../context.ts';
 import { activeNote, requireSpace } from '../docs/store.ts';
 import { HttpError, badRequest } from '../http/errors.ts';
 import { currentUser, sessionOnly } from '../http/middleware.ts';
-import { aiChatSchema, aiConversationSchema } from '../http/schemas.ts';
+import { aiChatSchema, aiConversationSchema, aiRenderResultSchema } from '../http/schemas.ts';
 import { parse } from '../http/validate.ts';
 import { requireGlobal, requireProject } from '../services/access.ts';
 import { requireTicket } from '../services/tickets.ts';
@@ -69,6 +70,16 @@ export function aiRouter(ctx: AppContext): Router {
     } finally {
       res.end();
     }
+  });
+
+  /** Image dessinée par le panneau pour le modèle, pendant une réponse (voir l'évènement `render`). */
+  router.post('/ai/renders/:id', sessionOnly(), (req, res) => {
+    const user = currentUser(res);
+    requireGlobal(user, 'ai.use');
+    const id = String(req.params.id ?? '');
+    if (!/^[0-9a-f-]{36}$/.test(id)) throw badRequest('Identifiant de rendu invalide.');
+    if (!deliverRender(user.id, id, parse(aiRenderResultSchema, req.body))) throw new HttpError(404, 'Rendu inconnu ou expiré.', 'not_found');
+    res.json({ ok: true });
   });
 
   // --- Conversations enregistrées (les 50 dernières de chaque personne) ---

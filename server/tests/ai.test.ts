@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, describe, it } from 'node:test';
-import { contextOfItems, guessCapabilities, REASONING_PRESETS, reasoningPresetOf, type AiChangeDTO, type AiStreamEvent } from '../../shared/ai.ts';
+import { contextOfItems, guessCapabilities, parseAiImageRef, REASONING_PRESETS, reasoningPresetOf, type AiChangeDTO, type AiRenderRequest, type AiStreamEvent } from '../../shared/ai.ts';
 import { writeSetting } from '../services/appSettings.ts';
 import { bootServer, TestClient } from './helpers.ts';
 
@@ -82,6 +82,10 @@ function events(text: unknown): AiStreamEvent[] {
 const changesOf = (stream: AiStreamEvent[]): AiChangeDTO[] => stream.flatMap((event) => (event.type === 'change' ? [event.change] : []));
 
 const MODEL = { id: 'modele-test', vision: false, contextWindow: 128000, reasoning: false };
+const VISION_MODEL = { id: 'modele-vision', vision: true, contextWindow: 128000, reasoning: false };
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+/** Image « dessinée par le panneau » dans les tests. */
+const DRAWN = 'data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==';
 
 describe('assistant IA', () => {
   let app: Booted;
@@ -625,6 +629,154 @@ describe('assistant IA', () => {
       await chat(bob, 'Bonjour');
       assert.ok(!toolNames().includes('read_doc'));
       await admin.request('PUT', '/api/admin/documentation', { enabled: true });
+    });
+  });
+
+  describe('images et vision', () => {
+    let visionRef = '';
+    let imageId = 0;
+    let noteId = 0;
+    let boardId = 0;
+    let assetKey = '';
+    let attachmentId = 0;
+    const lastRequest = () => provider.requests.at(-1)!.body;
+    const toolNames = () => lastRequest().tools!.map((tool) => tool.function.name);
+    /** Sortie du dernier outil appelé (le message « tool » le plus récent envoyé au fournisseur). */
+    const toolOutput = () => JSON.parse(lastRequest().messages.filter((message) => message.role === 'tool').at(-1)!.content as string) as Record<string, any>;
+    /** Images envoyées au fournisseur dans sa dernière requête. */
+    const sentImages = () => lastRequest().messages.flatMap((message) => (Array.isArray(message.content) ? message.content.filter((part) => part.type === 'image_url').map((part) => part.image_url!.url) : []));
+
+    /** Conversation lue au fil de l'eau : le « panneau » répond aux demandes de dessin avec `draw`. */
+    async function chatDrawing(client: TestClient, content: string, context: Record<string, unknown>, draw: (request: AiRenderRequest) => string | Error, extra: Record<string, unknown> = {}): Promise<{ stream: AiStreamEvent[]; renders: AiRenderRequest[] }> {
+      const response = await fetch(`${app.base}/api/ai/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Cookie: client.cookie },
+        body: JSON.stringify({ messages: [{ role: 'user', content }], context, allowWrite: false, model: visionRef, canRender: true, ...extra }),
+      });
+      assert.equal(response.status, 200);
+      const stream: AiStreamEvent[] = [];
+      const renders: AiRenderRequest[] = [];
+      const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += value;
+        let index: number;
+        while ((index = buffer.indexOf('\n\n')) >= 0) {
+          const chunk = buffer.slice(0, index).trim();
+          buffer = buffer.slice(index + 2);
+          if (!chunk.startsWith('data: ')) continue;
+          const event = JSON.parse(chunk.slice(6)) as AiStreamEvent;
+          stream.push(event);
+          if (event.type === 'render') {
+            renders.push(event.request);
+            const result = draw(event.request);
+            const answer = await client.request('POST', `/api/ai/renders/${event.id}`, result instanceof Error ? { error: result.message } : { image: result });
+            assert.equal(answer.status, 200, JSON.stringify(answer.body));
+          }
+        }
+      }
+      return { stream, renders };
+    }
+
+    before(async () => {
+      const saved = await admin.request('PUT', '/api/admin/ai', settings(provider.url, {}, { models: [MODEL, VISION_MODEL] }));
+      assert.equal(saved.status, 200, JSON.stringify(saved.body));
+      providerId = (await admin.get('/api/admin/ai')).body.settings.providers[0].id;
+      visionRef = `${providerId}:modele-vision`;
+      await admin.request('PUT', '/api/admin/documentation', { enabled: true });
+      const docSpace = (await bob.post('/api/documentation/spaces', { name: 'Vision' })).body.space.id as number;
+      const image = (await bob.raw('POST', `/api/documentation/spaces/${docSpace}/images`, PNG, { 'Content-Type': 'image/png', 'X-File-Name': 'schema.png' })).json.node;
+      imageId = image.id;
+      noteId = (await bob.post(`/api/documentation/spaces/${docSpace}/nodes`, { path: 'Archi', content: `# Archi\n\n![Le schéma](${image.path})\n\n![loin](https://exemple.fr/a.png)\n\n![[absente.png]]\n\n\`\`\`\n![dans le code](ignoree.png)\n\`\`\`\n` })).body.node.id;
+      const boardSpace = (await bob.post('/api/boards/spaces', { name: 'Vision' })).body.space.id as number;
+      assetKey = (await bob.raw('POST', `/api/boards/spaces/${boardSpace}/assets`, PNG, { 'Content-Type': 'image/png', 'X-File-Name': 'logo.png' })).json.asset.key;
+      boardId = (
+        await bob.post(`/api/boards/spaces/${boardSpace}/nodes`, {
+          path: 'Schéma',
+          elements: [
+            { id: 's1', type: 'shape', shape: 'rect', x: 100, y: 50, w: 200, h: 100, z: 1, text: 'Serveur', color: 'blue', fill: 'tint', angle: 0 },
+            { id: 'i1', type: 'image', x: 400, y: 0, w: 120, h: 80, z: 2, asset: assetKey, name: 'logo.png' },
+          ],
+        })
+      ).body.node.id;
+      attachmentId = (await bob.raw('POST', `/api/tickets/${ids.ticket}/attachments`, PNG, { 'Content-Type': 'image/png', 'X-File-Name': 'capture.png' })).json.attachment.id;
+    });
+
+    it('liste les images d’une note, d’un tableau et d’un ticket, même sans vision', async () => {
+      await chat(bob, `outil:list_images {"note":${noteId}}`);
+      assert.ok(toolNames().includes('list_images'));
+      assert.ok(!toolNames().includes('view_image') && !toolNames().includes('view_board'), 'regarder demande la vision');
+      const note = toolOutput();
+      assert.deepEqual(note.images.map((entry: Record<string, unknown>) => entry.image ?? entry.url ?? entry.link), [`doc:${imageId}`, 'https://exemple.fr/a.png', 'absente.png'], 'hors du code');
+      assert.equal(note.images[0].alt, 'Le schéma');
+      assert.equal(note.images[1].readable, false);
+      assert.equal(note.images[2].missing, true);
+      assert.match(note.hint, /ne lit pas les images/);
+      assert.match(String(lastRequest().messages[0]!.content), /Tu ne vois pas les images/);
+
+      await chat(bob, `outil:list_images {"board":${boardId}}`);
+      assert.deepEqual(toolOutput().images, [{ image: `asset:${assetKey}`, name: 'logo.png', element: 'i1', x: 400, y: 0, w: 120, h: 80 }]);
+      await chat(bob, `outil:list_images {"ticket":"BTQ-1"}`);
+      assert.deepEqual(toolOutput().images.map((entry: { image: string }) => entry.image), [`attachment:${attachmentId}`]);
+      await chat(vera, `outil:list_images {"note":${noteId}}`);
+      assert.ok(toolOutput().error, 'une note d’un espace dont on n’est pas membre reste fermée');
+      assert.deepEqual(parseAiImageRef(`asset:${assetKey}`), { kind: 'asset', key: assetKey });
+      assert.equal(parseAiImageRef('fichier:3'), null);
+    });
+
+    it('montre une image au modèle avec vision, dans les droits de la personne', async () => {
+      const stream = events((await chat(bob, `outil:view_image {"image":"doc:${imageId}"}`, {}, false, { model: visionRef })).body);
+      assert.ok(toolNames().includes('view_image') && !toolNames().includes('view_board'), 'sans panneau qui dessine, pas de vue de tableau');
+      assert.deepEqual(sentImages(), [`data:image/png;base64,${PNG.toString('base64')}`], 'l’image suit le résultat de l’outil');
+      const last = lastRequest().messages.at(-1)!;
+      assert.equal(last.role, 'user');
+      assert.match(JSON.stringify(last.content), /Images demandées aux outils.*schema\.png/);
+      const step = stream.find((event) => event.type === 'step' && event.status === 'done');
+      assert.ok(step?.type === 'step' && step.image === `/api/documentation/nodes/${imageId}/raw`, 'le panneau montre l’image regardée');
+      assert.match(String(lastRequest().messages[0]!.content), /Tu vois les images/);
+
+      events((await chat(bob, `outil:view_image {"image":"attachment:${attachmentId}"}`, {}, false, { model: visionRef })).body);
+      assert.equal(sentImages().length, 1);
+      events((await chat(vera, `outil:view_image {"image":"doc:${imageId}"}`, {}, false, { model: visionRef })).body);
+      assert.ok(toolOutput().error, 'pas d’image hors de ses droits');
+      assert.equal(sentImages().length, 0);
+    });
+
+    it('voit d’emblée le tableau ouvert et en regarde une zone de près, dessinés par le panneau', async () => {
+      const { stream, renders } = await chatDrawing(bob, `outil:view_board {"board":${boardId},"elements":["s1"],"width":900}`, { boardId }, () => DRAWN);
+      assert.deepEqual(renders[0], { kind: 'board', boardId, region: null, width: 1400 }, 'vue d’ensemble au début');
+      assert.deepEqual(renders[1], { kind: 'board', boardId, region: { x: 68, y: 18, w: 264, h: 164 }, width: 900 }, 'zone de l’élément, avec une marge');
+      const first = provider.requests.at(-2)!.body.messages.at(-1)!;
+      assert.match(JSON.stringify(first.content), /outil:view_board.*Vue d’ensemble du tableau ouvert/, 'la vue d’ensemble accompagne la question');
+      assert.deepEqual(sentImages(), [DRAWN, DRAWN]);
+      assert.deepEqual(toolOutput().region, { x: 68, y: 18, w: 264, h: 164 });
+      const steps = stream.filter((event): event is Extract<AiStreamEvent, { type: 'step' }> => event.type === 'step' && event.status === 'done');
+      assert.ok(steps.some((step) => step.label === 'Vue d’ensemble de « Schéma »'));
+      const renderEvents = stream.filter((event) => event.type === 'render');
+      assert.ok(renderEvents.every((event) => event.type === 'render' && steps.some((step) => step.id === event.stepId)), 'chaque dessin est rattaché à son étape');
+      assert.ok(toolNames().includes('view_board'));
+
+      // Le panneau n'arrive pas à dessiner : l'outil échoue proprement, la réponse continue.
+      const failed = await chatDrawing(bob, `outil:view_board {"board":${boardId},"region":{"x":0,"y":0,"w":300,"h":200}}`, {}, () => new Error('Dessin impossible'));
+      assert.equal(failed.renders.length, 1, 'sans tableau ouvert, pas de vue d’ensemble');
+      assert.match(String(toolOutput().error), /Dessin impossible/);
+      assert.ok(failed.stream.some((event) => event.type === 'done'));
+    });
+
+    it('ne laisse répondre à une demande de dessin que la bonne personne, avec une vraie image', async () => {
+      const unknown = '00000000-0000-4000-8000-000000000000';
+      assert.equal((await bob.request('POST', `/api/ai/renders/${unknown}`, { image: DRAWN })).status, 404);
+      assert.equal((await bob.request('POST', `/api/ai/renders/${unknown}`, { image: 'data:text/html;base64,PHNjcmlwdD4=' })).status, 400);
+      assert.equal((await bob.request('POST', '/api/ai/renders/pas-un-id', { image: DRAWN })).status, 400);
+    });
+
+    it('dessine une zone d’un tableau en SVG, à la largeur demandée', async () => {
+      const svg = String((await bob.get(`/api/boards/nodes/${boardId}/preview?x=68&y=18&w=264&h=164&width=900`)).body);
+      assert.match(svg, /viewBox="68 18 264 164" width="900"/);
+      const whole = String((await bob.get(`/api/boards/nodes/${boardId}/preview?width=2048`)).body);
+      assert.doesNotMatch(whole, /width="2048"/, 'le tableau entier n’est jamais agrandi');
     });
   });
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { AiStep } from '@/stores/ai';
+import { openLightbox } from '@/utils/lightbox';
 
 /** Réflexion de l'assistant (outils utilisés, raisonnement du modèle) : repliée, la dernière étape sert de titre. */
 const props = defineProps<{ steps: AiStep[]; running: boolean }>();
@@ -10,6 +11,8 @@ const last = computed(() => props.steps.at(-1));
 /** Titre replié : la dernière étape (le début du raisonnement quand c'en est un). */
 const current = computed(() => (last.value?.kind === 'thought' && last.value.text ? last.value.text.split('\n')[0]!.slice(0, 140) : last.value?.label));
 const failed = computed(() => props.steps.filter((step) => step.status === 'failed').length);
+/** Images regardées par l'assistant pendant cette réponse : visibles même repliées. */
+const looked = computed(() => props.steps.filter((step) => step.image));
 
 function icon(step: AiStep): string {
   if (step.status === 'running') return 'pi pi-spin pi-spinner';
@@ -27,6 +30,11 @@ function icon(step: AiStep): string {
       <span class="count">{{ $t('{n} étape|{n} étapes', { n: steps.length }) }}<template v-if="failed"> · {{ $t('{n} échec|{n} échecs', { n: failed }) }}</template></span>
       <i :class="expanded ? 'pi pi-chevron-up' : 'pi pi-chevron-down'" class="chevron"></i>
     </button>
+    <div v-if="looked.length && !expanded" class="looked" :aria-label="$t('Images regardées par l’assistant')">
+      <button v-for="step in looked" :key="step.id" v-tooltip.top="step.label" type="button" class="thumb" :aria-label="step.label" @click="openLightbox(step.image!, step.label)">
+        <img :src="step.image" alt="" />
+      </button>
+    </div>
     <ol v-if="expanded" class="steps">
       <li v-for="step in steps" :key="step.id" :class="[step.status, step.kind ?? 'tool', { write: step.write }]">
         <div class="line">
@@ -34,6 +42,9 @@ function icon(step: AiStep): string {
           <span>{{ step.label }}</span>
         </div>
         <p v-if="step.detail" class="detail">{{ step.detail }}</p>
+        <button v-if="step.image" type="button" class="thumb large" :aria-label="$t('Agrandir l’image')" @click="openLightbox(step.image, step.label)">
+          <img :src="step.image" :alt="step.label" />
+        </button>
         <p v-if="step.text" class="thought">{{ step.text }}</p>
       </li>
     </ol>
@@ -102,6 +113,45 @@ function icon(step: AiStep): string {
 }
 .steps li.failed {
   color: var(--fb-danger);
+}
+.looked {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0 0.6rem 0.5rem;
+}
+.thumb {
+  display: block;
+  width: 4.5rem;
+  height: 3rem;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--fb-border);
+  border-radius: 6px;
+  background: #fff;
+  cursor: zoom-in;
+}
+.thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.thumb:hover,
+.thumb:focus-visible {
+  border-color: var(--fb-accent);
+}
+.thumb.large {
+  width: auto;
+  max-width: calc(100% - 1.35rem);
+  height: auto;
+  max-height: 10rem;
+  margin: 0.3rem 0 0.1rem 1.35rem;
+}
+.thumb.large img {
+  height: auto;
+  max-height: 10rem;
+  object-fit: contain;
 }
 .detail,
 .thought {

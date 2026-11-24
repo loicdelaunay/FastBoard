@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.19.0';
+export const APP_VERSION = '2.20.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,13 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.20.0',
+    date: '2026-11-24',
+    changes: [
+      { category: 'Nouveauté', text: 'Assistant IA et images : il liste les images d’une note, d’un espace, d’un tableau blanc ou d’un ticket, et, avec un modèle qui a la vision, les regarde. Sur un tableau blanc ouvert, il le voit d’emblée dessiné, et peut regarder de près une zone ou des éléments pour lire un détail ; les images regardées s’affichent dans ses étapes.' },
+    ],
+  },
   {
     version: '2.19.0',
     date: '2026-11-23',

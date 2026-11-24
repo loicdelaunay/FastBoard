@@ -13,6 +13,7 @@ import { createPart, requirePart, updatePart } from '../services/parts.ts';
 import { createTicket, foldText, getTicketDTO, listTicketDTOs, moveTicket, requireTicket, ticketKeyOf, updateTicket } from '../services/tickets.ts';
 import { BOARD_TOOLS } from './boardTools.ts';
 import { DOC_TOOLS } from './docTools.ts';
+import { VISION_TOOLS } from './visionTools.ts';
 import { clip, PROPOSED, record, type ToolContext, type ToolDefinition } from './toolKit.ts';
 
 export type { ToolContext } from './toolKit.ts';
@@ -24,7 +25,7 @@ const TICKET_REF = {
 
 // --- Droits ------------------------------------------------------------------------------------------------------------
 
-function canRead(tool: ToolContext, projectId: number): ProjectAccess {
+export function canRead(tool: ToolContext, projectId: number): ProjectAccess {
   const access = requireProject(tool.ctx, tool.user, projectId);
   if (!access.permissions.has('ai.read')) {
     throw forbidden("L'assistant IA n'a pas accès à ce projet (permission « Interroger l'IA sur le projet »).");
@@ -49,7 +50,7 @@ function readableProjects(tool: ToolContext) {
 }
 
 /** Retrouve un ticket par identifiant ou par clé « APP-12 » parmi les projets visibles. */
-function resolveTicket(tool: ToolContext, ref: unknown) {
+export function resolveTicket(tool: ToolContext, ref: unknown) {
   if (typeof ref === 'number' || (typeof ref === 'string' && /^\d+$/.test(ref.trim()))) {
     return requireTicket(tool.ctx.db, Number(ref));
   }
@@ -577,15 +578,16 @@ export const TOOLS: ToolDefinition[] = [
   },
   ...DOC_TOOLS,
   ...BOARD_TOOLS,
+  ...VISION_TOOLS,
 ];
 
 /** Outils proposés au modèle : l'écriture si la personne l'a autorisée, la documentation et les tableaux s'ils sont activés. */
-export function availableTools(allowWrite: boolean, docs: boolean, boards = false): ToolDefinition[] {
-  return TOOLS.filter((tool) => (allowWrite || !tool.write) && (docs || !tool.docs) && (boards || !tool.boards));
+export function availableTools(allowWrite: boolean, docs: boolean, boards = false, vision = false, render = false): ToolDefinition[] {
+  return TOOLS.filter((tool) => (allowWrite || !tool.write) && (docs || !tool.docs) && (boards || !tool.boards) && (vision || !tool.vision) && (render || !tool.render));
 }
 
 /** Exécute un outil ; une erreur devient un message pour le modèle, pas un échec de la discussion. */
-export function runTool(tool: ToolContext, name: string, rawArgs: string): { ok: boolean; result: unknown } {
+export async function runTool(tool: ToolContext, name: string, rawArgs: string): Promise<{ ok: boolean; result: unknown }> {
   const definition = TOOLS.find((entry) => entry.name === name);
   if (!definition) return { ok: false, result: { error: `Outil inconnu : ${name}` } };
   let args: Record<string, unknown>;
@@ -595,7 +597,7 @@ export function runTool(tool: ToolContext, name: string, rawArgs: string): { ok:
     return { ok: false, result: { error: 'Arguments JSON invalides.' } };
   }
   try {
-    return { ok: true, result: definition.run(tool, args) };
+    return { ok: true, result: await definition.run(tool, args) };
   } catch (error) {
     const message = error instanceof HttpError ? error.message : error instanceof Error ? error.message : String(error);
     return { ok: false, result: { error: message } };

@@ -206,6 +206,46 @@ export interface AiChatRequest {
   model?: string;
   /** Réglage de réflexion choisi (identifiant d'un réglage du modèle) ; absent = réglage du fournisseur. */
   reasoning?: string;
+  /**
+   * Le panneau sait dessiner des images pour le modèle (vue d'un tableau blanc, image réduite) : le serveur, qui ne
+   * dessine pas lui-même, les lui demande pendant la réponse (évènement `render`).
+   */
+  canRender?: boolean;
+}
+
+/** Image que l'assistant peut lire : fichier de la documentation, image d'un tableau blanc, pièce jointe d'un ticket. */
+export type AiImageSource = { kind: 'doc'; id: number } | { kind: 'asset'; key: string } | { kind: 'attachment'; id: number };
+
+/** Zone d'un tableau blanc, dans ses coordonnées. */
+export interface AiBoardRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Image demandée au panneau pendant une réponse : vue d'un tableau (entier ou une zone), ou image réduite. */
+export type AiRenderRequest =
+  | { kind: 'board'; boardId: number; region: AiBoardRegion | null; width: number }
+  | { kind: 'image'; source: AiImageSource; maxSide: number };
+
+/** Adresse (dans l'application) d'une image lisible par l'assistant. */
+export function aiImageUrl(source: AiImageSource): string {
+  if (source.kind === 'doc') return `/api/documentation/nodes/${source.id}/raw`;
+  if (source.kind === 'asset') return `/api/board-assets/${source.key}`;
+  return `/api/attachments/${source.id}/download?inline=1`;
+}
+
+/** Référence d'une image donnée au modèle (`doc:12`, `asset:…`, `attachment:7`), et l'inverse. */
+export function aiImageRef(source: AiImageSource): string {
+  return source.kind === 'asset' ? `asset:${source.key}` : `${source.kind}:${source.id}`;
+}
+
+export function parseAiImageRef(ref: unknown): AiImageSource | null {
+  const match = typeof ref === 'string' ? /^(doc|attachment):(\d+)$|^asset:([A-Za-z0-9_.-]{8,80})$/.exec(ref.trim()) : null;
+  if (!match) return null;
+  if (match[3]) return { kind: 'asset', key: match[3] };
+  return { kind: match[1] as 'doc' | 'attachment', id: Number(match[2]) };
 }
 
 /** Champs d'un ticket modifiables par l'assistant (identifiants déjà résolus). */
@@ -259,7 +299,12 @@ export type AiStreamEvent =
   /** Modèle effectivement utilisé. */
   | { type: 'model'; model: string; label: string }
   /** L'assistant utilise un outil (recherche, lecture, modification…). */
-  | { type: 'step'; id: string; tool: string; label: string; status: 'running' | 'done' | 'failed'; detail?: string; write: boolean }
+  | { type: 'step'; id: string; tool: string; label: string; status: 'running' | 'done' | 'failed'; detail?: string; write: boolean; image?: string }
+  /**
+   * Le serveur demande au panneau une image pour le modèle (vue d'un tableau, image réduite) : le panneau la dessine et
+   * la renvoie par `POST /api/ai/renders/{id}`. `stepId` : l'étape qui l'attend (le panneau y montre l'image).
+   */
+  | { type: 'render'; id: string; stepId: string; request: AiRenderRequest }
   /** Raisonnement renvoyé par le modèle (modèles « de réflexion » qui l'exposent). */
   | { type: 'thought'; id: string; text: string }
   /** Modification faite ou proposée. */
@@ -281,6 +326,15 @@ export const AI_LIMITS = {
   timeoutSeconds: 120,
   timeoutMax: 900,
   imagesPerMessage: 4,
+  /** Images que l'assistant peut regarder pendant une réponse (vues de tableaux, images lues). */
+  viewsPerAnswer: 10,
+  /** Largeur par défaut et maximale d'une vue de tableau dessinée pour le modèle (en pixels). */
+  renderWidth: 1400,
+  renderWidthMax: 2048,
+  /** Côté maximal d'une image réduite pour le modèle. */
+  renderSide: 1568,
+  /** Délai laissé au panneau pour dessiner une image demandée. */
+  renderTimeoutSeconds: 45,
   /** Éléments ajoutés à la main au contexte. */
   contextItems: 12,
   /** Taille maximale d'une image jointe (URL data, en caractères). */

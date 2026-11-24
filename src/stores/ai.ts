@@ -6,6 +6,7 @@ import { api } from '@/api';
 import { httpHeaders } from '@/api/http';
 import { translateServerMessage } from '@/i18n/server';
 import { performChange, undoChange } from '@/utils/aiChanges';
+import { renderForAi } from '@/utils/aiRender';
 import { notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
@@ -18,6 +19,8 @@ export interface AiStep {
   detail?: string;
   write: boolean;
   text?: string;
+  /** Image regardée par l'assistant à cette étape (adresse, ou image dessinée par le panneau). */
+  image?: string;
 }
 
 /** Fichier joint à un message ; `dropped` : contenu non conservé (conversation enregistrée trop lourde). */
@@ -218,8 +221,10 @@ export const useAiStore = defineStore('ai', () => {
     let room = SAVED_FILE_CHARS;
     const saved = [...turns.value]
       .reverse()
-      .map(({ images, files, ...turn }) => ({
+      .map(({ images, files, steps, ...turn }) => ({
         ...turn,
+        // Les images dessinées pour le modèle ne sont pas gardées (trop lourdes) ; une adresse, si.
+        steps: steps.map(({ image, ...step }) => (image && !image.startsWith('data:') ? { ...step, image } : step)),
         ...(images?.length ? { imageCount: images.length } : {}),
         ...(files?.length ? { files: files.map((file) => (file.dropped || (room -= file.text.length) >= 0 ? file : { ...file, text: '', dropped: true })) } : {}),
       }))
@@ -245,6 +250,7 @@ export const useAiStore = defineStore('ai', () => {
         ticketId: context.ticketId ?? null,
         docSpaceId: context.docSpaceId ?? null,
         docNodeId: context.docNodeId ?? null,
+        boardId: context.boardId ?? null,
         ...(context.items?.length ? { items: context.items } : {}),
       };
     }
@@ -266,6 +272,8 @@ export const useAiStore = defineStore('ai', () => {
           model: model.value?.ref,
           // Le réglage choisi n'est envoyé que si ce modèle le propose (chaque modèle a les siens).
           ...(reasoning.value && reasoningOptionsOf(model.value ?? { reasoning: false }).some((option) => option.id === reasoning.value) ? { reasoning: reasoning.value } : {}),
+          // Le panneau dessine pour le modèle les vues de tableaux et les images à réduire (évènement « render »).
+          canRender: true,
         }),
         credentials: 'same-origin',
         signal: controller.signal,
@@ -310,10 +318,15 @@ export const useAiStore = defineStore('ai', () => {
         break;
       case 'step': {
         const existing = turn.steps.find((step) => step.id === event.id);
-        if (existing) Object.assign(existing, { status: event.status, detail: event.detail });
-        else turn.steps.push({ id: event.id, kind: 'tool', label: event.label, status: event.status, detail: event.detail, write: event.write });
+        // Le détail d'un échec vient du serveur (en français) : traduit comme ses autres messages.
+        const detail = event.detail ? translateServerMessage(event.detail) : undefined;
+        if (existing) Object.assign(existing, { status: event.status, detail, ...(event.image ? { image: event.image } : {}) });
+        else turn.steps.push({ id: event.id, kind: 'tool', label: event.label, status: event.status, detail, write: event.write, ...(event.image ? { image: event.image } : {}) });
         break;
       }
+      case 'render':
+        void answerRender(turn, event);
+        break;
       case 'thought':
         turn.steps.push({ id: event.id, kind: 'thought', label: t('Réflexion du modèle'), status: 'done', write: false, text: event.text });
         break;
@@ -330,6 +343,25 @@ export const useAiStore = defineStore('ai', () => {
         turn.changes = event.changes;
         break;
     }
+  }
+
+  /** Dessine l'image demandée par le serveur et la lui renvoie (ou la raison de l'échec) ; l'étape la montre. */
+  async function answerRender(turn: AiTurn, event: Extract<AiStreamEvent, { type: 'render' }>): Promise<void> {
+    let body: { image: string } | { error: string };
+    try {
+      const image = await renderForAi(event.request);
+      body = { image };
+      const step = turn.steps.find((entry) => entry.id === event.stepId);
+      if (step) step.image = image;
+    } catch (error) {
+      body = { error: (error instanceof Error && error.message) || t('Image impossible à dessiner.') };
+    }
+    await fetch(`/api/ai/renders/${event.id}`, {
+      method: 'POST',
+      headers: { ...httpHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      credentials: 'same-origin',
+    }).catch(() => undefined);
   }
 
   // --- Modifications : voir, annuler, réappliquer, valider une proposition ---
