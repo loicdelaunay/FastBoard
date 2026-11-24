@@ -83,14 +83,14 @@ export function buildSnapshot(db: Db, access: ProjectAccess): ProjectSnapshotDTO
 /** Projets visibles par l'utilisateur, avec indicateurs de progression. */
 export function listProjectSummaries(db: Db, user: AuthUser): ProjectSummaryDTO[] {
   const seesAll = hasPermission(user.permissions, 'projects.view_all') || hasPermission(user.permissions, 'projects.manage_all');
-  const rows = db.all<ProjectRow & { my_role_id: number | null; my_role_name: string | null }>(
+  const rows = db.all<ProjectRow & { my_role_id: number | null; my_role_name: string | null; my_role_key: string | null }>(
     seesAll
-      ? `SELECT p.*, m.role_id AS my_role_id, r.name AS my_role_name
+      ? `SELECT p.*, m.role_id AS my_role_id, r.name AS my_role_name, r.key AS my_role_key
            FROM projects p
            LEFT JOIN project_members m ON m.project_id = p.id AND m.user_id = ?
            LEFT JOIN roles r ON r.id = m.role_id
           ORDER BY p.archived, p.name COLLATE NOCASE`
-      : `SELECT p.*, m.role_id AS my_role_id, r.name AS my_role_name
+      : `SELECT p.*, m.role_id AS my_role_id, r.name AS my_role_name, r.key AS my_role_key
            FROM projects p
            JOIN project_members m ON m.project_id = p.id AND m.user_id = ?
            JOIN roles r ON r.id = m.role_id
@@ -137,6 +137,7 @@ export function listProjectSummaries(db: Db, user: AuthUser): ProjectSummaryDTO[
       progress,
       myRoleId: row.my_role_id,
       myRoleName: row.my_role_name,
+      myRoleKey: row.my_role_key,
       memberPreview: users.slice(0, 5),
       currentDelivery,
     };

@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.24.2';
+export const APP_VERSION = '2.24.3';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,11 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.24.3',
+    date: '2026-11-24',
+    changes: [{ category: 'Amélioration', text: 'Projets, documentations et tableaux blancs se distinguent d’un coup d’œil : chaque carte porte à gauche une barre à la couleur de son module (bleu, vert, ambre), reprise par l’icône du module dans la barre latérale. Le rôle (propriétaire, éditeur, lecteur…) et l’accès avec droit admin ne s’affichent plus qu’en icône, avec leur texte au survol : le nom de l’espace garde toute la place, et s’affiche en entier au survol.' }],
+  },
   {
     version: '2.24.2',
     date: '2026-11-24',

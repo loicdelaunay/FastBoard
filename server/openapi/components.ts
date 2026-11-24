@@ -154,6 +154,7 @@ export const componentSchemas: Record<string, Schema> = {
         progress: int('Avancement global (0–100).'),
         myRoleId: nullable(int()),
         myRoleName: nullable(str()),
+        myRoleKey: nullable(str('Clé du rôle : owner, manager, editor, contributor, viewer, ou celle d’un rôle personnalisé.')),
         memberPreview: arr(ref('UserSummary')),
       }),
     ],

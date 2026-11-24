@@ -6,15 +6,27 @@ import { formatDateShort } from '@shared/dates';
 import UserAvatarGroup from '@/components/common/UserAvatarGroup.vue';
 
 defineProps<{ project: ProjectSummaryDTO }>();
+/** Icône des rôles de projet du système ; un rôle personnalisé prend une carte d'identité. */
+const ROLE_ICONS: Record<string, string> = { owner: 'pi pi-crown', manager: 'pi pi-briefcase', editor: 'pi pi-pencil', contributor: 'pi pi-user-edit', viewer: 'pi pi-eye' };
 const emit = defineEmits<{ menu: [event: MouseEvent, project: ProjectSummaryDTO] }>();
 </script>
 
 <template>
-  <router-link :to="{ path: `/p/${project.id}` }" class="project-card card" :class="{ archived: project.archived }" @contextmenu.prevent="emit('menu', $event, project)">
+  <router-link :to="{ path: `/p/${project.id}` }" class="project-card card module-card module-projects" :class="{ archived: project.archived }" @contextmenu.prevent="emit('menu', $event, project)">
     <div class="top">
       <span class="key">{{ project.key }}</span>
       <Tag v-if="project.archived" :value="$t('Archivé')" severity="secondary" />
-      <span v-else-if="project.myRoleName" class="role muted small">{{ $t(project.myRoleName) }}</span>
+      <!-- Rôle en icône, son nom au survol ; sans rôle, le projet n'est visible que par les droits d'administration. -->
+      <span v-else-if="project.myRoleName" v-tooltip.top="$t(project.myRoleName)" class="role" role="img" :aria-label="$t(project.myRoleName)" tabindex="0"><i :class="ROLE_ICONS[project.myRoleKey ?? ''] ?? 'pi pi-id-card'"></i></span>
+      <span
+        v-else
+        v-tooltip.top="$t('Accès avec droit admin : vous n’êtes pas membre de ce projet, vous le voyez grâce à vos droits d’administration.')"
+        class="role admin"
+        role="img"
+        :aria-label="$t('Accès avec droit admin')"
+        tabindex="0"
+        ><i class="pi pi-shield"></i
+      ></span>
     </div>
     <h3 class="name">{{ project.name }}</h3>
     <p class="description muted small">{{ project.description || $t('Aucune description.') }}</p>
@@ -86,6 +98,26 @@ const emit = defineEmits<{ menu: [event: MouseEvent, project: ProjectSummaryDTO]
   font-size: 0.75rem;
   font-weight: 800;
   letter-spacing: 0.04em;
+}
+.role {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: var(--fb-panel-alt);
+  color: var(--fb-muted);
+  font-size: 0.8rem;
+  cursor: help;
+}
+.role.admin {
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  color: #b45309;
+}
+:global(.app-dark) .role.admin {
+  color: #fbbf24;
 }
 .name {
   font-size: 1.1rem;

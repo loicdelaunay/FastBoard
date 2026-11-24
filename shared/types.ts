@@ -81,6 +81,8 @@ export interface ProjectSummaryDTO extends ProjectDTO {
   progress: number;
   myRoleId: number | null;
   myRoleName: string | null;
+  /** Clé du rôle (`owner`, `manager`, `editor`, `contributor`, `viewer`, ou celle d'un rôle personnalisé). */
+  myRoleKey: string | null;
   /** Aperçu des membres pour l'affichage en pile d'avatars. */
   memberPreview: UserSummaryDTO[];
   /** Livraison en cours aujourd'hui (la plus proche de sa fin), avec son avancement et le temps écoulé. */

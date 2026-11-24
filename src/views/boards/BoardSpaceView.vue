@@ -6,7 +6,6 @@ import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Menu from 'primevue/menu';
-import Tag from 'primevue/tag';
 import type { MenuItem } from 'primevue/menuitem';
 import { useConfirm } from 'primevue/useconfirm';
 import { boardTitle, type BoardLinksDTO, type BoardNodeDTO } from '@shared/boards';
@@ -23,6 +22,7 @@ import BoardSpaceDialog from '@/components/boards/BoardSpaceDialog.vue';
 import BoardTrashDialog from '@/components/boards/BoardTrashDialog.vue';
 import BoardTree from '@/components/boards/BoardTree.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
+import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
 import { t } from '@/i18n';
 import { BoardSession } from '@/realtime/boardSession';
 import { useFollow } from '@/composables/useFollow';
@@ -395,7 +395,7 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
             <strong class="crumb current truncate">{{ boardTitle(board.path) }}</strong>
           </template>
         </nav>
-        <Tag v-if="store.space.adminAccess" v-tooltip.bottom="$t('Vous n’êtes pas propriétaire de cet espace : vous y entrez grâce à vos droits d’administration.')" :value="$t('Accès avec droit admin')" icon="pi pi-shield" severity="warn" class="admin-chip" />
+        <SpaceRoleIcon v-if="store.space.adminAccess" :role="store.space.role" admin-access tooltip="bottom" class="admin-chip" />
         <span v-if="isTemplate" class="muted small template-hint">{{ $t('Les copies posées sur les tableaux proposeront de se mettre à jour.') }}</span>
         <Button v-if="isTemplate" :label="returnTo ? $t('Revenir au tableau') : $t('Fermer le modèle')" icon="pi pi-arrow-left" size="small" severity="secondary" outlined @click="leaveTemplate" />
         <div v-if="presence.length" class="people">

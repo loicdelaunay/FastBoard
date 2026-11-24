@@ -105,13 +105,13 @@ const accountItems = computed<MenuItem[]>(() => [
 
     <nav class="nav">
       <router-link v-tooltip.right="collapsed ? $t('Projets') : undefined" to="/" class="item" :class="{ active: onProjects }">
-        <i class="pi pi-th-large"></i><span class="label">{{ $t('Projets') }}</span>
+        <i class="pi pi-th-large module-icon projects"></i><span class="label">{{ $t('Projets') }}</span>
       </router-link>
       <router-link v-if="app.info.docs" v-tooltip.right="collapsed ? $t('Documentations') : undefined" :to="{ name: 'docs' }" class="item" active-class="active">
-        <i class="pi pi-book"></i><span class="label">{{ $t('Documentations') }}</span>
+        <i class="pi pi-book module-icon docs"></i><span class="label">{{ $t('Documentations') }}</span>
       </router-link>
       <router-link v-if="app.info.boards" v-tooltip.right="collapsed ? $t('Tableaux blancs') : undefined" :to="{ name: 'boards' }" class="item" active-class="active">
-        <i class="pi pi-objects-column"></i><span class="label">{{ $t('Tableaux blancs') }}</span>
+        <i class="pi pi-objects-column module-icon boards"></i><span class="label">{{ $t('Tableaux blancs') }}</span>
       </router-link>
       <router-link v-if="auth.canAdmin" v-tooltip.right="collapsed ? $t('Administration') : undefined" :to="{ name: 'admin' }" class="item" active-class="active">
         <i class="pi pi-cog"></i><span class="label">{{ $t('Administration') }}</span>
@@ -292,6 +292,16 @@ const accountItems = computed<MenuItem[]>(() => [
 .search .pi {
   width: 1.1rem;
   text-align: center;
+}
+/* Chaque module garde sa couleur (celle de la barre de ses cartes), même sur l'entrée active. */
+.item .module-icon.projects {
+  color: var(--fb-module-projects);
+}
+.item .module-icon.docs {
+  color: var(--fb-module-docs);
+}
+.item .module-icon.boards {
+  color: var(--fb-module-boards);
 }
 .nav {
   display: flex;

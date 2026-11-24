@@ -31,6 +31,10 @@
   --fb-find-match: color-mix(in srgb, #facc15 48%, transparent);
   --fb-find-current: #f97316;
   --fb-find-current-text: #fff;
+  /* Couleur de chaque module : barre à gauche de ses cartes, icône dans la barre latérale. */
+  --fb-module-projects: #3b82f6;
+  --fb-module-docs: #10b981;
+  --fb-module-boards: #f59e0b;
   /* Lignes citées d'une note (lien d'une citation, ?lines=…) : bande teintée et filet à gauche. */
   --fb-cited-bg: color-mix(in srgb, var(--fb-accent) 13%, transparent);
   --fb-cited-edge: var(--fb-accent);
@@ -57,6 +61,9 @@
   --fb-hl-property: #7dd3fc;
   --fb-find-match: color-mix(in srgb, #facc15 32%, transparent);
   --fb-cited-bg: color-mix(in srgb, var(--fb-accent) 20%, transparent);
+  --fb-module-projects: #60a5fa;
+  --fb-module-docs: #34d399;
+  --fb-module-boards: #fbbf24;
   --fb-panel-alt: var(--p-surface-800);
   --fb-shadow: 0 1px 2px rgb(0 0 0 / 30%);
   --fb-shadow-lg: 0 8px 24px rgb(0 0 0 / 45%);
@@ -511,4 +518,28 @@ button {
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+/* Carte d'un projet, d'un espace de documentation ou de tableaux blancs : une barre à gauche, à la couleur du module. */
+.module-card {
+  position: relative;
+  overflow: hidden;
+}
+.module-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--module-color, var(--fb-accent));
+}
+.module-card.module-projects {
+  --module-color: var(--fb-module-projects);
+}
+.module-card.module-docs {
+  --module-color: var(--fb-module-docs);
+}
+.module-card.module-boards {
+  --module-color: var(--fb-module-boards);
 }

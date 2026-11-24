@@ -6,13 +6,12 @@ import ContextMenu from 'primevue/contextmenu';
 import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
 import InputText from 'primevue/inputtext';
-import Tag from 'primevue/tag';
 import type { MenuItem } from 'primevue/menuitem';
 import { useConfirm } from 'primevue/useconfirm';
 import type { BoardSpaceDTO } from '@shared/boards';
-import { DOC_ROLE_LABELS } from '@shared/docs';
 import { api } from '@/api';
 import BoardSpaceDialog from '@/components/boards/BoardSpaceDialog.vue';
+import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
 import { t } from '@/i18n';
 import { useAuthStore } from '@/stores/auth';
 import { useBoardsStore } from '@/stores/boards';
@@ -101,12 +100,11 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
     <div v-if="store.loading && !store.loaded" class="empty muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
 
     <div v-else-if="visible.length" class="grid">
-      <button v-for="space in visible" :key="space.id" type="button" class="card space" @click="open(space)" @contextmenu.prevent="openMenu($event, space)">
+      <button v-for="space in visible" :key="space.id" type="button" class="card space module-card module-boards" @click="open(space)" @contextmenu.prevent="openMenu($event, space)">
         <div class="top">
           <i class="pi pi-objects-column icon"></i>
-          <strong class="truncate">{{ space.name }}</strong>
-<Tag v-if="space.adminAccess" v-tooltip.top="$t('Vous n’êtes pas propriétaire de cet espace : vous y entrez grâce à vos droits d’administration.')" :value="$t('Accès avec droit admin')" icon="pi pi-shield" severity="warn" />
-          <Tag v-else :value="$t(DOC_ROLE_LABELS[space.role])" severity="secondary" />
+          <strong class="truncate" :title="space.name">{{ space.name }}</strong>
+          <SpaceRoleIcon :role="space.role" :admin-access="space.adminAccess" />
         </div>
         <p class="muted small description">{{ space.description || $t('Aucune description.') }}</p>
         <p class="muted small meta">
@@ -191,7 +189,7 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
   margin: 0;
 }
 .icon {
-  color: #a855f7;
+  color: var(--fb-module-boards);
 }
 .empty {
   display: flex;

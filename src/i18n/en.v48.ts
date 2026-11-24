@@ -83,4 +83,11 @@ export const enV48: Record<string, string> = {
     'Preview',
   'Tableaux blancs : la fenêtre « Données du graphique » montre l’aperçu du graphique pendant l’édition (titre, type et valeurs, à chaque saisie), avant d’enregistrer.':
     'Whiteboards: the “Chart data” window shows a preview of the chart while editing (title, type and values, as you type), before saving.',
+  // 2.24.3 — Couleur des modules, rôles en icône.
+  'Accès avec droit admin : vous n’êtes pas propriétaire de cet espace, vous y entrez grâce à vos droits d’administration.':
+    'Admin access: you do not own this space, you enter it through your administration rights.',
+  'Accès avec droit admin : vous n’êtes pas membre de ce projet, vous le voyez grâce à vos droits d’administration.':
+    'Admin access: you are not a member of this project, you see it through your administration rights.',
+  'Projets, documentations et tableaux blancs se distinguent d’un coup d’œil : chaque carte porte à gauche une barre à la couleur de son module (bleu, vert, ambre), reprise par l’icône du module dans la barre latérale. Le rôle (propriétaire, éditeur, lecteur…) et l’accès avec droit admin ne s’affichent plus qu’en icône, avec leur texte au survol : le nom de l’espace garde toute la place, et s’affiche en entier au survol.':
+    'Projects, documentation and whiteboards stand out at a glance: each card has a bar on its left in its module’s colour (blue, green, amber), echoed by the module’s icon in the sidebar. The role (owner, editor, reader…) and the admin access now show only as an icon, with their text on hover: the space name keeps all the room, and shows in full on hover.',
 };

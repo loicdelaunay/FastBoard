@@ -7,7 +7,6 @@ import ContextMenu from 'primevue/contextmenu';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Menu from 'primevue/menu';
-import Tag from 'primevue/tag';
 import Select from 'primevue/select';
 import type { MenuItem } from 'primevue/menuitem';
 import { citedLinesFromQuery, linesLabel, linesParam } from '@shared/citations';
@@ -33,6 +32,7 @@ import DocSpaceDialog from '@/components/docs/DocSpaceDialog.vue';
 import DocTrashDialog from '@/components/docs/DocTrashDialog.vue';
 import DocTree from '@/components/docs/DocTree.vue';
 import DocFindBar from '@/components/docs/find/DocFindBar.vue';
+import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
 import { useDocFind } from '@/composables/useDocFind';
 import { useDocTabs } from '@/composables/useDocTabs';
 import { useFollow } from '@/composables/useFollow';
@@ -1037,15 +1037,13 @@ const recent = computed(() =>
         @memo="showInfo($event, 'memo')"
         @collapse="treeHidden = true"
       />
-      <div v-if="store.space.adminAccess" class="admin-access">
-        <Tag v-if="store.space.adminAccess" v-tooltip.top="$t('Vous n’êtes pas propriétaire de cet espace : vous y entrez grâce à vos droits d’administration.')" :value="$t('Accès avec droit admin')" icon="pi pi-shield" severity="warn" />
-      </div>
       <footer class="space-foot">
         <button v-tooltip.top="$t('Changer d’espace')" type="button" class="space-switch" aria-haspopup="true" @click="openSwitcher">
           <i class="pi pi-sort-alt muted"></i>
           <strong class="truncate">{{ store.space.name }}</strong>
           <i v-if="store.space.site" v-tooltip.top="$t('Site web activé')" class="pi pi-globe site" :class="store.space.site.visibility"></i>
         </button>
+        <SpaceRoleIcon v-if="store.space.adminAccess" :role="store.space.role" admin-access />
         <Button v-tooltip.top="$t('Membres')" icon="pi pi-users" text rounded size="small" severity="secondary" :aria-label="$t('Membres')" @click="membersOpen = true" />
         <Button v-tooltip.top="$t('Réglages de l’espace')" icon="pi pi-cog" text rounded size="small" severity="secondary" :aria-label="$t('Réglages de l’espace')" aria-haspopup="true" @click="spaceMenu?.toggle($event)" />
         <Menu ref="switchMenu" :model="switchItems" popup />
@@ -1342,11 +1340,6 @@ const recent = computed(() =>
 .tree {
   flex: 1;
   min-height: 0;
-}
-.admin-access {
-  display: flex;
-  justify-content: center;
-  padding: 0.35rem 0.5rem 0;
 }
 .space-foot {
   display: flex;

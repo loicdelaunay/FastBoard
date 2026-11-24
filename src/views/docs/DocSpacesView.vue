@@ -7,11 +7,11 @@ import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
 import InputText from 'primevue/inputtext';
 import type { MenuItem } from 'primevue/menuitem';
-import Tag from 'primevue/tag';
-import { DOC_ROLE_LABELS, docParent, docRoleAtLeast, docTitle, type DocBookmarkDTO, type DocSpaceDTO } from '@shared/docs';
+import { docParent, docRoleAtLeast, docTitle, type DocBookmarkDTO, type DocSpaceDTO } from '@shared/docs';
 import DocImportDialog from '@/components/docs/DocImportDialog.vue';
 import DocSiteDialog from '@/components/docs/DocSiteDialog.vue';
 import DocSpaceDialog from '@/components/docs/DocSpaceDialog.vue';
+import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
 import { downloadFrom } from '@/utils/files';
@@ -114,13 +114,12 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
     <template v-else-if="visible.length">
       <h2 v-if="favorites.length" class="section-title"><i class="pi pi-book"></i> {{ $t('Espaces') }}</h2>
       <div class="grid">
-        <button v-for="space in visible" :key="space.id" type="button" class="card space" @click="open(space)" @contextmenu.prevent="openMenu($event, space)">
+        <button v-for="space in visible" :key="space.id" type="button" class="card space module-card module-docs" @click="open(space)" @contextmenu.prevent="openMenu($event, space)">
           <div class="top">
             <i class="pi pi-book icon"></i>
-            <strong class="truncate">{{ space.name }}</strong>
+            <strong class="truncate" :title="space.name">{{ space.name }}</strong>
             <i v-if="space.site" v-tooltip.top="SITE_LABELS[space.site.visibility]" class="pi pi-globe site" :class="space.site.visibility" :aria-label="SITE_LABELS[space.site.visibility]"></i>
-<Tag v-if="space.adminAccess" v-tooltip.top="$t('Vous n’êtes pas propriétaire de cet espace : vous y entrez grâce à vos droits d’administration.')" :value="$t('Accès avec droit admin')" icon="pi pi-shield" severity="warn" />
-            <Tag v-else :value="$t(DOC_ROLE_LABELS[space.role])" severity="secondary" />
+            <SpaceRoleIcon :role="space.role" :admin-access="space.adminAccess" />
           </div>
           <p class="muted small description">{{ space.description || $t('Aucune description.') }}</p>
           <p class="muted small meta">
@@ -280,7 +279,10 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
   gap: 0.25rem 0.8rem;
   margin: 0;
 }
-.icon {
+.space .icon {
+  color: var(--fb-module-docs);
+}
+.empty .icon {
   color: var(--fb-accent);
 }
 .empty {
