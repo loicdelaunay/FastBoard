@@ -1,6 +1,6 @@
 import { FILE_NAME_HEADER, type NotificationLevel, type TicketStatus } from '@shared/constants';
 import type { RoleScope, PermissionDef } from '@shared/permissions';
-import type { DocBookmarkDTO, DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocNodeInfoDTO, DocRescanResultDTO, DocRole, DocSearchHitDTO, DocSiteDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, WikiDTO, WikiPageDTO, WikiSearchHitDTO } from '@shared/docs';
+import type { DocBookmarkDTO, DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocNodeInfoDTO, DocRescanResultDTO, DocRole, DocSearchHitDTO, DocSiteDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, DocVersionFileDTO, WikiDTO, WikiPageDTO, WikiSearchHitDTO } from '@shared/docs';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
 import type { BoardAssetDTO, BoardElement, BoardIconDTO, BoardLinksDTO, BoardMemberDTO, BoardNodeDTO, BoardNodeKind, BoardRole, BoardSearchHitDTO, BoardShareAudience, BoardShareDTO, BoardShareInfoDTO, BoardShareRole, BoardSpaceDTO, BoardVersionDTO } from '@shared/boards';
 import type { LdapFields, LdapSettingsDTO, LdapTestResultDTO } from '@shared/ldap';
@@ -441,7 +441,7 @@ export const api = {
   docDeleteNode: (nodeId: number) => http<{ ok: true }>('DELETE', `/documentation/nodes/${nodeId}`),
   docRestoreNode: (nodeId: number) => http<{ node: DocNodeDTO }>('POST', `/documentation/nodes/${nodeId}/restore`, { body: {} }),
   docVersions: (nodeId: number) => http<{ versions: DocVersionDTO[]; retentionDays: number }>('GET', `/documentation/nodes/${nodeId}/versions`),
-  docVersion: (versionId: number) => http<{ content: string; createdAt: string; version: DocVersionDTO; node: { id: number; spaceId: number; path: string } }>('GET', `/documentation/versions/${versionId}`),
+  docVersion: (versionId: number) => http<{ content: string; createdAt: string; version: DocVersionDTO; node: { id: number; spaceId: number; path: string }; files: DocVersionFileDTO[] }>('GET', `/documentation/versions/${versionId}`),
   /** Étiquette une version (`versionId`) ou l'état actuel de la note. */
   docTagVersion: (nodeId: number, name: string, versionId?: number | null) => http<{ version: DocVersionDTO }>('POST', `/documentation/nodes/${nodeId}/tags`, { body: versionId ? { name, versionId } : { name } }),
   docSetVersionTag: (versionId: number, name: string | null) => http<{ version: DocVersionDTO }>('PUT', `/documentation/versions/${versionId}/tag`, { body: { name } }),

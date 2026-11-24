@@ -11,7 +11,7 @@ import Select from 'primevue/select';
 import type { MenuItem } from 'primevue/menuitem';
 import { citedLinesFromQuery, linesLabel, linesParam, versionFromQuery } from '@shared/citations';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
-import { docBaseName, docParent, docTitle, type DocLinksDTO, type DocNodeDTO, type DocVersionDTO } from '@shared/docs';
+import { docBaseName, docParent, docTitle, type DocLinksDTO, type DocNodeDTO, type DocVersionDTO, type DocVersionFileDTO } from '@shared/docs';
 import { docOutline } from '@shared/docOutline';
 import { searchHasMarkdown } from '@shared/noteSearch';
 import { applyDocTemplate, DOC_TEMPLATE_VARIABLES } from '@shared/docTemplates';
@@ -935,7 +935,7 @@ const versionId = computed(() => {
   const file = queryFile();
   return file !== null && file === selected.value?.id ? versionFromQuery(route.query.version) : null;
 });
-const versionView = shallowRef<{ id: number; content: string; version: DocVersionDTO } | null>(null);
+const versionView = shallowRef<{ id: number; content: string; version: DocVersionDTO; files: DocVersionFileDTO[] } | null>(null);
 const noteVersions = ref<DocVersionDTO[]>([]);
 const versionMenu = ref<InstanceType<typeof Menu> | null>(null);
 
@@ -950,7 +950,7 @@ watch(
       const found = await api.docVersion(id);
       if (versionId.value !== id) return;
       if (found.node.id !== selected.value?.id) throw new Error(t('Version introuvable.'));
-      versionView.value = { id, content: found.content, version: found.version };
+      versionView.value = { id, content: found.content, version: found.version, files: found.files };
     } catch (error) {
       notifyError(error, t('Version introuvable'));
       leaveVersion();
@@ -1012,6 +1012,12 @@ async function openVersionMenu(event: MouseEvent): Promise<void> {
 }
 
 // Étiqueter : la version actuelle (`versionId` nul), ou celle qu'on regarde ; renommer si elle l'est déjà.
+/** La version affichée vient de recevoir (ou de perdre) son étiquette : son nom et ses images figées. */
+async function refreshVersionView(id: number): Promise<void> {
+  if (versionView.value?.id !== id) return;
+  const found = await api.docVersion(id);
+  if (versionView.value?.id === id) versionView.value = { id, content: found.content, version: found.version, files: found.files };
+}
 const tagDialog = reactive({ open: false, name: '', versionId: null as number | null, saving: false });
 function askTag(versionId: number | null, name: string): void {
   Object.assign(tagDialog, { open: true, name, versionId, saving: false });
@@ -1024,9 +1030,9 @@ async function saveTag(): Promise<void> {
   try {
     const { version } = tagDialog.versionId && noteVersions.value.some((entry) => entry.id === tagDialog.versionId && entry.tag) ? await api.docSetVersionTag(tagDialog.versionId, name) : await api.docTagVersion(node.id, name, tagDialog.versionId);
     tagDialog.open = false;
-    if (versionView.value?.id === version.id) versionView.value = { ...versionView.value, version };
+    await refreshVersionView(version.id);
     await loadNoteVersions();
-    notify('success', t('Version étiquetée « {name} »', { name }), t('Elle reste dans l’historique et se cite avec @.'));
+    notify('success', t('Version étiquetée « {name} »', { name }), t('Elle reste dans l’historique avec ses images, et se cite avec @.'));
   } catch (error) {
     notifyError(error, t('Étiquette non enregistrée'));
   } finally {
@@ -1036,7 +1042,7 @@ async function saveTag(): Promise<void> {
 async function untag(versionId: number): Promise<void> {
   try {
     const { version } = await api.docSetVersionTag(versionId, null);
-    if (versionView.value?.id === version.id) versionView.value = { ...versionView.value, version };
+    await refreshVersionView(version.id);
     await loadNoteVersions();
     notify('info', t('Étiquette retirée'), t('Cette version suit de nouveau la durée de conservation de l’historique.'));
   } catch (error) {
@@ -1330,6 +1336,7 @@ const recent = computed(() =>
                   {{ $t('Version du {date}', { date: formatDateTime(versionView.version.createdAt) }) }}<template v-if="versionView.version.authors.length"> · {{ versionView.version.authors.join(', ') }}</template>
                 </span>
                 <span class="small">{{ $t('Lecture seule : pour écrire, copiez cette version dans une nouvelle note, ou repartez de la dernière version.') }}</span>
+                <span v-if="versionView.files.length" class="muted small frozen"><i class="pi pi-lock"></i> {{ $t('{n} image figée avec l’étiquette, telle qu’elle était|{n} images figées avec l’étiquette, telles qu’elles étaient', { n: versionView.files.length }) }}</span>
               </span>
               <span class="version-actions">
                 <Button v-if="store.canEdit" :label="$t('Copier pour modifier')" icon="pi pi-clone" size="small" severity="secondary" outlined :loading="forking" @click="forkVersion" />
@@ -1337,7 +1344,7 @@ const recent = computed(() =>
               </span>
             </div>
             <div class="pane preview version-pane">
-              <DocPreview :text="versionView.content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="[]" :obsidian="obsidian" :editable="false" @open="openNode" />
+              <DocPreview :text="versionView.content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="[]" :obsidian="obsidian" :editable="false" :frozen-files="versionView.files" @open="openNode" />
             </div>
           </div>
           <div v-else class="note-body" :class="{ 'with-outline': showOutline }">
@@ -1496,7 +1503,7 @@ const recent = computed(() =>
       <form class="tag-form" @submit.prevent="saveTag">
         <label for="doc-tag-name">{{ $t('Nom de l’étiquette') }}</label>
         <InputText id="doc-tag-name" v-model="tagDialog.name" :maxlength="VERSION_TAG_LIMITS.nameMax" :placeholder="$t('v1.0, Validé client…')" autofocus fluid />
-        <small class="muted">{{ $t('Une version étiquetée n’est jamais effacée de l’historique. Citez-la avec @ (son nom ou celui de la note) : le lien l’ouvre telle qu’elle était, en lecture seule.') }}</small>
+        <small class="muted">{{ $t('Une version étiquetée n’est jamais effacée de l’historique, et ses images sont figées avec elle. Citez-la avec @ (son nom ou celui de la note) : le lien l’ouvre telle qu’elle était, en lecture seule.') }}</small>
       </form>
       <template #footer>
         <Button :label="$t('Annuler')" severity="secondary" text @click="tagDialog.open = false" />
@@ -1761,6 +1768,9 @@ const recent = computed(() =>
   flex-direction: column;
   gap: 0.1rem;
   min-width: 14rem;
+}
+.version-text .frozen .pi {
+  font-size: 0.75rem;
 }
 .version-actions {
   display: flex;

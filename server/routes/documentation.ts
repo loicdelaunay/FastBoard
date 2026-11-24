@@ -56,7 +56,8 @@ import { requireGlobal } from '../services/access.ts';
 import { appInfo } from '../services/appSettings.ts';
 import { contentDisposition } from '../services/attachments.ts';
 import { setRagScope } from '../rag/index.ts';
-import { forkDocVersion, searchDocTags, tagDocVersion } from '../docs/tags.ts';
+import { docVersionFile, docVersionFiles } from '../docs/frozen.ts';
+import { forkDocVersion, restoreDocVersion, searchDocTags, tagDocVersion } from '../docs/tags.ts';
 
 function decodedName(raw: string | undefined): string {
   if (!raw) return '';
@@ -414,7 +415,19 @@ export function documentationRouter(ctx: AppContext): Router {
   router.get('/documentation/versions/:id', (req, res) => {
     const version = requireVersion(ctx.db, idParam(req.params.id));
     const { node } = nodeAccess(res, version.node_id);
-    res.json({ content: version.content, createdAt: version.created_at, version: versionById(ctx.db, version.id), node: { id: node.id, spaceId: node.space_id, path: node.path } });
+    res.json({ content: version.content, createdAt: version.created_at, version: versionById(ctx.db, version.id), node: { id: node.id, spaceId: node.space_id, path: node.path }, files: docVersionFiles(ctx.db, version.id) });
+  });
+
+  /** Image figée d'une version étiquetée : son contenu ne change jamais, le navigateur la garde. */
+  router.get('/documentation/version-files/:id', (req, res) => {
+    const file = docVersionFile(ctx, idParam(req.params.id));
+    if (!file) throw notFound('Image introuvable.');
+    nodeAccess(res, requireVersion(ctx.db, file.versionId).node_id);
+    res.setHeader('Content-Type', file.mime);
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.send(file.data);
   });
 
   // --- Étiquettes de versions ------------------------------------------------------------------------------------------
@@ -445,7 +458,7 @@ export function documentationRouter(ctx: AppContext): Router {
   router.post('/documentation/versions/:id/restore', (req, res) => {
     const version = requireVersion(ctx.db, idParam(req.params.id));
     const node = activeNote(res, version.node_id, 'editor');
-    writeContent(ctx, actorOf(req, res), node, parse(docRestoreSchema, req.body ?? {}).content ?? version.content, 'restore');
+    restoreDocVersion(ctx, actorOf(req, res), node, version, parse(docRestoreSchema, req.body ?? {}).content);
     res.json({ ok: true });
   });
 

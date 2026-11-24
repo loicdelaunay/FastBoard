@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.26.0';
+export const APP_VERSION = '2.27.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,13 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.27.0',
+    date: '2026-11-24',
+    changes: [
+      { category: 'Amélioration', text: 'Étiquettes de versions : les pièces jointes sont figées avec la version. Une note étiquetée garde ses images telles qu’elles étaient (même remplacées ou supprimées depuis, et pour une ancienne version, celles d’alors) ; un tableau étiqueté garde ses images et ses icônes ajoutées. Copier ou restaurer la version les remet dans l’espace, et les liens suivent.' },
+    ],
+  },
   {
     version: '2.26.0',
     date: '2026-11-24',

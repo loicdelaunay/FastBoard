@@ -4,6 +4,7 @@ import path from 'node:path';
 import { BOARD_ASSET_LIMITS } from '../../shared/boards.ts';
 import { FILE_NAME_HEADER } from '../../shared/constants.ts';
 import { assetByKey, assetFile, iconSvg, storeAsset } from '../boards/assets.ts';
+import { frozenBoardFile } from '../services/frozenFiles.ts';
 import { requireBoardSpace, requireBoardsEnabled } from '../boards/store.ts';
 import type { AppContext } from '../context.ts';
 import { badRequest, notFound } from '../http/errors.ts';
@@ -48,15 +49,24 @@ export function boardFilesRouter(ctx: AppContext): Router {
   const router = express.Router();
 
   router.get('/board-assets/:key', (req, res) => {
-    const asset = /^[A-Za-z0-9_-]{16,64}$/.test(req.params.key) ? assetByKey(ctx.db, req.params.key) : null;
+    const valid = /^[A-Za-z0-9_-]{16,64}$/.test(req.params.key);
+    const asset = valid ? assetByKey(ctx.db, req.params.key) : null;
     const file = asset ? assetFile(ctx, asset.key) : '';
-    if (!asset || !fs.existsSync(file)) throw notFound('Image introuvable.');
+    if (!asset || !fs.existsSync(file)) {
+      // Supprimée de l'espace, mais figée par une version étiquetée qui la montre encore.
+      const frozen = valid ? frozenBoardFile(ctx, `asset:${req.params.key}`) : null;
+      if (!frozen) throw notFound('Image introuvable.');
+      res.set({ ...IMAGE_HEADERS, 'Content-Type': frozen.mime, 'Cache-Control': 'private, max-age=31536000, immutable', 'Content-Disposition': contentDisposition(frozen.name || 'image', true) });
+      res.send(frozen.data);
+      return;
+    }
     res.set({ ...IMAGE_HEADERS, 'Content-Type': asset.mime, 'Cache-Control': 'private, max-age=31536000, immutable', 'Content-Disposition': contentDisposition(asset.name, true) });
     res.sendFile(path.resolve(file));
   });
 
   router.get('/board-icons/:id', (req, res) => {
-    const svg = iconSvg(ctx.db, idParam(req.params.id));
+    const id = idParam(req.params.id);
+    const svg = iconSvg(ctx.db, id) ?? frozenBoardFile(ctx, `icon:${id}`)?.data.toString('utf8') ?? null;
     if (svg === null) throw notFound('Icône introuvable.');
     res.set({ ...IMAGE_HEADERS, 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'private, max-age=86400' });
     res.send(svg);

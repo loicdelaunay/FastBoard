@@ -156,6 +156,50 @@ export function extractDocLinks(text: string): DocLinkTargets {
   return { paths: [...paths], docs: mentioned('doc'), tickets: mentioned('ticket'), boards: mentioned('board') };
 }
 
+const EXTERNAL = /^([a-z][a-z0-9+.-]*:|#|\/)/i;
+const MARKDOWN_IMAGE = /!\[([^\]\n]*)\]\(([^)\s]+)((?:\s+"[^"\n]*")?)\)/g;
+const WIKI_IMAGE = /!\[\[([^\]|#\n]*)(#[^\]|\n]*)?(?:\|([^\]\n]+))?\]\]/g;
+
+/** Images de l'espace qu'une note montre (`![[schema.png]]`, `![](Pictures/schema.png)`, `<img src>`), hors du code. */
+export function extractDocImages(text: string): string[] {
+  const plain = expandWikiLinks(text)
+    .split(CODE)
+    .filter((_part, index) => index % 2 === 0)
+    .join(' ');
+  const found = new Set<string>();
+  for (const match of plain.matchAll(MARKDOWN_IMAGE)) found.add(match[2]!);
+  for (const match of plain.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) found.add(match[1]!);
+  return [...found].filter((source) => !EXTERNAL.test(source));
+}
+
+/**
+ * Change la cible des images d'une note, hors du code : `rename` reçoit la cible écrite (décodée) et rend le nouveau
+ * chemin de l'image dans l'espace, ou `null` pour la laisser. Le lien s'écrit depuis le dossier de la note.
+ */
+export function rewriteDocImages(text: string, notePath: string, rename: (target: string) => string | null): string {
+  const folder = docParent(notePath);
+  const written = (imagePath: string): string => (folder && imagePath.startsWith(`${folder}/`) ? imagePath.slice(folder.length + 1) : imagePath);
+  const decoded = (target: string): string => {
+    try {
+      return decodeURIComponent(target);
+    } catch {
+      return target;
+    }
+  };
+  return mapOutsideCode(text, (part) =>
+    part
+      .replace(WIKI_IMAGE, (all, target: string, heading: string | undefined, label: string | undefined) => {
+        const renamed = target.trim() ? rename(target.trim()) : null;
+        return renamed ? `![[${written(renamed)}${heading ?? ''}${label ? `|${label}` : ''}]]` : all;
+      })
+      .replace(MARKDOWN_IMAGE, (all, alt: string, target: string, title: string) => {
+        if (EXTERNAL.test(target)) return all;
+        const renamed = rename(decoded(target));
+        return renamed ? `![${alt}](${encodePath(written(renamed))}${title})` : all;
+      }),
+  );
+}
+
 /** Texte alternatif d'une image et sa taille à la manière d'Obsidian : `![[x.png|300]]`, `![Légende|300x200](x.png)`. */
 export function imageSize(alt: string): { alt: string; width: number | null; height: number | null } {
   const match = /^(?:(.*)\|)?\s*(\d{1,4})(?:\s*x\s*(\d{1,4}))?\s*$/.exec(alt);

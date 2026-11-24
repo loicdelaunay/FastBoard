@@ -840,6 +840,33 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       ALTER TABLE doc_nodes ADD COLUMN color TEXT;
     `);
   },
+  // 32 — Pièces jointes figées des versions étiquetées : une copie (par empreinte, dans uploads/frozen) des images d'une
+  // note et des images et icônes ajoutées d'un tableau, gardée tant qu'une version étiquetée les montre.
+  (db) => {
+    db.exec(`
+      CREATE TABLE frozen_files (
+        hash       TEXT PRIMARY KEY,
+        mime       TEXT NOT NULL,
+        size       INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE doc_version_files (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        version_id INTEGER NOT NULL REFERENCES doc_versions(id) ON DELETE CASCADE,
+        path       TEXT NOT NULL,
+        hash       TEXT NOT NULL REFERENCES frozen_files(hash),
+        UNIQUE (version_id, path)
+      );
+      CREATE TABLE board_version_files (
+        version_id INTEGER NOT NULL REFERENCES board_versions(id) ON DELETE CASCADE,
+        ref        TEXT NOT NULL,
+        name       TEXT NOT NULL DEFAULT '',
+        hash       TEXT NOT NULL REFERENCES frozen_files(hash),
+        PRIMARY KEY (version_id, ref)
+      );
+      CREATE INDEX idx_board_version_files_ref ON board_version_files (ref);
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

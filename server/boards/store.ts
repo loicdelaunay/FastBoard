@@ -21,7 +21,8 @@ import { badRequest, conflict, forbidden, HttpError, notFound } from '../http/er
 import { getAuthUser, type AuthUser } from '../services/access.ts';
 import { readSetting, writeSetting } from '../services/appSettings.ts';
 import { foldText } from '../services/tickets.ts';
-import { removeSpaceAssets } from './assets.ts';
+import { removeSpaceAssets, reviveFrozenAssets } from './assets.ts';
+import { collectFrozen } from '../services/frozenFiles.ts';
 import { sanitizeElements, stateOf, withoutTemplateLink } from './elements.ts';
 import { listBoardVersions, matchingVersion, readBoardVersion, recordBoardBaseline, recordBoardVersion } from './versions.ts';
 
@@ -425,6 +426,7 @@ export function boardVersion(ctx: AppContext, node: BoardNodeRow, versionId: num
  */
 export function restoreBoardVersion(ctx: AppContext, actor: Actor, node: BoardNodeRow, versionId: number): BoardElement[] {
   const { elements } = boardVersion(ctx, node, versionId);
+  reviveFrozenAssets(ctx, actor, node.space_id, elements);
   const current = readBoardElements(ctx, node);
   ctx.db.transaction(() => {
     // Ce qui est à l'écran, même pas encore enregistré, entre dans l'historique avant d'être remplacé.
@@ -439,6 +441,7 @@ export function restoreBoardVersion(ctx: AppContext, actor: Actor, node: BoardNo
 /** Nouveau tableau (ou modèle) à partir d'une version, à côté de l'original. */
 export function forkBoardVersion(ctx: AppContext, actor: Actor, node: BoardNodeRow, versionId: number, name: string | undefined): BoardNodeDTO {
   const { elements } = boardVersion(ctx, node, versionId);
+  reviveFrozenAssets(ctx, actor, node.space_id, elements);
   const folder = node.path.includes('/') ? node.path.slice(0, node.path.lastIndexOf('/') + 1) : '';
   const template = node.kind === 'template';
   const wanted = name?.trim() ? `${template ? '' : folder}${name.trim().replace(/\//g, ' ')}` : `${node.path} (version)`;
@@ -479,4 +482,6 @@ export function purgeBoards(ctx: AppContext, now = Date.now()): void {
   const limit = new Date(now - BOARD_LIMITS.retentionDays * 24 * 60 * 60 * 1000).toISOString();
   const removed = ctx.db.run('DELETE FROM board_nodes WHERE deleted_at IS NOT NULL AND deleted_at < ?', limit).changes;
   if (removed) ctx.logger.info('boards', `Corbeille des tableaux vidée : ${removed} élément(s)`, { removed });
+  // Les fichiers figés que plus aucune version étiquetée ne garde (tableau ou espace supprimé).
+  collectFrozen(ctx);
 }

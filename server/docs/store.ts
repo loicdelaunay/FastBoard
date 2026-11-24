@@ -10,6 +10,7 @@ import { nowIso, type Db } from '../db/database.ts';
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../http/errors.ts';
 import { getAuthUser, type AuthUser } from '../services/access.ts';
 import { readSetting, writeSetting } from '../services/appSettings.ts';
+import { collectFrozen } from '../services/frozenFiles.ts';
 import { mentionedUserIds, notifyDocMention } from '../services/notifications.ts';
 import { foldText } from '../services/tickets.ts';
 
@@ -710,6 +711,8 @@ export function purgeDocs(ctx: AppContext, now = Date.now()): void {
     fs.rmSync(path.join(spaceDir(ctx, node.space_id), TRASH, String(node.id)), { force: true });
     db.run('DELETE FROM doc_nodes WHERE id = ?', node.id);
   }
+  // Les images figées que plus aucune version étiquetée ne garde (note ou espace supprimé).
+  collectFrozen(ctx);
 }
 
 // --- Images ----------------------------------------------------------------------------------------------------------
@@ -737,6 +740,25 @@ export function storeImage(ctx: AppContext, actor: Actor, spaceId: number, folde
   writeFile(diskPath(ctx, spaceId, relative), data);
   ctx.docRooms.publishTree(spaceId);
   return toNodeDTO(requireNode(db, nodeId));
+}
+
+/** Fichier qui garde le contenu d'une image : à sa place dans l'espace, ou dans la corbeille si elle en est sortie. */
+export function storedImageFile(ctx: AppContext, node: Pick<NodeRow, 'id' | 'space_id' | 'path' | 'deleted_at'>): string {
+  return node.deleted_at ? path.join(spaceDir(ctx, node.space_id), TRASH, String(node.id)) : diskPath(ctx, node.space_id, node.path);
+}
+
+/** Ajoute une image à ce chemin, ou au premier nom libre à côté (« schema (2).png ») ; rend son chemin. */
+export function addImageFile(ctx: AppContext, actor: Actor, spaceId: number, wanted: string, data: Uint8Array): string {
+  const { db } = ctx;
+  assertRoom(db, spaceId);
+  const relative = freePath(db, spaceId, wanted);
+  db.transaction(() => {
+    ensureFolders(ctx, spaceId, relative, actor.userId);
+    insertNode(db, spaceId, relative, 'image', data.length, actor.userId);
+  });
+  writeFile(diskPath(ctx, spaceId, relative), data);
+  ctx.docRooms.publishTree(spaceId);
+  return relative;
 }
 
 /**

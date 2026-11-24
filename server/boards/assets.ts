@@ -2,10 +2,11 @@ import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { sanitizeFileName, sniffImageMime } from '../../shared/attachments.ts';
-import { BOARD_ASSET_LIMITS, BOARD_ICON_LIMITS, type BoardAssetDTO, type BoardIconDTO } from '../../shared/boards.ts';
+import { BOARD_ASSET_LIMITS, BOARD_ICON_LIMITS, type BoardAssetDTO, type BoardElement, type BoardIconDTO } from '../../shared/boards.ts';
 import type { Actor, AppContext } from '../context.ts';
 import { nowIso, type Db } from '../db/database.ts';
 import { badRequest, conflict, notFound } from '../http/errors.ts';
+import { collectFrozen, freezeBytes, frozenBoardFile } from '../services/frozenFiles.ts';
 
 /**
  * Fichiers des tableaux blancs : images et SVG envoyés dans un espace (réutilisables dans tous ses tableaux) et icônes
@@ -133,14 +134,80 @@ export function previewResources(ctx: AppContext): { image: (key: string) => str
     image: (key) =>
       once(`a:${key}`, () => {
         const asset = assetByKey(ctx.db, key);
-        return asset ? { mime: asset.mime, data: fs.readFileSync(assetFile(ctx, asset.key)) } : null;
+        return asset ? { mime: asset.mime, data: fs.readFileSync(assetFile(ctx, asset.key)) } : frozenBoardFile(ctx, `asset:${key}`);
       }),
     customIcon: (id) =>
       once(`i:${id}`, () => {
         const svg = iconSvg(ctx.db, id);
-        return svg ? { mime: 'image/svg+xml', data: Buffer.from(svg, 'utf8') } : null;
+        return svg ? { mime: 'image/svg+xml', data: Buffer.from(svg, 'utf8') } : frozenBoardFile(ctx, `icon:${id}`);
       }),
   };
+}
+
+// --- Fichiers figés des versions étiquetées ----------------------------------------------------------------------------
+
+/** Références aux fichiers d'un tableau : `asset:<clé>` (image de l'espace) et `icon:<id>` (icône ajoutée). */
+function fileRefs(elements: readonly BoardElement[]): string[] {
+  const refs = new Set<string>();
+  for (const element of elements) {
+    if (element.type === 'image' && element.asset) refs.add(`asset:${element.asset}`);
+    else if (element.type === 'icon' && /^custom:\d+$/.test(element.icon)) refs.add(`icon:${element.icon.slice(7)}`);
+  }
+  return [...refs];
+}
+
+/**
+ * Fige les images et les icônes ajoutées d'une version qui reçoit une étiquette : elles restent visibles dans cette
+ * version (mode Historique, aperçu, copie, restauration) même si on les supprime ensuite. Rend le nombre de fichiers figés.
+ */
+export function freezeBoardFiles(ctx: AppContext, versionId: number, elements: readonly BoardElement[]): number {
+  let count = 0;
+  for (const ref of fileRefs(elements)) {
+    const [kind, id] = [ref.slice(0, ref.indexOf(':')), ref.slice(ref.indexOf(':') + 1)];
+    let file: { mime: string; data: Buffer; name: string } | null = null;
+    try {
+      if (kind === 'asset') {
+        const asset = assetByKey(ctx.db, id);
+        if (asset) file = { mime: asset.mime, data: fs.readFileSync(assetFile(ctx, asset.key)), name: asset.name };
+      } else {
+        const icon = ctx.db.get<{ name: string; svg: string }>('SELECT name, svg FROM board_icons WHERE id = ?', Number(id));
+        if (icon) file = { mime: 'image/svg+xml', data: Buffer.from(icon.svg, 'utf8'), name: icon.name };
+      }
+    } catch {
+      file = null;
+    }
+    // Déjà supprimé, mais figé par une autre version étiquetée : la même copie.
+    file ??= frozenBoardFile(ctx, ref);
+    if (!file) continue;
+    ctx.db.run('INSERT OR IGNORE INTO board_version_files (version_id, ref, name, hash) VALUES (?, ?, ?, ?)', versionId, ref, file.name, freezeBytes(ctx, file.data, file.mime));
+    count += 1;
+  }
+  return count;
+}
+
+/** L'étiquette est retirée : la version ne garde plus ses fichiers. */
+export function thawBoardFiles(ctx: AppContext, versionId: number): void {
+  if (ctx.db.run('DELETE FROM board_version_files WHERE version_id = ?', versionId).changes) collectFrozen(ctx);
+}
+
+/**
+ * Restauration ou copie d'une version : les images supprimées depuis de l'espace, mais figées par une version
+ * étiquetée, y reviennent sous la même clé (les éléments les retrouvent tels quels). Rend leur nombre.
+ */
+export function reviveFrozenAssets(ctx: AppContext, actor: Actor, spaceId: number, elements: readonly BoardElement[]): number {
+  let count = 0;
+  for (const ref of fileRefs(elements)) {
+    if (!ref.startsWith('asset:')) continue;
+    const key = ref.slice(6);
+    if (assetByKey(ctx.db, key)) continue;
+    const frozen = frozenBoardFile(ctx, ref);
+    if (!frozen) continue;
+    fs.mkdirSync(assetsDir(ctx), { recursive: true });
+    fs.writeFileSync(assetFile(ctx, key), frozen.data);
+    ctx.db.run('INSERT INTO board_assets (space_id, key, name, mime, size, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)', spaceId, key, frozen.name || 'image', frozen.mime, frozen.data.length, actor.userId, nowIso());
+    count += 1;
+  }
+  return count;
 }
 
 // --- Icônes ajoutées par les administrateurs --------------------------------------------------------------------------
