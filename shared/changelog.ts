@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.23.1';
+export const APP_VERSION = '2.24.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,11 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.24.0',
+    date: '2026-11-24',
+    changes: [{ category: 'Nouveauté', text: 'Documentation : un bouton à côté du sommaire affiche les numéros de ligne, dans tous les modes. En lecture, ils sont en marge de chaque bloc, élément de liste, rangée de tableau et ligne de code ; en « Lecture et écriture », la marge se colle au texte. Le choix est retenu.' }],
+  },
   {
     version: '2.23.1',
     date: '2026-11-24',

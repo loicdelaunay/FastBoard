@@ -142,6 +142,64 @@ function onContextMenu(event: MouseEvent): void {
   text-decoration: underline dotted;
   cursor: help;
 }
+/* Numéros de ligne du texte, en marge (bouton « Numéros de ligne ») : le premier de chaque bloc, élément de liste et
+   rangée de tableau ; toutes les lignes d'un bloc de code, dans sa marge intérieure. */
+.doc-preview .markdown.md-numbered {
+  padding-left: 2.9rem;
+}
+.doc-preview .md-numbered > [data-line],
+.doc-preview .md-numbered :is(li, td, th)[data-line] {
+  position: relative;
+}
+/* Un tableau défile en largeur (et coupe ce qui dépasse) : ses numéros vont dans une marge intérieure, à la même place. */
+.doc-preview .md-numbered > table:has([data-line]) {
+  margin-left: -2.9rem;
+  padding-left: 2.9rem;
+}
+.doc-preview .md-numbered [data-line]::after,
+.doc-preview .md-numbered-code::after {
+  position: absolute;
+  color: var(--fb-muted);
+  font-family: var(--fb-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-align: right;
+  text-transform: none;
+  opacity: 0.75;
+  pointer-events: none;
+  user-select: none;
+}
+.doc-preview .md-numbered [data-line]::after {
+  content: attr(data-line);
+  top: 0;
+  left: -2.9rem;
+  width: 2.2rem;
+  line-height: 1.6rem;
+}
+.doc-preview .md-numbered li[data-line]::after {
+  left: calc(-2.9rem - var(--md-list-indent, 1.5em));
+}
+.doc-preview .md-numbered :is(td, th)[data-line]::after {
+  top: 50%;
+  left: calc(-2.9rem - 1px);
+  line-height: 1;
+  transform: translateY(-50%);
+}
+.doc-preview .md-numbered-code {
+  position: relative;
+  padding-left: 3.1rem !important;
+}
+.doc-preview .md-numbered-code::after {
+  content: attr(data-lines);
+  top: var(--md-code-top, 0);
+  left: 0.35rem;
+  width: 2.2rem;
+  line-height: var(--md-code-line, 1.5);
+  white-space: pre;
+}
+
 /* Lignes citées (lien d'une citation, ?lines=…) : blocs teintés, filet à gauche ; au plus près dans une liste, un
    tableau ou un bloc de code (bandes). */
 /* La bande déborde sur les côtés seulement (ombres hors de la boîte) : deux éléments voisins se touchent sans se

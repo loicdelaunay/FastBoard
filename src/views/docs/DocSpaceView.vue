@@ -41,7 +41,7 @@ import { DocSession } from '@/realtime/docSession';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
 import { downloadFrom } from '@/utils/files';
-import { clearCitedBlocks, markCitedBlocks } from '@/utils/citedPreview';
+import { clearCitedBlocks, clearPreviewLines, markCitedBlocks, numberPreviewLines } from '@/utils/citedPreview';
 import { markdownBlocks } from '@/utils/markdown';
 import { formatDateTime, formatRelative } from '@/utils/format';
 import { notify, notifyError } from '@/utils/notify';
@@ -228,6 +228,28 @@ watch(treeHidden, (hidden) => {
   }
 });
 const outlineAvailable = computed(() => !writing.value || live.value);
+
+// --- Numéros de ligne (à côté du sommaire), dans tous les modes ---
+const LINES_KEY = 'fb.docs.lineNumbers';
+function storedLineNumbers(): boolean | null {
+  try {
+    const value = localStorage.getItem(LINES_KEY);
+    return value === '1' ? true : value === '0' ? false : null;
+  } catch {
+    return null;
+  }
+}
+const lineNumbersChoice = ref<boolean | null>(storedLineNumbers());
+/** Sans choix enregistré : en écriture seulement, comme avant le bouton. */
+const lineNumbers = computed(() => lineNumbersChoice.value ?? (writing.value && !live.value));
+function toggleLineNumbers(): void {
+  lineNumbersChoice.value = !lineNumbers.value;
+  try {
+    localStorage.setItem(LINES_KEY, lineNumbersChoice.value ? '1' : '0');
+  } catch {
+    // Stockage indisponible : le choix vaut pour cette page seulement.
+  }
+}
 const showOutline = computed(() => outlineOpen.value && outlineAvailable.value);
 const headings = computed(() => docOutline(content.value));
 const activeHeading = ref(0);
@@ -509,6 +531,22 @@ watch(content, () => {
   window.clearTimeout(citedContentTimer);
   citedContentTimer = window.setTimeout(() => showCited(false), 400);
 });
+
+// Numéros de ligne en lecture (et dans l'aperçu à côté de l'éditeur) : posés sur le rendu, refaits quand il change.
+let numbersTimer: number | undefined;
+function showPreviewLines(): void {
+  const root = previewPane.value?.querySelector<HTMLElement>('.doc-preview .markdown');
+  if (!root) return;
+  if (lineNumbers.value) numberPreviewLines(root, content.value, obsidian.value, headings.value.map((heading) => heading.line));
+  else clearPreviewLines(root);
+}
+function scheduleLines(delay = 60): void {
+  window.clearTimeout(numbersTimer);
+  numbersTimer = window.setTimeout(showPreviewLines, delay);
+}
+watch([lineNumbers, mode, writing, showPreview, synced, () => selected.value?.id], () => scheduleLines());
+// Le rendu suit la frappe de peu (et les images, les schémas se dessinent ensuite) : on repose les numéros après.
+watch(content, () => lineNumbers.value && scheduleLines(400));
 
 function revealCited(): void {
   scheduleCited(true);
@@ -1075,6 +1113,18 @@ const recent = computed(() =>
               </button>
             </div>
             <Button v-if="writing && !live" v-tooltip.bottom="showPreview ? $t('Masquer l’aperçu') : $t('Afficher l’aperçu')" icon="pi pi-objects-column" text rounded size="small" :severity="showPreview ? undefined : 'secondary'" :aria-pressed="showPreview" :aria-label="$t('Aperçu')" @click="showPreview = !showPreview" />
+            <Button
+              v-tooltip.bottom="lineNumbers ? $t('Masquer les numéros de ligne') : $t('Afficher les numéros de ligne')"
+              icon="pi pi-sort-numeric-down"
+              text
+              rounded
+              size="small"
+              :severity="lineNumbers ? undefined : 'secondary'"
+              :aria-pressed="lineNumbers"
+              :aria-label="$t('Numéros de ligne')"
+              class="lines-toggle"
+              @click="toggleLineNumbers"
+            />
             <Button v-if="outlineAvailable" v-tooltip.bottom="$t('Sommaire')" icon="pi pi-list" text rounded size="small" :severity="outlineOpen ? undefined : 'secondary'" :aria-pressed="outlineOpen" :aria-label="$t('Sommaire')" class="outline-toggle" @click="outlineOpen = !outlineOpen" />
           </template>
           <template v-if="isText(selected) && canWrite && insertable.length">
@@ -1151,6 +1201,7 @@ const recent = computed(() =>
                   :comments="store.comments"
                   :live="live"
                   :obsidian="obsidian"
+                  :line-numbers="lineNumbers"
                   :readonly="false"
                   @open="openNode"
                   @comment="startComment"

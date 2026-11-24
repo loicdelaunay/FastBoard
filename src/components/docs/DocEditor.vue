@@ -7,7 +7,7 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
 import { highlightSelectionMatches } from '@codemirror/search';
 import { Compartment, EditorState } from '@codemirror/state';
-import { drawSelection, dropCursor, EditorView, highlightActiveLine, keymap, lineNumbers, placeholder, type Command } from '@codemirror/view';
+import { drawSelection, dropCursor, EditorView, GutterMarker, highlightActiveLine, keymap, lineNumbers, lineNumberWidgetMarker, placeholder, type Command } from '@codemirror/view';
 import ContextMenu from 'primevue/contextmenu';
 import type { MenuItem } from 'primevue/menuitem';
 import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next';
@@ -34,6 +34,30 @@ import { matchesQuery, normalizeText } from '@/utils/search';
 import { boardChoice, boardMentionAt, showBoardChoice } from './editor/boardMention';
 import { taskLine, toggleTask } from './editor/commands';
 import { citedLines, showCitedLines } from './editor/cited';
+
+/** Numéros de ligne (bouton « Numéros de ligne ») : la gouttière, et une classe pour la coller au texte en « Lecture et écriture ». */
+const numbering = new Compartment();
+/** Numéro de la première ligne d'un bloc rendu (tableau, code, schéma…) en « Lecture et écriture ». */
+class FirstLineNumber extends GutterMarker {
+  constructor(readonly number: number) {
+    super();
+  }
+  override eq(other: FirstLineNumber): boolean {
+    return other.number === this.number;
+  }
+  override toDOM(): Node {
+    return document.createTextNode(String(this.number));
+  }
+}
+const numbersOf = (on: boolean) =>
+  on
+    ? [
+        lineNumbers(),
+        // Un bloc rendu remplace ses lignes : il porte le numéro de la première (un widget inséré, aucun).
+        lineNumberWidgetMarker.of((view, _widget, block) => (block.to > block.from ? new FirstLineNumber(view.state.doc.lineAt(block.from).number) : null)),
+        EditorView.editorAttributes.of({ class: 'cm-numbered' }),
+      ]
+    : [];
 import { docComments, setDocComments } from './editor/comments';
 import { docHighlight, docLiveHighlight } from './editor/highlight';
 import { editImageSource, liveInline } from './editor/liveInline';
@@ -62,6 +86,8 @@ const props = defineProps<{
   readonly: boolean;
   /** Syntaxe propre à Obsidian (réglage de l'espace). */
   obsidian?: boolean;
+  /** Numéros de ligne dans la marge. */
+  lineNumbers?: boolean;
 }>();
 const emit = defineEmits<{
   open: [node: DocNodeDTO, newTab?: boolean];
@@ -409,6 +435,10 @@ const inline = liveInline({
 watch(
   () => props.comments,
   (comments) => view?.dispatch({ effects: [setDocComments.of(comments), ...(props.live ? [refreshLive.of()] : [])] }),
+);
+watch(
+  () => props.lineNumbers,
+  (on) => view?.dispatch({ effects: numbering.reconfigure(numbersOf(on)) }),
 );
 watch(
   () => props.nodes,
@@ -780,7 +810,8 @@ onMounted(() => {
     state: EditorState.create({
       doc: text.toString(),
       extensions: [
-        ...(props.live ? [live.extension, inline] : [lineNumbers(), highlightActiveLine()]),
+        ...(props.live ? [live.extension, inline] : [highlightActiveLine()]),
+        numbering.of(numbersOf(props.lineNumbers)),
         docComments,
         citedLines,
         drawSelection(),
@@ -902,6 +933,13 @@ onMounted(() => {
                   color: 'var(--md-text, currentColor)',
                 },
                 '.cm-line': { padding: '0' },
+                // Numéros de ligne : la gouttière se colle au texte centré, au lieu de rester au bord de l'écran.
+                '&.cm-numbered .cm-gutters': {
+                  marginLeft: 'max(0px, calc((100% - var(--fb-reading-width, 52rem)) / 2 + var(--reading-shift, 0px) - 3.5rem))',
+                  borderRight: '0',
+                },
+                '&.cm-numbered .cm-lineNumbers .cm-gutterElement': { padding: '0 0.75rem 0 0.25rem', fontFamily: FONT_MONO, fontSize: '0.75rem', opacity: '0.75' },
+                '&.cm-numbered .cm-content': { width: 'calc(100% - 5rem)', marginLeft: '0.5rem' },
                 '.cm-lp-source': { fontFamily: FONT_MONO, fontSize: '0.88rem' },
                 '.cm-lp-h1': { fontSize: '1.6em', fontWeight: '700', lineHeight: '1.3', paddingTop: '0.35em', color: 'var(--md-h1, currentColor)' },
                 '.cm-lp-h2': { fontSize: '1.35em', fontWeight: '700', lineHeight: '1.3', paddingTop: '0.3em', color: 'var(--md-h2, currentColor)' },
