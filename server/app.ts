@@ -120,10 +120,14 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
 
   const hub = new Hub();
   const logger = new Logger(db, { minLevel: config.logLevel, toConsole: config.logToConsole });
-  const metrics = new Metrics(db, { wsClients: () => hub.clientCount });
+  // Les salles d'édition collaborative naissent avec le contexte, juste après les indicateurs (qui échantillonnent dès
+  // leur création) : lues par une référence remplie ensuite.
+  let rooms: Pick<AppContext, 'docRooms' | 'boardRooms'> | null = null;
+  const metrics = new Metrics(db, { wsClients: () => hub.clientCount, collab: () => ({ docs: rooms?.docRooms.stats().peers ?? 0, boards: rooms?.boardRooms.stats().peers ?? 0 }) });
   const ctx = { config, db, hub, logger, metrics, uploadsDir, docsDir, secrets: new SecretBox(config.dbPath) } as AppContext;
   ctx.docRooms = new DocRooms(ctx);
   ctx.boardRooms = new BoardRooms(ctx);
+  rooms = ctx;
   db.onSlowQuery = (sql, ms) => logger.warn('db', `Requête SQL lente (${Math.round(ms)} ms)`, { sql: sql.replace(/\s+/g, ' ').slice(0, 300), ms: Math.round(ms) });
   logger.start();
   metrics.start();

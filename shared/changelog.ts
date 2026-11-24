@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.24.0';
+export const APP_VERSION = '2.24.1';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.24.1',
+    date: '2026-11-24',
+    changes: [
+      { category: 'Amélioration', text: 'Ctrl Alt I (Ctrl Option I sur Mac) ouvre l’assistant IA sur une nouvelle conversation.' },
+      { category: 'Amélioration', text: 'Administration → Performance prend en compte la documentation, les tableaux blancs et l’assistant : notes, images, versions, commentaires, tableaux et leurs éléments, images des tableaux, corbeille, index de la recherche sémantique, conversations, et l’édition collaborative en cours (notes et tableaux ouverts, personnes connectées, visiteurs par un lien de partage), aussi dans le graphique temps réel.' },
+    ],
+  },
   {
     version: '2.24.0',
     date: '2026-11-24',

@@ -41,13 +41,16 @@ export interface Bucket {
   lag: number;
   lagMax: number;
   ws: number;
+  /** Maxima : personnes connectées à une note en édition collaborative, à un tableau blanc (absents avant la 2.24.1). */
+  dp?: number;
+  bp?: number;
   /** Requêtes SQL et durée cumulée (ms). */
   dbq: number;
   dbms: number;
 }
 
 function emptyBucket(t: number): Bucket {
-  return { t, n: 0, e4: 0, e5: 0, ms: 0, max: 0, h: new Array<number>(BINS).fill(0), r: {}, cpu: 0, s: 0, rss: 0, heap: 0, lag: 0, lagMax: 0, ws: 0, dbq: 0, dbms: 0 };
+  return { t, n: 0, e4: 0, e5: 0, ms: 0, max: 0, h: new Array<number>(BINS).fill(0), r: {}, cpu: 0, s: 0, rss: 0, heap: 0, lag: 0, lagMax: 0, ws: 0, dp: 0, bp: 0, dbq: 0, dbms: 0 };
 }
 
 function binOf(ms: number): number {
@@ -101,6 +104,8 @@ function mergeInto(target: Bucket, source: Bucket): void {
   target.lag = Math.max(target.lag, source.lag);
   target.lagMax = Math.max(target.lagMax, source.lagMax);
   target.ws = Math.max(target.ws, source.ws);
+  target.dp = Math.max(target.dp ?? 0, source.dp ?? 0);
+  target.bp = Math.max(target.bp ?? 0, source.bp ?? 0);
   target.dbq += source.dbq;
   target.dbms += source.dbms;
 }
@@ -121,6 +126,8 @@ function toPoint(bucket: Bucket): SeriesPoint {
     heapMb: bucket.heap / MB,
     lagMs: bucket.lag,
     wsClients: bucket.ws,
+    docEditors: bucket.dp ?? 0,
+    boardViewers: bucket.bp ?? 0,
     dbQueries: bucket.dbq,
     dbAvgMs: bucket.dbq ? bucket.dbms / bucket.dbq : 0,
   };
@@ -128,6 +135,8 @@ function toPoint(bucket: Bucket): SeriesPoint {
 
 export interface MetricsSources {
   wsClients: () => number;
+  /** Personnes connectées aux notes en édition et aux tableaux blancs ouverts. */
+  collab?: () => { docs: number; boards: number };
 }
 
 export interface MetricsWindow {
@@ -171,6 +180,14 @@ export class Metrics {
     bucket.rss = Math.max(bucket.rss, memory.rss);
     bucket.heap = Math.max(bucket.heap, memory.heapUsed);
     bucket.ws = Math.max(bucket.ws, this.#sources.wsClients());
+    this.#sampleCollab(bucket);
+  }
+
+  #sampleCollab(bucket: Bucket): void {
+    const collab = this.#sources.collab?.();
+    if (!collab) return;
+    bucket.dp = Math.max(bucket.dp ?? 0, collab.docs);
+    bucket.bp = Math.max(bucket.bp ?? 0, collab.boards);
   }
 
   #minute(now = Date.now()): number {
@@ -293,6 +310,7 @@ export class Metrics {
     bucket.lag = Math.max(bucket.lag, Number.isFinite(p99) ? p99 : 0);
     bucket.lagMax = Math.max(bucket.lagMax, Number.isFinite(maxLag) ? maxLag : 0);
     bucket.ws = Math.max(bucket.ws, this.#sources.wsClients());
+    this.#sampleCollab(bucket);
 
     const { queries, totalMs } = this.#db.stats;
     bucket.dbq += queries - this.#lastDb.queries;

@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
+import * as Y from 'yjs';
 import type { LogEntryDTO, MonitoringSnapshotDTO } from '../../shared/monitoring.ts';
+import { bytesToBase64 } from '../../shared/docs.ts';
 import { Db } from '../db/database.ts';
 import { migrate } from '../db/migrations.ts';
 import { Logger, queryLogs } from '../monitoring/logger.ts';
 import { Metrics, percentile } from '../monitoring/metrics.ts';
-import { assessHealth } from '../monitoring/snapshot.ts';
+import { assessHealth, forgetContentCounts } from '../monitoring/snapshot.ts';
 import { bootServer, TestClient } from './helpers.ts';
 
 type Booted = Awaited<ReturnType<typeof bootServer>>;
@@ -94,6 +96,54 @@ describe('supervision : API', () => {
     assert.equal(overview.storage.attachments, 0);
     const socket = await bob.connect();
     assert.equal(((await admin.get('/api/admin/monitoring')).body as MonitoringSnapshotDTO).overview.realtime.clients, 1);
+    socket.close();
+  });
+
+  it('compte la documentation, les tableaux blancs, l’assistant et l’édition collaborative en cours', async () => {
+    await admin.request('PUT', '/api/admin/documentation', { enabled: true });
+    const space = (await bob.post('/api/documentation/spaces', { name: 'Supervision' })).body.space.id as number;
+    const note = (await bob.post(`/api/documentation/spaces/${space}/nodes`, { path: 'Mesures', content: '# Mesures\n\nUn texte.' })).body.node.id as number;
+    await bob.post(`/api/documentation/spaces/${space}/nodes`, { path: 'Brouillon', content: 'À jeter' });
+    const draft = (await bob.get(`/api/documentation/spaces/${space}`)).body.nodes.find((node: { path: string }) => node.path === 'Brouillon.md').id as number;
+    await bob.request('DELETE', `/api/documentation/nodes/${draft}`);
+    const boardSpace = (await bob.post('/api/boards/spaces', { name: 'Supervision' })).body.space.id as number;
+    const shape = (id: string) => ({ id, type: 'shape', shape: 'rect', x: 0, y: 0, w: 10, h: 10, z: 1, text: id, color: 'blue', fill: 'tint', angle: 0 });
+    const board = (await bob.post(`/api/boards/spaces/${boardSpace}/nodes`, { path: 'Schéma', elements: [shape('a'), shape('b')] })).body.node.id as number;
+
+    // Une note et un tableau ouverts en même temps.
+    const socket = await bob.connect();
+    socket.send({ t: 'doc.join', nodeId: note, stateVector: bytesToBase64(Y.encodeStateVector(new Y.Doc())) });
+    await socket.waitFor((message) => message.t === 'doc.sync');
+    socket.send({ t: 'board.join', boardId: board, stateVector: bytesToBase64(Y.encodeStateVector(new Y.Doc())) });
+    await socket.waitFor((message) => message.t === 'board.sync');
+    app.running.ctx.metrics.sample();
+    forgetContentCounts(app.running.ctx);
+
+    const snapshot = (await admin.get('/api/admin/monitoring?range=15m')).body as MonitoringSnapshotDTO;
+    const { overview } = snapshot;
+    const rows = (name: string) => overview.database.tables.find((table) => table.name === name);
+    assert.equal(rows('Notes')?.rows, 1, 'les notes de la corbeille ne comptent pas');
+    assert.equal(rows('Notes')?.group, 'Documentation');
+    assert.equal(rows('Espaces de documentation')?.rows, 1);
+    assert.equal(rows('Tableaux blancs')?.rows, 1);
+    assert.equal(rows('Tableaux blancs')?.group, 'Tableaux blancs');
+    assert.equal(rows('Éléments des tableaux')?.rows, 2);
+    assert.ok(rows('Versions des tableaux')!.rows >= 1);
+    assert.equal(rows('Conversations')?.group, 'Assistant IA');
+    assert.ok(rows('Passages indexés (RAG)'));
+    assert.deepEqual([...new Set(overview.database.tables.map((table) => table.group))], ['Projets et tickets', 'Documentation', 'Tableaux blancs', 'Assistant IA', 'Comptes et système']);
+    assert.equal(overview.storage.docNotes, 1);
+    assert.equal(overview.storage.docTrash, 1);
+    assert.ok(overview.storage.docFilesMb >= 0 && overview.storage.boardAssets === 0 && overview.storage.ragChunks === 0);
+    assert.deepEqual(
+      [overview.realtime.docRooms, overview.realtime.docEditors, overview.realtime.boardRooms, overview.realtime.boardViewers, overview.realtime.boardGuests],
+      [1, 1, 1, 1, 0],
+    );
+    const point = snapshot.series.at(-1)!;
+    assert.equal(point.docEditors, 1, 'courbe des personnes sur une note');
+    assert.equal(point.boardViewers, 1);
+    assert.ok(snapshot.routes.some((route) => route.route === '/api/documentation/spaces/:id/nodes'), 'les routes de la documentation sont mesurées');
+    assert.ok(snapshot.routes.some((route) => route.route === '/api/boards/spaces/:id/nodes'), 'celles des tableaux aussi');
     socket.close();
   });
 
@@ -188,7 +238,7 @@ describe('supervision : composants', () => {
   it("garde les indicateurs d'une minute et les retrouve après un redémarrage", () => {
     const db = new Db(':memory:');
     migrate(db);
-    const first = new Metrics(db, { wsClients: () => 2 });
+    const first = new Metrics(db, { wsClients: () => 2, collab: () => ({ docs: 3, boards: 1 }) });
     first.record('GET', '/api/x', 200, 12);
     first.record('GET', '/api/x', 500, 300);
     first.sample();
@@ -202,6 +252,8 @@ describe('supervision : composants', () => {
     assert.equal(routes[0]!.count, 3);
     assert.equal(routes[0]!.errors, 1);
     assert.equal(series.at(-1)!.wsClients, 2);
+    assert.equal(series.at(-1)!.docEditors, 3, 'personnes sur une note, gardées aussi');
+    assert.equal(series.at(-1)!.boardViewers, 1);
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM metrics_minutes')?.n, 1);
     db.close();
   });

@@ -365,10 +365,19 @@ onBeforeUnmount(() => (resizing.value = false));
 /**
  * Ctrl I (Cmd I sur Mac), de partout : ouvre le panneau, ou ramène au champ de saisie s'il est déjà ouvert, ou le
  * referme depuis le panneau. Un éditeur qui s'en sert pour l'italique (note, description) garde la main.
+ * Ctrl Alt I (Ctrl Option I sur Mac, Cmd Option I y ouvrant les outils de développement) : une nouvelle conversation.
  */
 function onShortcut(event: KeyboardEvent): void {
-  if (page.value || event.defaultPrevented || event.altKey || event.shiftKey || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'i') return;
+  // Avec Alt (Option), `key` peut devenir un autre caractère : la touche physique fait foi.
+  const isI = event.code === 'KeyI' || event.key.toLowerCase() === 'i';
+  if (page.value || event.defaultPrevented || event.shiftKey || !(event.ctrlKey || event.metaKey) || !isI) return;
   event.preventDefault();
+  if (event.altKey) {
+    newConversation();
+    ai.toggle(true);
+    void nextTick(() => field.value?.focus());
+    return;
+  }
   const inside = Boolean((document.activeElement as HTMLElement | null)?.closest('.ai-panel'));
   if (!ai.open) ai.toggle(true);
   else if (inside) ai.toggle(false);

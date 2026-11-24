@@ -183,7 +183,12 @@ const dbOptions = {
 
 const realtimeData = computed(() => ({
   labels: labels.value,
-  datasets: [line(t('Connexions WebSocket'), points.value.map((p) => p.wsClients), GREEN, { stepped: true, tension: 0 })],
+  datasets: [
+    line(t('Connexions WebSocket'), points.value.map((p) => p.wsClients), GREEN, { stepped: true, tension: 0 }),
+    // Édition collaborative (2.24.1) : personnes sur une note, sur un tableau blanc.
+    line(t('Personnes sur une note'), points.value.map((p) => p.docEditors ?? 0), SKY, { stepped: true, tension: 0 }),
+    line(t('Personnes sur un tableau blanc'), points.value.map((p) => p.boardViewers ?? 0), AMBER, { stepped: true, tension: 0 }),
+  ],
 }));
 const realtimeOptions = { scales: { ...baseScales, y: { beginAtZero: true, ticks: { precision: 0 } } } };
 
@@ -205,6 +210,13 @@ const METHOD_SEVERITY: Record<string, 'success' | 'info' | 'warn' | 'danger' | '
 const slowTone = (ms: number): string => (ms >= 1000 ? 'bad' : ms >= 300 ? 'warn' : '');
 
 const tables = computed(() => overview.value?.database.tables ?? []);
+/** « Contenu » par rubrique : projets et tickets, documentation, tableaux blancs, assistant IA, comptes et système. */
+const tableGroups = computed(() => {
+  const groups = new Map<string, typeof tables.value>();
+  for (const table of tables.value) groups.set(table.group, [...(groups.get(table.group) ?? []), table]);
+  return [...groups].map(([name, rows]) => ({ name, rows }));
+});
+const collaborating = computed(() => (overview.value ? overview.value.realtime.docEditors + overview.value.realtime.boardViewers : 0));
 const memoryRatio = computed(() => {
   const system = overview.value?.system;
   return system ? Math.round(((system.totalMemMb - system.freeMemMb) / system.totalMemMb) * 100) : 0;
@@ -247,6 +259,12 @@ const memoryRatio = computed(() => {
         <MetricTile :label="$t('Processeur')" icon="pi pi-microchip" :value="`${formatNumber(overview.process.cpuPercent, 1)} %`" :hint="$t('{cpuCount} cœurs', { cpuCount: overview.cpuCount })" />
         <MetricTile :label="$t('Boucle d\'évènements')" icon="pi pi-sync" :value="formatMs(overview.process.lagMs)" :hint="$t('retard p99 (5 dernières s)')" :tone="lagTone" />
         <MetricTile :label="$t('Temps réel')" icon="pi pi-bolt" :value="`${overview.realtime.clients}`" :hint="$t('{n} personne en ligne|{n} personnes en ligne', { n: overview.realtime.usersOnline })" />
+        <MetricTile
+          :label="$t('Édition collaborative')"
+          icon="pi pi-users"
+          :value="`${collaborating}`"
+          :hint="$t('{notes} note(s) et {boards} tableau(x) ouverts', { notes: overview.realtime.docRooms, boards: overview.realtime.boardRooms })"
+        />
         <MetricTile :label="$t('Disponibilité')" icon="pi pi-clock" :value="formatUptime(overview.uptimeSeconds)" :hint="$t('depuis le {value}', { value: formatDateTime(overview.startedAt) })" />
       </div>
 
@@ -311,9 +329,29 @@ const memoryRatio = computed(() => {
         </section>
 
         <section class="card block">
+          <h2 class="block-title">{{ $t('Documentation et tableaux blancs') }}</h2>
+          <dl class="kv">
+            <div><dt>{{ $t('Fichiers de la documentation') }}</dt><dd>{{ $t('{notes} notes · {images} images · {value}', { notes: formatNumber(overview.storage.docNotes), images: formatNumber(overview.storage.docImages), value: formatMb(overview.storage.docFilesMb) }) }}</dd></div>
+            <div><dt>{{ $t('Corbeille de la documentation') }}</dt><dd>{{ $t('{n} fichier · {value}|{n} fichiers · {value}', { n: overview.storage.docTrash, value: formatMb(overview.storage.docTrashMb) }) }}</dd></div>
+            <div><dt>{{ $t('Images des tableaux blancs') }}</dt><dd>{{ $t('{n} fichier · {value}|{n} fichiers · {value}', { n: overview.storage.boardAssets, value: formatMb(overview.storage.boardAssetsMb) }) }}</dd></div>
+            <div><dt>{{ $t('Index de la recherche sémantique') }}</dt><dd>{{ $t('{n} passage · {value}|{n} passages · {value}', { n: overview.storage.ragChunks, value: formatMb(overview.storage.ragMb) }) }}</dd></div>
+            <div><dt>{{ $t('Notes en cours d’édition') }}</dt><dd>{{ $t('{rooms} ouverte(s) · {n} personne(s)', { rooms: overview.realtime.docRooms, n: overview.realtime.docEditors }) }}</dd></div>
+            <div>
+              <dt>{{ $t('Tableaux blancs ouverts') }}</dt>
+              <dd>
+                {{ $t('{rooms} ouvert(s) · {n} personne(s)', { rooms: overview.realtime.boardRooms, n: overview.realtime.boardViewers }) }}<template v-if="overview.realtime.boardGuests"> · {{ $t('dont {n} par un lien de partage', { n: overview.realtime.boardGuests }) }}</template>
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="card block">
           <h2 class="block-title">{{ $t('Contenu') }}</h2>
           <dl class="kv">
-            <div v-for="table in tables" :key="table.name"><dt>{{ $t(table.name) }}</dt><dd>{{ formatNumber(table.rows) }}</dd></div>
+            <template v-for="group in tableGroups" :key="group.name">
+              <div class="kv-group"><dt>{{ $t(group.name) }}</dt></div>
+              <div v-for="table in group.rows" :key="table.name"><dt>{{ $t(table.name) }}</dt><dd>{{ formatNumber(table.rows) }}</dd></div>
+            </template>
           </dl>
         </section>
       </div>
@@ -462,6 +500,17 @@ const memoryRatio = computed(() => {
 }
 .kv dt {
   color: var(--fb-muted);
+}
+.kv > .kv-group {
+  padding-top: 0.5rem;
+  border-bottom: 0;
+}
+.kv > .kv-group dt {
+  color: var(--fb-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 .kv dd {
   margin: 0;

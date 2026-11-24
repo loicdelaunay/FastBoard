@@ -71,6 +71,9 @@ export interface SeriesPoint {
   /** Retard de la boucle d'évènements (p99, ms) : un serveur saturé répond avec retard. */
   lagMs: number;
   wsClients: number;
+  /** Personnes connectées à une note en édition collaborative, à un tableau blanc ouvert (maximum sur la période). */
+  docEditors: number;
+  boardViewers: number;
   dbQueries: number;
   dbAvgMs: number;
 }
@@ -104,6 +107,8 @@ export interface MonitoringSummaryDTO {
 export interface TableCountDTO {
   name: string;
   rows: number;
+  /** Rubrique : projets et tickets, documentation, tableaux blancs, assistant IA, comptes et système. */
+  group: string;
 }
 
 export interface MonitoringOverviewDTO {
@@ -115,7 +120,19 @@ export interface MonitoringOverviewDTO {
   cpuCount: number;
   process: { rssMb: number; heapUsedMb: number; heapTotalMb: number; externalMb: number; cpuPercent: number; lagMs: number };
   system: { totalMemMb: number; freeMemMb: number; loadAverage: number[] };
-  realtime: { clients: number; usersOnline: number; messagesIn: number; messagesOut: number };
+  realtime: {
+    clients: number;
+    usersOnline: number;
+    messagesIn: number;
+    messagesOut: number;
+    /** Notes ouvertes en édition collaborative, et personnes connectées à l'une d'elles. */
+    docRooms: number;
+    docEditors: number;
+    /** Tableaux blancs ouverts, personnes connectées, dont visiteurs venus par un lien de partage. */
+    boardRooms: number;
+    boardViewers: number;
+    boardGuests: number;
+  };
   database: {
     fileMb: number;
     walMb: number;
@@ -124,7 +141,22 @@ export interface MonitoringOverviewDTO {
     slowQueries: number;
     tables: TableCountDTO[];
   };
-  storage: { attachments: number; attachmentsMb: number };
+  storage: {
+    attachments: number;
+    attachmentsMb: number;
+    /** Fichiers de la documentation (notes, images) hors corbeille, leur taille, et ce qui attend dans la corbeille. */
+    docNotes: number;
+    docImages: number;
+    docFilesMb: number;
+    docTrash: number;
+    docTrashMb: number;
+    /** Images et fichiers posés sur les tableaux blancs. */
+    boardAssets: number;
+    boardAssetsMb: number;
+    /** Index de la recherche sémantique (vecteurs). */
+    ragChunks: number;
+    ragMb: number;
+  };
   logs: { errors24h: number; warnings24h: number };
 }
 

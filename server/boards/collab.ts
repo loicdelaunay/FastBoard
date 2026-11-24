@@ -31,6 +31,13 @@ const SAVE_DELAY_MS = 1_000;
 const SAVE_MAX_DELAY_MS = 5_000;
 
 export class BoardRooms {
+  /** Supervision : tableaux ouverts, personnes connectées à l'un d'eux, et visiteurs venus par un lien de partage. */
+  stats(): { rooms: number; peers: number; guests: number } {
+    const peers = new Set<DocPeer>();
+    for (const room of this.#rooms.values()) for (const peer of room.peers.keys()) peers.add(peer);
+    return { rooms: this.#rooms.size, peers: peers.size, guests: [...peers].filter((peer) => peer.guest || this.#shares.has(peer)).length };
+  }
+
   readonly #ctx: AppContext;
   readonly #rooms = new Map<number, Room>();
   readonly #watchers = new Map<number, Set<DocPeer>>();

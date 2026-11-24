@@ -63,6 +63,13 @@ function applyTextDiff(doc: Y.Doc, text: Y.Text, next: string, origin: unknown):
 }
 
 export class DocRooms {
+  /** Supervision : notes ouvertes en édition collaborative et personnes connectées à l'une d'elles. */
+  stats(): { rooms: number; peers: number } {
+    const peers = new Set<DocPeer>();
+    for (const room of this.#rooms.values()) for (const peer of room.peers.keys()) peers.add(peer);
+    return { rooms: this.#rooms.size, peers: peers.size };
+  }
+
   readonly #ctx: AppContext;
   readonly #rooms = new Map<number, Room>();
   /** Connexions qui regardent l'arbre d'un espace. */

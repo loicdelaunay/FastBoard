@@ -12,9 +12,9 @@ const ai = useAiStore();
     class="ai-button"
     :class="{ open: ai.open, busy: ai.busy, labelled: label }"
     :aria-label="$t('Assistant IA')"
-    aria-keyshortcuts="Control+I"
+    aria-keyshortcuts="Control+I Control+Alt+I"
     :aria-expanded="ai.open"
-    v-tooltip.right="label ? $t('Ctrl I') : $t('Assistant IA (Ctrl I)')"
+    v-tooltip.right="label ? $t('Ctrl I · nouvelle conversation : Ctrl Alt I') : $t('Assistant IA (Ctrl I · nouvelle conversation : Ctrl Alt I)')"
     @click="ai.toggle()"
   >
     <span class="orb">
