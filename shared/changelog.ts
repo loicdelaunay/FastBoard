@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.23.0';
+export const APP_VERSION = '2.23.1';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,11 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.23.1',
+    date: '2026-11-24',
+    changes: [{ category: 'Amélioration', text: 'Ctrl I (Cmd I sur Mac) ouvre l’assistant IA de n’importe où, ramène au champ de saisie s’il est déjà ouvert, et le referme depuis le panneau. Dans l’éditeur d’une note ou d’une description, Ctrl I reste l’italique.' }],
+  },
   {
     version: '2.23.0',
     date: '2026-11-24',

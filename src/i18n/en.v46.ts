@@ -122,4 +122,9 @@ export const enV46: Record<string, string> = {
     'the tickets of this project (title, description, progress, comments)',
   'Recherche sémantique (RAG) pour l’assistant IA : dans Administration → IA, on branche un modèle d’embeddings compatible OpenAI (Ollama, LM Studio…) avec le bon format pour EmbeddingGemma, Nomic Embed ou Qwen3 Embedding, un bouton « Tester » et une réindexation automatique toutes les X heures ou jours. Chaque projet, espace de documentation et espace de tableaux l’active dans ses réglages (désactivé par défaut) ; l’assistant y cherche alors par le sens, dans les seuls projets et espaces de la personne qui pose la question, et cite les passages trouvés.':
     'Semantic search (RAG) for the AI assistant: in Administration → AI, you connect an OpenAI-compatible embedding model (Ollama, LM Studio…) with the right format for EmbeddingGemma, Nomic Embed or Qwen3 Embedding, a “Test” button and automatic reindexing every X hours or days. Each project, documentation space and whiteboard space turns it on in its settings (off by default); the assistant then searches them by meaning, only in the projects and spaces of the person asking, and cites the passages it finds.',
+  // 2.23.1 — Ctrl I ouvre l’assistant.
+  'Ctrl I': 'Ctrl I',
+  'Assistant IA (Ctrl I)': 'AI assistant (Ctrl I)',
+  'Ctrl I (Cmd I sur Mac) ouvre l’assistant IA de n’importe où, ramène au champ de saisie s’il est déjà ouvert, et le referme depuis le panneau. Dans l’éditeur d’une note ou d’une description, Ctrl I reste l’italique.':
+    'Ctrl I (Cmd I on Mac) opens the AI assistant from anywhere, brings you back to its input if it is already open, and closes it from the panel. In the editor of a note or a description, Ctrl I stays italic.',
 };

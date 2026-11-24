@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router';
 import Button from 'primevue/button';
 import Popover from 'primevue/popover';
@@ -361,6 +361,21 @@ function resizeWithKeys(event: KeyboardEvent): void {
   else if (event.key === 'ArrowRight') ai.setWidth(ai.width - 32);
 }
 onBeforeUnmount(() => (resizing.value = false));
+
+/**
+ * Ctrl I (Cmd I sur Mac), de partout : ouvre le panneau, ou ramène au champ de saisie s'il est déjà ouvert, ou le
+ * referme depuis le panneau. Un éditeur qui s'en sert pour l'italique (note, description) garde la main.
+ */
+function onShortcut(event: KeyboardEvent): void {
+  if (page.value || event.defaultPrevented || event.altKey || event.shiftKey || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'i') return;
+  event.preventDefault();
+  const inside = Boolean((document.activeElement as HTMLElement | null)?.closest('.ai-panel'));
+  if (!ai.open) ai.toggle(true);
+  else if (inside) ai.toggle(false);
+  else void nextTick(() => field.value?.focus());
+}
+onMounted(() => window.addEventListener('keydown', onShortcut));
+onBeforeUnmount(() => window.removeEventListener('keydown', onShortcut));
 </script>
 
 <template>
