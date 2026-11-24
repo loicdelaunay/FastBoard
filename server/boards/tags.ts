@@ -5,7 +5,8 @@ import { badRequest, conflict, notFound } from '../http/errors.ts';
 import type { AuthUser } from '../services/access.ts';
 import { foldText } from '../services/tickets.ts';
 import { boardsEnabled, listBoardSpaces, readBoardElements, type BoardNodeRow } from './store.ts';
-import { boardVersionById, currentBoardVersion, setBoardVersionTag } from './versions.ts';
+import { freezeBoardFiles, thawBoardFiles } from './assets.ts';
+import { boardVersionById, currentBoardVersion, readBoardVersion, setBoardVersionTag } from './versions.ts';
 
 /**
  * Étiquettes des versions d'un tableau blanc : comme pour les notes, une version nommée reste dans l'historique, se cite
@@ -18,10 +19,13 @@ export function tagBoardVersion(ctx: AppContext, actor: Actor, node: BoardNodeRo
   if (id === null) {
     const elements = readBoardElements(ctx, node);
     id = currentBoardVersion(ctx.db, node.id, JSON.stringify(elements), elements.length, actor.userId);
-  } else if (!boardVersionById(ctx.db, node.id, id)) {
-    throw notFound('Version introuvable.');
   }
+  const before = boardVersionById(ctx.db, node.id, id);
+  if (!before) throw notFound('Version introuvable.');
   if (!setBoardVersionTag(ctx.db, node.id, id, name, actor.userId)) throw conflict('Une autre version porte déjà cette étiquette.');
+  // Une version qui reçoit une étiquette fige ses images et ses icônes ajoutées ; sans étiquette, elle les rend.
+  if (name !== null && before.tag === null) freezeBoardFiles(ctx, id, readBoardVersion(ctx.db, node.id, id)?.elements ?? []);
+  else if (name === null && before.tag !== null) thawBoardFiles(ctx, id);
   ctx.logger.info('boards', name ? `Version étiquetée « ${name} » : ${node.path}` : `Étiquette retirée : ${node.path}`, { boardId: node.id, versionId: id }, actor.userId);
   return boardVersionById(ctx.db, node.id, id)!;
 }

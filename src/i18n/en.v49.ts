@@ -52,8 +52,8 @@ export const enV49: Record<string, string> = {
     'Version tagged “{name}”',
   'Version étiquetée : jamais effacée de l’historique':
     'Tagged version: never erased from the history',
-  'Elle reste dans l’historique et se cite avec @.':
-    'It stays in the history and can be cited with @.',
+  'Elle reste dans l’historique avec ses images, et se cite avec @.':
+    'It stays in the history with its images, and can be cited with @.',
   'Étiquette non enregistrée':
     'Tag not saved',
   'Étiquette retirée':
@@ -62,15 +62,15 @@ export const enV49: Record<string, string> = {
     'Tag not removed',
   'Cette version suit de nouveau la durée de conservation de l’historique.':
     'This version follows the history retention period again.',
-  'Une version étiquetée n’est jamais effacée de l’historique. Citez-la avec @ (son nom ou celui de la note) : le lien l’ouvre telle qu’elle était, en lecture seule.':
-    'A tagged version is never erased from the history. Cite it with @ (its name or the note’s): the link opens it as it was, read-only.',
+  'Une version étiquetée n’est jamais effacée de l’historique, et ses images sont figées avec elle. Citez-la avec @ (son nom ou celui de la note) : le lien l’ouvre telle qu’elle était, en lecture seule.':
+    'A tagged version is never erased from the history, and its images are frozen with it. Cite it with @ (its name or the note’s): the link opens it as it was, read-only.',
   // Mode Historique des tableaux blancs.
   'Lecture seule : copiez cette version pour la modifier, ou repartez de la dernière version.':
     'Read-only: copy this version to edit it, or start again from the latest version.',
   'Elle a peut-être quitté l’historique : voici la plus récente.':
     'It may have left the history: here is the most recent one.',
-  'Une version étiquetée n’est jamais effacée de l’historique. Citez-la avec @ (son nom ou celui du tableau) : le lien l’ouvre ici, telle qu’elle était.':
-    'A tagged version is never erased from the history. Cite it with @ (its name or the board’s): the link opens it here, as it was.',
+  'Une version étiquetée n’est jamais effacée de l’historique, et ses images et icônes ajoutées sont figées avec elle. Citez-la avec @ (son nom ou celui du tableau) : le lien l’ouvre ici, telle qu’elle était.':
+    'A tagged version is never erased from the history, and its images and added icons are frozen with it. Cite it with @ (its name or the board’s): the link opens it here, as it was.',
   // Journal des modifications.
   'Étiquettes de versions : donnez un nom (« v1.0 », « Validé client »…) à une version d’une note ou d’un tableau blanc. Une version étiquetée n’est jamais supprimée de l’historique, et se cite avec @ : le lien ouvre cette version précise, et l’aperçu d’un tableau cité la dessine.':
     'Version tags: give a name (“v1.0”, “Client approved”…) to a version of a note or whiteboard. A tagged version is never deleted from the history, and can be cited with @: the link opens that exact version, and the preview of a cited board draws it.',

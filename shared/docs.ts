@@ -158,6 +158,13 @@ export interface DocMemberDTO {
   role: DocRole;
 }
 
+/** Image figée avec une version étiquetée : son chemin dans l'espace au moment de l'étiquette, et l'adresse de sa copie. */
+export interface DocVersionFileDTO {
+  id: number;
+  path: string;
+  url: string;
+}
+
 export type DocVersionOrigin = 'create' | 'edit' | 'api' | 'import' | 'restore' | 'delete' | 'ai';
 
 export interface DocVersionDTO {

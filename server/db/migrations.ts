@@ -902,6 +902,34 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
     `);
     grantSystemRoles(db, 'global', { admin: ['groups.create', 'groups.manage'], member: ['groups.create'] });
   },
+  // 33 — Pièces jointes figées des versions étiquetées : une copie (par empreinte, dans uploads/frozen) des images d'une
+  // note et des images et icônes ajoutées d'un tableau, gardée tant qu'une version étiquetée les montre. « IF NOT EXISTS » :
+  // une version de développement les avait créées sous le numéro 32 (voir `repairSkippedGroups`).
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS frozen_files (
+        hash       TEXT PRIMARY KEY,
+        mime       TEXT NOT NULL,
+        size       INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS doc_version_files (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        version_id INTEGER NOT NULL REFERENCES doc_versions(id) ON DELETE CASCADE,
+        path       TEXT NOT NULL,
+        hash       TEXT NOT NULL REFERENCES frozen_files(hash),
+        UNIQUE (version_id, path)
+      );
+      CREATE TABLE IF NOT EXISTS board_version_files (
+        version_id INTEGER NOT NULL REFERENCES board_versions(id) ON DELETE CASCADE,
+        ref        TEXT NOT NULL,
+        name       TEXT NOT NULL DEFAULT '',
+        hash       TEXT NOT NULL REFERENCES frozen_files(hash),
+        PRIMARY KEY (version_id, ref)
+      );
+      CREATE INDEX IF NOT EXISTS idx_board_version_files_ref ON board_version_files (ref);
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */
@@ -920,9 +948,21 @@ function grantSystemRoles(db: Db, scope: 'global' | 'project', grants: Record<st
 }
 
 /** Applique les migrations en attente (jusqu'à `target` : utile pour tester une migration isolément). */
+/**
+ * Réparation. Une version de développement (les pièces jointes figées, jamais publiée sous ce numéro) a donné le numéro 32
+ * à sa migration, quand la 2.27.0 publiée l'a donné aux groupes de personnes. Une base passée par elle est en version 32
+ * (ou plus) sans les groupes, et la 2.27.0 ne les créait donc jamais (« no such table: doc_access »). On les crée ici,
+ * une fois ; la migration 33 accepte que ses tables existent déjà.
+ */
+function repairSkippedGroups(db: Db, current: number): void {
+  if (current < 32 || db.get('SELECT 1 AS found FROM sqlite_master WHERE type = ? AND name = ?', 'table', 'user_groups')) return;
+  db.transaction(() => MIGRATIONS[31]!(db));
+}
+
 export function migrate(db: Db, target = MIGRATIONS.length): void {
   const row = db.get<{ user_version: number }>('PRAGMA user_version');
   const current = row?.user_version ?? 0;
+  repairSkippedGroups(db, current);
   for (let version = current; version < Math.min(target, MIGRATIONS.length); version++) {
     db.transaction(() => {
       MIGRATIONS[version]!(db);

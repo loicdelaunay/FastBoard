@@ -3,14 +3,14 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import ContextMenu from 'primevue/contextmenu';
 import type { MenuItem } from 'primevue/menuitem';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
-import type { DocNodeDTO } from '@shared/docs';
+import type { DocNodeDTO, DocVersionFileDTO } from '@shared/docs';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import MarkdownView from '@/components/common/MarkdownView.vue';
 import CodeLanguagePicker from '@/components/docs/CodeLanguagePicker.vue';
 import { useDocLinks } from '@/composables/useDocLinks';
 import { openLightbox, zoomImageOnClick } from '@/utils/lightbox';
-import { docImageIdOf, replaceDocImage } from '@/utils/replaceImage';
+import { docImageIdOf, docImageUrl, replaceDocImage } from '@/utils/replaceImage';
 import { copyText, docResolver, finishDocHtml, hydrateEmbeds, pendingAnchor, prepareDocText, scrollToHeading, selectionQuote } from '@/utils/docRender';
 
 import { t } from '@/i18n';
@@ -28,6 +28,8 @@ const props = defineProps<{
   editable?: boolean;
   /** On peut écrire dans la note : la pastille d'un bloc de code en change le langage. */
   writable?: boolean;
+  /** Version étiquetée : ses images figées, montrées à la place de celles de l'espace (même remplacées ou supprimées). */
+  frozenFiles?: DocVersionFileDTO[];
 }>();
 const emit = defineEmits<{
   open: [node: DocNodeDTO, newTab?: boolean];
@@ -55,7 +57,21 @@ watch(
 );
 onBeforeUnmount(() => window.clearTimeout(timer));
 
-const context = computed(() => ({ nodes: props.nodes, notePath: props.notePath, users: props.users, obsidian: props.obsidian }));
+const context = computed(() => {
+  const base = { nodes: props.nodes, notePath: props.notePath, users: props.users, obsidian: props.obsidian };
+  const frozen = props.frozenFiles ?? [];
+  if (!frozen.length) return base;
+  // Les images figées prennent la place de celles de l'espace au même chemin ; celles qui ont disparu y reviennent.
+  const paths = new Set(frozen.map((file) => file.path.toLowerCase()));
+  const urls = new Map(frozen.map((file, index) => [-(index + 1), file.url]));
+  const copies = frozen.map((file, index): DocNodeDTO => ({ id: -(index + 1), spaceId: 0, path: file.path, kind: 'image', size: 0, updatedAt: '', updatedBy: null, deletedAt: null, memo: '', icon: null, color: null }));
+  const nodes = [...props.nodes.filter((node) => !(node.kind === 'image' && paths.has(node.path.toLowerCase()))), ...copies];
+  const fileUrl = (id: number): string => {
+    const live = props.nodes.find((node) => node.id === id);
+    return urls.get(id) ?? (live ? docImageUrl(live) : '');
+  };
+  return { ...base, nodes, fileUrl };
+});
 const resolver = computed(() => docResolver(props.users));
 const prepare = (text: string): string => prepareDocText(text, props.obsidian);
 const finish = (html: string): string => finishDocHtml(html, context.value, (props.comments ?? []).filter((comment) => comment.quote && !comment.resolvedAt));

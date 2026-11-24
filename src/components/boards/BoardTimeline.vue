@@ -178,7 +178,7 @@ async function saveTag(): Promise<void> {
     // L'arrêt « Maintenant » n'est pas encore une version : le serveur la crée.
     const { version } = entry.id !== null && entry.tag ? await api.boardSetVersionTag(props.boardId, entry.id, name) : await api.boardTagVersion(props.boardId, name, entry.id);
     tagOpen.value = false;
-    notify('success', t('Version étiquetée « {name} »', { name }), t('Elle reste dans l’historique et se cite avec @.'));
+    notify('success', t('Version étiquetée « {name} »', { name }), t('Elle reste dans l’historique avec ses images, et se cite avec @.'));
     await load(version.id);
   } catch (error) {
     notifyError(error, t('Étiquette non enregistrée'));
@@ -328,7 +328,7 @@ async function fork(): Promise<void> {
       <form class="field" @submit.prevent="saveTag">
         <label for="board-tag-name">{{ $t('Nom de l’étiquette') }}</label>
         <InputText id="board-tag-name" v-model="tagName" :maxlength="VERSION_TAG_LIMITS.nameMax" :placeholder="$t('v1.0, Validé client…')" autofocus fluid />
-        <small class="muted">{{ $t('Une version étiquetée n’est jamais effacée de l’historique. Citez-la avec @ (son nom ou celui du tableau) : le lien l’ouvre ici, telle qu’elle était.') }}</small>
+        <small class="muted">{{ $t('Une version étiquetée n’est jamais effacée de l’historique, et ses images et icônes ajoutées sont figées avec elle. Citez-la avec @ (son nom ou celui du tableau) : le lien l’ouvre ici, telle qu’elle était.') }}</small>
       </form>
       <template #footer>
         <Button :label="$t('Annuler')" severity="secondary" text @click="tagOpen = false" />

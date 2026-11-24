@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.28.0';
+export const APP_VERSION = '2.29.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.29.0',
+    date: '2026-11-26',
+    changes: [
+      { category: 'Correction', text: 'Mise à jour de la base : une base passée par la version de développement des pièces jointes figées sautait la création des groupes de personnes (« no such table: doc_access ») ; elle est réparée au démarrage.' },
+      { category: 'Amélioration', text: 'Étiquettes de versions : les pièces jointes sont figées avec la version. Une note étiquetée garde ses images telles qu’elles étaient (même remplacées ou supprimées depuis, et pour une ancienne version, celles d’alors) ; un tableau étiqueté garde ses images et ses icônes ajoutées. Copier ou restaurer la version les remet dans l’espace, et les liens suivent.' },
+    ],
+  },
   {
     version: '2.28.0',
     date: '2026-11-25',
