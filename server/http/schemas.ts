@@ -700,6 +700,20 @@ export const notificationSettingSchema = z.object({
 });
 
 export const appNameSchema = z.object({ name: z.string().trim().min(1).max(40).describe("Nom affiché de l'application.") });
+
+const appIconData = z.string().max(1_500_000).regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/, 'Icône invalide (PNG en base64).');
+/** Icônes de l'application installée (PWA) tirées du logo, dessinées par le navigateur de l'administrateur. */
+export const appIconsSchema = z.object({
+  icons: z
+    .object({
+      'icon-192': appIconData.describe('192 × 192, logo sur fond transparent.'),
+      'icon-512': appIconData.describe('512 × 512, logo sur fond transparent.'),
+      'maskable-192': appIconData.describe('192 × 192, fond plein, logo dans la zone sûre (80 % au centre).'),
+      'maskable-512': appIconData.describe('512 × 512, fond plein, logo dans la zone sûre.'),
+      'apple-touch-icon': appIconData.describe('180 × 180, fond plein (iPhone, iPad).'),
+    })
+    .strict(),
+});
 export const maintenanceSchema = z.object({
   enabled: z.boolean(),
   level: z.enum(['info', 'warning', 'danger']).describe('`info` : information ; `warning` : perturbations ; `danger` : interruption.'),

@@ -6,6 +6,7 @@ import { currentUser, sessionOnly } from '../http/middleware.ts';
 import {
   aiProbeSchema,
   aiSettingsSchema,
+  appIconsSchema,
   appNameSchema,
   backupConfigSchema,
   maintenanceSchema,
@@ -34,7 +35,7 @@ import { AI_LIMITS, parseModelRef } from '../../shared/ai.ts';
 import { aiSettingsDTO, detectModels, keyForTest, saveAiSettings } from '../ai/settings.ts';
 import { testAiConnection } from '../ai/agent.ts';
 import { appInfo } from '../services/appSettings.ts';
-import { getMaintenance, setAppLogo, setAppName, setMaintenance } from '../services/appSettings.ts';
+import { APP_ICON_SIZES, getBranding, getMaintenance, setAppIcons, setAppLogo, setAppName, setMaintenance, type AppIconName } from '../services/appSettings.ts';
 import { sniffImageMime } from '../../shared/attachments.ts';
 import { LDAP_DEFAULTS } from '../../shared/ldap.ts';
 import { badRequest, HttpError } from '../http/errors.ts';
@@ -294,6 +295,23 @@ export function adminRouter(ctx: AppContext): Router {
     }
     audit(res, "Logo de l'application modifié");
     res.json(setAppLogo(ctx, { mime, data: body }));
+  });
+
+  /** Icônes de l'application installée, tirées du logo (le serveur ne dessine pas : le navigateur les envoie). */
+  router.put('/admin/app/icons', (req, res) => {
+    requireGlobal(currentUser(res), 'settings.manage');
+    if (!getBranding(ctx.db).logo) throw badRequest('Ajoutez d’abord un logo : les icônes en sont tirées.');
+    const { icons } = parse(appIconsSchema, req.body);
+    const decoded = {} as Record<AppIconName, Buffer>;
+    for (const [name, size] of Object.entries(APP_ICON_SIZES) as Array<[AppIconName, number]>) {
+      const data = Buffer.from(icons[name].slice('data:image/png;base64,'.length), 'base64');
+      // Une vraie image PNG, à la bonne taille (largeur et hauteur de son en-tête IHDR).
+      const png = data.length > 24 && data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      if (!png || data.readUInt32BE(16) !== size || data.readUInt32BE(20) !== size) throw badRequest(`Icône « ${name} » invalide : PNG de ${size} × ${size} attendu.`);
+      decoded[name] = data;
+    }
+    audit(res, "Icônes de l'application installée tirées du logo");
+    res.json(setAppIcons(ctx, decoded));
   });
 
   router.delete('/admin/app/logo', (_req, res) => {

@@ -7,11 +7,14 @@ import { APP_VERSION } from '@shared/changelog';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import AiButton from '@/components/ai/AiButton.vue';
 import ChangelogDialog from './ChangelogDialog.vue';
+import InstallAppDialog from './InstallAppDialog.vue';
 import ConnectionBadge from './ConnectionBadge.vue';
 import NotificationBell from './NotificationBell.vue';
 import { useAppStore } from '@/stores/app';
 import { useAuthStore } from '@/stores/auth';
 import { useUiStore } from '@/stores/ui';
+import { promptInstall, pwa } from '@/pwa/install';
+import { notify } from '@/utils/notify';
 
 import { t } from '@/i18n';
 /**
@@ -47,6 +50,15 @@ const changelogOpen = ref(false);
 const menu = ref<InstanceType<typeof Menu> | null>(null);
 const showAi = computed(() => app.info.ai && auth.can('ai.use') && route.name !== 'assistant');
 
+const installOpen = ref(false);
+async function install(): Promise<void> {
+  if (pwa.canPrompt) {
+    if (await promptInstall()) notify('success', t('Application installée'), t('Retrouvez-la sur votre bureau, votre écran d’accueil ou dans vos applications.'));
+  } else {
+    installOpen.value = true;
+  }
+}
+
 const accountItems = computed<MenuItem[]>(() => [
   { label: auth.user?.email ?? '', disabled: true, class: 'menu-email' },
   { separator: true },
@@ -57,6 +69,8 @@ const accountItems = computed<MenuItem[]>(() => [
   { label: t('Jetons d\'API'), icon: 'pi pi-key', command: () => ui.openProfile('tokens') },
   { separator: true },
   { label: t('Nouveautés de la version {version}', { version: APP_VERSION }), icon: 'pi pi-sparkles', command: () => (changelogOpen.value = true) },
+  // L'application installée s'ouvre dans sa propre fenêtre ; proposé tant qu'elle ne l'est pas et que le navigateur le permet.
+  ...(!pwa.installed && (pwa.canPrompt || pwa.manual) ? [{ label: t('Installer l’application'), icon: 'pi pi-download', command: () => void install() }] : []),
   {
     label: t('Se déconnecter'),
     icon: 'pi pi-sign-out',
@@ -119,6 +133,7 @@ const accountItems = computed<MenuItem[]>(() => [
     </button>
     <Menu ref="menu" :model="accountItems" popup />
     <ChangelogDialog v-model:visible="changelogOpen" />
+    <InstallAppDialog v-model:visible="installOpen" />
   </aside>
 </template>
 

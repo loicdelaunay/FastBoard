@@ -138,6 +138,42 @@ export function pickImage(accept = 'image/png,image/jpeg,image/webp,image/gif'):
   });
 }
 
+/**
+ * Icônes de l'application installée (PWA) tirées d'un logo, en PNG : `icon-*` le logo seul (fond transparent),
+ * `maskable-*` et `apple-touch-icon` sur fond blanc plein, logo dans la zone que le système ne rogne jamais.
+ */
+export async function appIconsFrom(source: Blob): Promise<Record<string, string>> {
+  const bitmap = await createImageBitmap(source);
+  try {
+    const draw = (size: number, opaque: boolean, inner: number): string => {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error(t('Impossible de traiter l\'image dans ce navigateur.'));
+      if (opaque) {
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, size, size);
+      }
+      context.imageSmoothingQuality = 'high';
+      const scale = Math.min((size * inner) / bitmap.width, (size * inner) / bitmap.height);
+      const width = bitmap.width * scale;
+      const height = bitmap.height * scale;
+      context.drawImage(bitmap, (size - width) / 2, (size - height) / 2, width, height);
+      return canvas.toDataURL('image/png');
+    };
+    return {
+      'icon-192': draw(192, false, 1),
+      'icon-512': draw(512, false, 1),
+      'maskable-192': draw(192, true, 0.7),
+      'maskable-512': draw(512, true, 0.7),
+      'apple-touch-icon': draw(180, true, 0.8),
+    };
+  } finally {
+    bitmap.close();
+  }
+}
+
 /** Qualité des images converties en WebP à l'envoi. */
 export const UPLOAD_WEBP_QUALITY = 0.8;
 /** Formats convertis : images matricielles fixes. Un GIF (souvent animé), un SVG (vectoriel) et un WebP restent tels quels. */

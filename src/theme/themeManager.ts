@@ -125,6 +125,19 @@ export function paintTheme(theme: Pick<ResolvedTheme, 'mode' | 'preset' | 'prima
   }
   updatePrimaryPalette(shades(theme.primary));
   updateSurfacePalette({ 0: '#ffffff', ...shades(theme.surface) });
+  paintThemeColor();
+}
+
+let themeColorFrame = 0;
+/** Couleur de la barre de titre de l'application installée (et de la barre du navigateur sur mobile) : le fond de la page. */
+function paintThemeColor(): void {
+  cancelAnimationFrame(themeColorFrame);
+  // Les couleurs de PrimeVue arrivent par une feuille de style : on lit le fond une fois la page repeinte.
+  themeColorFrame = requestAnimationFrame(() => {
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    const color = getComputedStyle(document.body).backgroundColor;
+    if (meta && color && color !== 'rgba(0, 0, 0, 0)') meta.content = color;
+  });
 }
 
 /** Applique un thème prédéfini ou personnalisé (preset + couleurs + mode clair/sombre) sans rechargement. */

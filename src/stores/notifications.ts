@@ -1,10 +1,11 @@
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { defineStore } from 'pinia';
 import { DEFAULT_NOTIFICATION_LEVEL, type NotificationLevel } from '@shared/constants';
 import type { NotificationDTO, NotificationSettingDTO } from '@shared/types';
 import { api } from '@/api';
 import { realtime } from '@/realtime/socket';
 import { presentBrowserNotification } from '@/utils/browserNotifications';
+import { setAppBadge } from '@/pwa/install';
 
 /**
  * Notifications de l'utilisateur connecté : compteur de non lues, liste paginée, arrivée en direct (et notification
@@ -13,6 +14,8 @@ import { presentBrowserNotification } from '@/utils/browserNotifications';
 export const useNotificationsStore = defineStore('notifications', () => {
   const items = ref<NotificationDTO[]>([]);
   const unread = ref(0);
+  // L'application installée montre le nombre de notifications non lues sur son icône (là où le système le permet).
+  watch(unread, (count) => setAppBadge(count));
   const nextBefore = ref<number | null>(null);
   const loaded = ref(false);
   const loading = ref(false);

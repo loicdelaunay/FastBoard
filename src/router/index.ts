@@ -110,6 +110,8 @@ router.beforeEach((to) => {
     return auth.isAuthenticated && to.name === 'login' ? { path: '/' } : true;
   }
   if (!auth.isAuthenticated) {
+    // Sans réseau, la session n'a pas pu être vérifiée : l'écran « Hors ligne » s'affiche à la place de la connexion.
+    if (auth.offline) return true;
     return { name: 'login', query: to.fullPath !== '/' ? { redirect: to.fullPath } : {} };
   }
   if (to.meta.admin && !auth.canAdmin) {

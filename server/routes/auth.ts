@@ -13,7 +13,8 @@ import { badRequest, HttpError, notFound, unauthorized } from '../http/errors.ts
 import { currentUser, sessionOnly, sessionToken } from '../http/middleware.ts';
 import { createTokenSchema, loginSchema, markReadSchema, notificationQuerySchema, notificationSettingSchema, passwordSchema, profileSchema, revealTokenSchema, sharedThemeSchema, searchQuerySchema, updateTokenSchema } from '../http/schemas.ts';
 import { globalSearch, userSummary } from '../services/search.ts';
-import { appInfo, getBranding } from '../services/appSettings.ts';
+import { APP_ICON_SIZES, appIcon, appInfo, getBranding, type AppIconName } from '../services/appSettings.ts';
+import { manifestLanguage, webManifest } from '../services/webManifest.ts';
 import { listNotifications, listNotificationSettings, markRead, setNotificationLevel } from '../services/notifications.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { getAuthUser, requireGlobal, requireProject, toMeDTO } from '../services/access.ts';
@@ -47,6 +48,25 @@ export function publicAuthRouter(ctx: AppContext): Router {
   router.get('/app', (_req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     res.json(appInfo(ctx.db));
+  });
+
+  /** Manifeste de l'application installable (PWA) : public, le navigateur le lit sans session. */
+  router.get('/app/manifest.webmanifest', (req, res) => {
+    res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Vary', 'Accept-Language');
+    res.send(JSON.stringify(webManifest(ctx.db, manifestLanguage(req.get('accept-language')))));
+  });
+
+  /** Icône de l'application installée tirée du logo (sinon, ce sont celles par défaut, dans `/icons/`). */
+  router.get('/app/icons/:name.png', (req, res) => {
+    const name = String(req.params.name) as AppIconName;
+    const data = name in APP_ICON_SIZES ? appIcon(ctx.db, name) : null;
+    if (!data) throw notFound('Icône introuvable.');
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(data);
   });
 
   router.get('/app/logo', (_req, res) => {

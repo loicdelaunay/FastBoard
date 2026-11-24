@@ -451,6 +451,8 @@ export const api = {
   adminSetAppName: (name: string) => http<AppInfoDTO>('PUT', '/admin/app', { body: { name } }),
   adminSetAppLogo: (blob: Blob) => http<AppInfoDTO>('PUT', '/admin/app/logo', { rawBody: blob, contentType: blob.type || 'image/png' }),
   adminRemoveAppLogo: () => http<AppInfoDTO>('DELETE', '/admin/app/logo'),
+  /** Icônes de l'application installée, tirées du logo (PNG en adresses `data:`). */
+  adminSetAppIcons: (icons: Record<string, string>) => http<AppInfoDTO>('PUT', '/admin/app/icons', { body: { icons } }),
   adminMaintenance: () => http<{ maintenance: MaintenanceDTO }>('GET', '/admin/maintenance'),
   adminSetMaintenance: (input: Omit<MaintenanceDTO, 'updatedAt'>) => http<{ app: AppInfoDTO; maintenance: MaintenanceDTO }>('PUT', '/admin/maintenance', { body: input }),
   adminBackups: () => http<BackupOverviewDTO>('GET', '/admin/backups'),

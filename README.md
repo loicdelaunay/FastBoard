@@ -22,6 +22,10 @@ npm run start:prod   # http://localhost:3000
 
 Pour mettre à jour : récupérez la nouvelle version, relancez `npm install` et `npm run build`, puis redémarrez le serveur. Les deux étapes comptent : si l'interface n'est pas reconstruite (ou le serveur pas redémarré), les navigateurs affichent « Mise à jour incomplète sur le serveur » (ou « Le serveur n'a pas redémarré ») avec les deux numéros de version, et le serveur le signale dans son journal au démarrage.
 
+### Application installable (PWA)
+
+FastBoard s'installe comme une application, sur ordinateur comme sur téléphone : menu du compte → « Installer l'application » (Chrome, Edge, Android), ou, avec Safari, les consignes affichées (iPhone et iPad : Partager → « Sur l'écran d'accueil » ; Mac : Fichier → « Ajouter au Dock »). Elle s'ouvre dans sa propre fenêtre, aux couleurs du thème, avec le nom et le logo de *Administration → Personnalisation* (ses icônes sont tirées du logo), des raccourcis vers les modules activés et le nombre de notifications non lues sur son icône. Son service worker (construit avec l'interface) garde la coquille de l'application : elle s'ouvre même sans réseau, le signale, et reprend dès que la connexion revient ; les données ne sont jamais mises en cache, les pages passent toujours d'abord par le réseau (pas d'interface périmée après une mise à jour). **L’installation demande HTTPS** avec un certificat reconnu par les appareils (ou `localhost`) : voir *Administration → HTTP / HTTPS* ; un certificat auto-signé ne suffit pas, les navigateurs n’y acceptent pas de service worker.
+
 ### Exécutable autonome (Windows)
 
 Un seul fichier `FastBoard.exe` embarque Node, le serveur et l'interface : aucune installation requise.

@@ -10,6 +10,7 @@ import ProfileDialog from '@/components/profile/ProfileDialog.vue';
 import MaintenanceBanner from '@/components/layout/MaintenanceBanner.vue';
 import HoverPreviews from '@/components/layout/HoverPreviews.vue';
 import UpdatePrompt from '@/components/layout/UpdatePrompt.vue';
+import OfflineScreen from '@/components/layout/OfflineScreen.vue';
 import AiPanel from '@/components/ai/AiPanel.vue';
 import { useAppStore } from '@/stores/app';
 
@@ -26,7 +27,9 @@ const shell = computed(() => auth.isAuthenticated && !route.meta.bare);
     <div class="app-body">
       <AppSidebar v-if="shell" />
       <main class="app-main">
-        <router-view />
+        <!-- Ouverte sans réseau, la session n'a pas pu être vérifiée : on le dit plutôt que de demander de se reconnecter. -->
+        <OfflineScreen v-if="auth.offline && !auth.isAuthenticated && !route.meta.public" />
+        <router-view v-else />
       </main>
     </div>
     <template v-if="shell">

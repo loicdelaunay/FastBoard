@@ -28,7 +28,15 @@ interface Branding {
   name: string;
   logoVersion: number;
   logo: { mime: string; data: string } | null;
+  /** Icônes de l'application installée tirées du logo (rangées à part, voir `APP_ICONS_KEY`) ; 0 : celles par défaut. */
+  iconsVersion: number;
 }
+
+/** Icônes de l'application installée (PWA), en PNG : nom → taille en pixels. */
+export const APP_ICON_SIZES = { 'icon-192': 192, 'icon-512': 512, 'maskable-192': 192, 'maskable-512': 512, 'apple-touch-icon': 180 } as const;
+export type AppIconName = keyof typeof APP_ICON_SIZES;
+/** Les icônes tirées du logo, à part du reste de l'image de marque (lue à chaque `GET /api/app`). */
+const APP_ICONS_KEY = 'branding_icons';
 
 export const DEFAULT_APP_NAME = 'FastBoard';
 
@@ -38,7 +46,23 @@ export function getBranding(db: Db): Branding {
     name: typeof stored?.name === 'string' && stored.name.trim() ? stored.name : DEFAULT_APP_NAME,
     logoVersion: typeof stored?.logoVersion === 'number' ? stored.logoVersion : 0,
     logo: stored?.logo && typeof stored.logo.data === 'string' ? stored.logo : null,
+    iconsVersion: typeof stored?.iconsVersion === 'number' ? stored.iconsVersion : 0,
   };
+}
+
+/** Une icône tirée du logo (PNG), ou `null` : il n'y en a pas, l'application garde celles par défaut. */
+export function appIcon(db: Db, name: AppIconName): Buffer | null {
+  if (!getBranding(db).iconsVersion) return null;
+  const data = readSetting<Partial<Record<AppIconName, string>>>(db, APP_ICONS_KEY)?.[name];
+  return typeof data === 'string' ? Buffer.from(data, 'base64') : null;
+}
+
+/** Enregistre les icônes tirées du logo (dessinées par le navigateur de l'administrateur), ou les retire (`null`). */
+export function setAppIcons(ctx: AppContext, icons: Record<AppIconName, Buffer> | null): AppInfoDTO {
+  const current = getBranding(ctx.db);
+  writeSetting(ctx.db, APP_ICONS_KEY, icons ? Object.fromEntries(Object.entries(icons).map(([name, data]) => [name, data.toString('base64')])) : {});
+  writeSetting(ctx.db, 'branding', { ...current, iconsVersion: icons ? Math.max(current.iconsVersion, current.logoVersion) + 1 : 0 });
+  return broadcast(ctx);
 }
 
 export function getMaintenance(db: Db): MaintenanceDTO {
@@ -64,6 +88,7 @@ export function appInfo(db: Db): AppInfoDTO {
   return {
     name: branding.name,
     logoVersion: branding.logo ? branding.logoVersion : 0,
+    iconsVersion: branding.logo ? branding.iconsVersion : 0,
     version: APP_VERSION,
     interfaceVersion: servedInterfaceVersion(),
     maintenance: visible ? maintenance : null,
@@ -88,10 +113,13 @@ export function setAppName(ctx: AppContext, name: string): AppInfoDTO {
 
 export function setAppLogo(ctx: AppContext, logo: { mime: string; data: Buffer } | null): AppInfoDTO {
   const current = getBranding(ctx.db);
+  // Les icônes de l'application installée venaient de l'ancien logo : on les retire (l'interface les redessine).
+  writeSetting(ctx.db, APP_ICONS_KEY, {});
   writeSetting(ctx.db, 'branding', {
     ...current,
     logoVersion: current.logoVersion + 1,
     logo: logo ? { mime: logo.mime, data: logo.data.toString('base64') } : null,
+    iconsVersion: 0,
   });
   return broadcast(ctx);
 }

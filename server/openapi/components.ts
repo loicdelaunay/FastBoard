@@ -495,6 +495,7 @@ export const componentSchemas: Record<string, Schema> = {
   AppInfo: obj({
     name: str("Nom affiché de l'application."),
     logoVersion: int('0 = logo par défaut ; sinon `GET /app/logo?v=<version>`.'),
+    iconsVersion: int("Icônes de l'application installée tirées du logo : 0 = celles par défaut (`/icons/…`) ; sinon `GET /app/icons/{nom}.png?v=<version>`."),
     version: str('Version de FastBoard.'),
     interfaceVersion: nullable(str('Version de l’interface servie par ce serveur ; différente de `version` : l’interface est à reconstruire. `null` : interface servie ailleurs (développement).')),
     maintenance: nullable(ref('Maintenance')),

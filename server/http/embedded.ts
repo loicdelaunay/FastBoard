@@ -16,7 +16,8 @@ export function embeddedFrontend(): RequestHandler {
     const direct = relative ? readAsset(`dist/${relative}`) : undefined;
     if (direct) {
       res.setHeader('Content-Type', mimeOf(relative));
-      res.setHeader('Cache-Control', relative.startsWith('assets/') ? 'public, max-age=31536000, immutable' : 'public, max-age=3600');
+      // Le service worker de l'application installée est toujours relu : les mises à jour doivent arriver.
+      res.setHeader('Cache-Control', relative.startsWith('assets/') ? 'public, max-age=31536000, immutable' : relative === 'sw.js' ? 'no-cache' : 'public, max-age=3600');
       res.send(direct);
       return;
     }

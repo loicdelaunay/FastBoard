@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.20.0';
+export const APP_VERSION = '2.21.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,13 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.21.0',
+    date: '2026-11-24',
+    changes: [
+      { category: 'Nouveauté', text: 'Application installable (PWA) : « Installer l’application » dans le menu du compte (ou les consignes pour Safari sur iPhone, iPad et Mac). Elle s’ouvre dans sa propre fenêtre, aux couleurs du thème, avec le nom et le logo choisis dans la personnalisation, des raccourcis vers les modules, le nombre de notifications non lues sur son icône, et s’ouvre même sans réseau (en le signalant, plutôt que de demander de se reconnecter).' },
+    ],
+  },
   {
     version: '2.20.0',
     date: '2026-11-24',

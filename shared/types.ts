@@ -528,6 +528,11 @@ export interface AppInfoDTO {
   name: string;
   /** 0 = logo par défaut ; sinon `GET /api/app/logo?v=<version>`. */
   logoVersion: number;
+  /**
+   * Icônes de l'application installée (PWA) tirées du logo : 0 = icônes par défaut (`/icons/…`) ; sinon
+   * `GET /api/app/icons/{nom}.png?v=<version>`.
+   */
+  iconsVersion: number;
   version: string;
   /**
    * Version de l'interface que le serveur sert : différente de `version`, l'interface doit être reconstruite sur le

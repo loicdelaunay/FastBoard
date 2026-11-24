@@ -6,12 +6,15 @@ import { realtime } from '@/realtime/socket';
 
 /** Nom, logo et message de maintenance de l'application (publics, rafraîchis en direct). */
 export const useAppStore = defineStore('app', () => {
-  const info = ref<AppInfoDTO>({ name: 'FastBoard', logoVersion: 0, version: '', interfaceVersion: null, maintenance: null, ai: false, ldap: null, docs: false, boards: false });
+  const info = ref<AppInfoDTO>({ name: 'FastBoard', logoVersion: 0, iconsVersion: 0, version: '', interfaceVersion: null, maintenance: null, ai: false, ldap: null, docs: false, boards: false });
 
   const name = computed(() => info.value.name);
   const logoUrl = computed(() => (info.value.logoVersion ? `/api/app/logo?v=${info.value.logoVersion}` : '/favicon.svg'));
 
-  /** Applique le nom à l'onglet du navigateur et le logo à l'icône de l'onglet. */
+  /**
+   * Applique le nom à l'onglet du navigateur et le logo à son icône ; aussi le nom et l'icône que prend l'application
+   * installée sur iPhone et iPad (lus au moment de l'ajouter à l'écran d'accueil).
+   */
   function applyToDocument(): void {
     document.title = info.value.name;
     const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
@@ -19,6 +22,9 @@ export const useAppStore = defineStore('app', () => {
       icon.href = logoUrl.value;
       icon.type = info.value.logoVersion ? 'image/png' : 'image/svg+xml';
     }
+    const apple = document.querySelector<HTMLLinkElement>('link[rel="apple-touch-icon"]');
+    if (apple) apple.href = info.value.iconsVersion ? `/api/app/icons/apple-touch-icon.png?v=${info.value.iconsVersion}` : '/icons/apple-touch-icon.png';
+    for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="apple-mobile-web-app-title"], meta[name="application-name"]')) meta.content = info.value.name;
   }
 
   function set(next: AppInfoDTO): void {

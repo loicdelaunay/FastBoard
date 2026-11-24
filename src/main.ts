@@ -17,7 +17,11 @@ import { useAppStore } from './stores/app';
 import { useAuthStore } from './stores/auth';
 import { applyFonts, applyReading, applyTheme, cachedFonts, cachedReading, cachedThemeId } from './theme/themeManager';
 import { notify } from './utils/notify';
+import { setupPwa } from './pwa/install';
 import './styles/global.css';
+
+// Application installable : invite d'installation et service worker (l'invite peut arriver très tôt).
+setupPwa();
 
 const app = createApp(App);
 const pinia = createPinia();

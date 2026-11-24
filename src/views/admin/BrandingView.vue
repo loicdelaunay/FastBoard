@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
 import { api } from '@/api';
 import { useAppStore } from '@/stores/app';
-import { fitThumbnail } from '@/utils/image';
+import { appIconsFrom, fitThumbnail } from '@/utils/image';
 import { notify, notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
@@ -39,6 +39,8 @@ async function onPick(event: Event): Promise<void> {
   uploading.value = true;
   try {
     app.set(await api.adminSetAppLogo(await fitThumbnail(file, 256)));
+    // L'application installée prend aussi ce logo : ses icônes sont tirées de l'image d'origine, en pleine qualité.
+    await sendIcons(file);
     notify('success', t('Logo mis à jour'));
   } catch (error) {
     notifyError(error, t('Logo non enregistré'));
@@ -46,6 +48,22 @@ async function onPick(event: Event): Promise<void> {
     uploading.value = false;
   }
 }
+
+/** Envoie les icônes de l'application installée tirées du logo ; un échec garde simplement celles par défaut. */
+async function sendIcons(source: Blob): Promise<void> {
+  try {
+    app.set(await api.adminSetAppIcons(await appIconsFrom(source)));
+  } catch {
+    // L'application installée garde ses icônes par défaut.
+  }
+}
+
+// Logo choisi avant la 2.21 : ses icônes d'application n'existent pas encore, on les tire du logo enregistré.
+onMounted(async () => {
+  if (!app.info.logoVersion || app.info.iconsVersion) return;
+  const response = await fetch(app.logoUrl, { credentials: 'same-origin' }).catch(() => null);
+  if (response?.ok) await sendIcons(await response.blob());
+});
 
 async function removeLogo(): Promise<void> {
   try {
@@ -76,7 +94,7 @@ async function removeLogo(): Promise<void> {
       <div class="logo-row">
         <div class="preview"><img :src="app.logoUrl" alt="" /></div>
         <div class="stack">
-          <p class="muted small">{{ $t('PNG, JPEG ou WebP. L’image est réduite à 256 px sans être recadrée ; un fond transparent rend mieux sur les thèmes sombres.') }}</p>
+          <p class="muted small">{{ $t('PNG, JPEG ou WebP. L’image est réduite à 256 px sans être recadrée ; un fond transparent rend mieux sur les thèmes sombres.') }} {{ $t('Elle sert aussi d’icône à l’application installée (sur fond blanc quand le système impose un fond).') }}</p>
           <div class="row">
             <Button :label="$t('Choisir une image')" icon="pi pi-upload" :loading="uploading" @click="input?.click()" />
             <Button v-if="app.info.logoVersion" :label="$t('Logo par défaut')" icon="pi pi-undo" severity="secondary" text @click="removeLogo" />

@@ -2,7 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { MeDTO } from '@shared/types';
 import { api } from '@/api';
-import { setCurrentUserId } from '@/api/http';
+import { ApiError, setCurrentUserId } from '@/api/http';
 import { realtime } from '@/realtime/socket';
 import type { Locale } from '@shared/locales';
 import { currentLocale, rememberLocale } from '@/i18n';
@@ -12,6 +12,8 @@ import { applyFonts, applyReading, applyTheme, customThemes } from '@/theme/them
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<MeDTO | null>(null);
   const ready = ref(false);
+  /** La session n'a pas pu être vérifiée faute de réseau (application installée ouverte hors connexion). */
+  const offline = ref(false);
   const isAuthenticated = computed(() => user.value !== null);
 
   function can(permission: string): boolean {
@@ -42,9 +44,11 @@ export const useAuthStore = defineStore('auth', () => {
   async function init(): Promise<void> {
     try {
       setUser((await api.me()).user);
+      offline.value = false;
       realtime.connect();
-    } catch {
+    } catch (error) {
       setUser(null);
+      offline.value = error instanceof ApiError && error.code === 'network';
     } finally {
       ready.value = true;
     }
@@ -142,5 +146,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   });
 
-  return { user, ready, isAuthenticated, canAdmin, can, init, login, logout, expire, refresh, updateProfile, uploadAvatar, removeAvatar };
+  return { user, ready, offline, isAuthenticated, canAdmin, can, init, login, logout, expire, refresh, updateProfile, uploadAvatar, removeAvatar };
 });
