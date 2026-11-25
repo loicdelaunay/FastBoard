@@ -17,6 +17,7 @@ import BoardCanvas from '@/components/boards/BoardCanvas.vue';
 import BoardLinksPanel from '@/components/boards/BoardLinksPanel.vue';
 import BoardTimeline from '@/components/boards/BoardTimeline.vue';
 import BoardMembersDialog from '@/components/boards/BoardMembersDialog.vue';
+import MoveToSpaceDialog from '@/components/common/MoveToSpaceDialog.vue';
 import BoardShareDialog from '@/components/boards/BoardShareDialog.vue';
 import BoardSpaceDialog from '@/components/boards/BoardSpaceDialog.vue';
 import BoardTrashDialog from '@/components/boards/BoardTrashDialog.vue';
@@ -182,6 +183,10 @@ watch(
     if (reason === 'deleted') {
       notify('warn', t('Ce tableau vient d’être supprimé.'));
       closeBoard();
+    } else if (reason === 'moved') {
+      // Déplacé par quelqu'un d'autre (pas par soi, depuis « Déplacer vers… ») : on le dit.
+      if (!moveOpen.value) notify('info', t('Ce tableau vient d’être déplacé dans un autre espace.'));
+      closeBoard();
     }
   },
 );
@@ -241,6 +246,19 @@ async function submitName(): Promise<void> {
   } finally {
     nameBusy.value = false;
   }
+}
+
+// --- Déplacer vers un autre espace ---
+const moveOpen = ref(false);
+const moveItems = ref<Array<{ id: number; name: string; kind: string }>>([]);
+
+function askMoveTo(nodes: BoardNodeDTO[]): void {
+  moveItems.value = nodes.map((node) => ({ id: node.id, name: boardTitle(node.path), kind: node.kind }));
+  moveOpen.value = true;
+}
+
+function onMovedTo(_spaceId: number, spaceName: string, movedIds: number[]): void {
+  notify('success', movedIds.length > 1 ? t('{n} éléments déplacés vers « {name} »', { n: movedIds.length, name: spaceName }) : t('Déplacé vers « {name} »', { name: spaceName }));
 }
 
 async function move(node: BoardNodeDTO, folder: string): Promise<void> {
@@ -378,7 +396,7 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
 
   <div v-else-if="store.space" class="space" :class="{ 'tree-hidden': treeHidden }">
     <aside v-show="!treeHidden" class="tree-col">
-      <BoardTree class="tree" :owner="store.isOwner" :nodes="treeNodes" :templates="templates" :selected-id="boardId" :editable="store.canEdit" :space-id="spaceId" @open="open" @create="askCreate" @rename="askRename" @remove="remove" @move="move" @duplicate="duplicate" @share="openShare" @collapse="treeHidden = true" />
+      <BoardTree class="tree" :owner="store.isOwner" :nodes="treeNodes" :templates="templates" :selected-id="boardId" :editable="store.canEdit" :space-id="spaceId" @open="open" @create="askCreate" @rename="askRename" @remove="remove" @move="move" @move-to="askMoveTo" @duplicate="duplicate" @share="openShare" @collapse="treeHidden = true" />
       <footer class="space-foot">
         <button type="button" class="space-name" @click="closeBoard">
           <i class="pi pi-objects-column"></i>
@@ -517,6 +535,7 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
       </template>
     </Dialog>
     <BoardMembersDialog v-model:visible="membersOpen" :users="users" />
+    <MoveToSpaceDialog v-model:visible="moveOpen" module="boards" :space-id="spaceId" :items="moveItems" @moved="onMovedTo" />
     <BoardShareDialog v-model:visible="shareOpen" :board="shareTarget" :users="users" @saved="store.reload(spaceId)" />
     <BoardSpaceDialog v-model:visible="settingsOpen" :space="store.space" @saved="store.reload(spaceId)" />
     <ContextMenu ref="cardMenu" :model="cardMenuItems" />

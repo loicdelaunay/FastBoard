@@ -7,6 +7,7 @@ import type { DocNodeDTO } from '@shared/docs';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
 import MarkdownView from '@/components/common/MarkdownView.vue';
+import CodeLanguagePicker from '@/components/docs/CodeLanguagePicker.vue';
 import { useDocLinks } from '@/composables/useDocLinks';
 import { openLightbox, zoomImageOnClick } from '@/utils/lightbox';
 import { docImageIdOf, replaceDocImage } from '@/utils/replaceImage';
@@ -25,8 +26,16 @@ const props = defineProps<{
   obsidian?: boolean;
   /** On peut modifier l'espace : ses images se remplacent au clic droit. */
   editable?: boolean;
+  /** On peut écrire dans la note : la pastille d'un bloc de code en change le langage. */
+  writable?: boolean;
 }>();
-const emit = defineEmits<{ open: [node: DocNodeDTO, newTab?: boolean]; comment: [quote: DocQuote]; 'focus-comment': [commentId: number] }>();
+const emit = defineEmits<{
+  open: [node: DocNodeDTO, newTab?: boolean];
+  comment: [quote: DocQuote];
+  'focus-comment': [commentId: number];
+  /** Nouveau langage d'un bloc de code, retrouvé dans le texte par son langage, son code et son rang parmi les mêmes. */
+  'code-language': [change: { lang: string; code: string; occurrence: number; next: string }];
+}>();
 
 const root = ref<HTMLElement | null>(null);
 const { follow, openTicket } = useDocLinks(
@@ -75,8 +84,27 @@ watch(
   { immediate: true },
 );
 
+const languagePicker = ref<InstanceType<typeof CodeLanguagePicker> | null>(null);
+
+/** Pastille d'un bloc de code de la note (pas d'une note intégrée) : choisir un autre langage. */
+function pickCodeLanguage(event: MouseEvent, chip: HTMLElement): void {
+  const lang = chip.dataset.lang ?? '';
+  const code = chip.closest('pre')?.querySelector('code')?.textContent ?? '';
+  const same = [...(root.value?.querySelectorAll<HTMLElement>('.md-code-lang') ?? [])].filter(
+    (entry) => !entry.closest('.md-embed') && (entry.dataset.lang ?? '') === lang && (entry.closest('pre')?.querySelector('code')?.textContent ?? '') === code,
+  );
+  const occurrence = same.indexOf(chip);
+  if (occurrence < 0) return;
+  languagePicker.value?.open(event, chip, lang, (next) => emit('code-language', { lang, code, occurrence, next }));
+}
+
 function onClick(event: MouseEvent): void {
   const element = event.target as HTMLElement;
+  const chip = element.closest<HTMLElement>('.md-code-lang');
+  if (chip && props.writable && !chip.closest('.md-embed')) {
+    pickCodeLanguage(event, chip);
+    return;
+  }
   if (follow(element, event) || zoomImageOnClick(event)) return;
   const mark = element.closest<HTMLElement>('[data-comment]');
   if (mark && window.getSelection()?.isCollapsed) emit('focus-comment', Number(mark.dataset.comment));
@@ -115,9 +143,10 @@ function onContextMenu(event: MouseEvent): void {
 </script>
 
 <template>
-  <div ref="root" class="doc-preview" @click="onClick" @contextmenu="onContextMenu">
+  <div ref="root" class="doc-preview" :class="{ 'code-lang-editable': writable }" @click="onClick" @contextmenu="onContextMenu">
     <MarkdownView :text="shown" :resolver="resolver" :obsidian="obsidian" :prepare="prepare" :finish="finish" :open-ticket-with="openTicket" />
     <ContextMenu ref="menu" :model="menuItems" />
+    <CodeLanguagePicker v-if="writable" ref="languagePicker" />
   </div>
 </template>
 

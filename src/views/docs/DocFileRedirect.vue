@@ -17,7 +17,8 @@ onMounted(async () => {
       // Version étiquetée citée : la note s'ouvre sur elle, en lecture seule.
       ...(typeof route.query.version === 'string' && route.query.version ? { version: route.query.version } : {}),
     };
-    await router.replace({ name: 'doc-space', params: { spaceId: node.spaceId }, query: { file: String(node.id), ...lines } });
+    // L'ancre (`#etape-2`, l'endroit lu) suit : le lien mène au même endroit de la note.
+    await router.replace({ name: 'doc-space', params: { spaceId: node.spaceId }, query: { file: String(node.id), ...lines }, hash: route.hash });
   } catch {
     failed.value = true;
   }

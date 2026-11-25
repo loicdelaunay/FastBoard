@@ -284,10 +284,11 @@ export class BoardRooms {
     return true;
   }
 
-  closeBoard(boardId: number, reason: 'deleted' | 'revoked'): void {
+  /** Ferme la salle d'un tableau supprimé, ou déplacé vers un autre espace (`spaceId` : celui d'arrivée). */
+  closeBoard(boardId: number, reason: 'deleted' | 'revoked' | 'moved', spaceId?: number): void {
     const room = this.#rooms.get(boardId);
     if (!room) return;
-    for (const peer of room.peers.keys()) peer.send({ t: 'board.closed', boardId, reason });
+    for (const peer of room.peers.keys()) peer.send({ t: 'board.closed', boardId, reason, ...(spaceId !== undefined ? { spaceId } : {}) });
     this.#close(room);
   }
 

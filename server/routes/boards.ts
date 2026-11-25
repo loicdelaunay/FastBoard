@@ -19,6 +19,7 @@ import {
   listBoardSpaces,
   listBoardTrash,
   moveBoardNode,
+  moveBoardNodesToSpace,
   patchBoardElements,
   readBoardElements,
   removeBoardMember,
@@ -54,6 +55,7 @@ import {
   boardSpaceSchema,
   boardSpaceUpdateSchema,
   spaceGroupSchema,
+  spaceMoveSchema,
   tagSearchSchema,
   versionTagSchema,
   versionTagUpdateSchema,
@@ -63,7 +65,7 @@ import { requireGlobal } from '../services/access.ts';
 import { listSpaceGroups } from '../services/groupRows.ts';
 import { removeSpaceGroup, setSpaceGroup } from '../services/groups.ts';
 import { appInfo } from '../services/appSettings.ts';
-import { setRagScope } from '../rag/index.ts';
+import { forgetRagSources, setRagScope } from '../rag/index.ts';
 import { searchBoardTags, tagBoardVersion } from '../boards/tags.ts';
 import { versionFromQuery } from '../../shared/citations.ts';
 
@@ -223,6 +225,16 @@ export function boardsRouter(ctx: AppContext): Router {
     const spaceId = idParam(req.params.id);
     spaceAccess(res, spaceId);
     res.json({ nodes: listBoardTrash(ctx.db, spaceId) });
+  });
+
+  // Vers un autre espace : éditeur des deux côtés. Ce qui part quitte aussitôt l'index du RAG de l'ancien espace.
+  router.post('/boards/nodes/move', (req, res) => {
+    const input = parse(spaceMoveSchema, req.body);
+    for (const nodeId of new Set(input.nodeIds)) nodeAccess(res, nodeId, 'editor');
+    requireBoardSpace(ctx, currentUser(res), input.spaceId, 'editor');
+    const { nodes, movedIds } = moveBoardNodesToSpace(ctx, actorOf(req, res), input.nodeIds, input.spaceId, input.folder);
+    forgetRagSources(ctx, 'board', movedIds);
+    res.json({ nodes });
   });
 
   router.patch('/boards/nodes/:id', (req, res) => {

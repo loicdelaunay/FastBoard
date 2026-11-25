@@ -5,6 +5,11 @@ import { currentLocale } from './index';
  * puis modèles à variables (noms, nombres), puis messages de validation (« champ : message »).
  */
 const EXACT: Record<string, string> = {
+  // 2.28 — Déplacer vers un autre espace
+  "Choisissez au moins un élément.": "Choose at least one item.",
+  "Les éléments à déplacer doivent venir du même espace.": "The items to move must come from the same space.",
+  "Ces éléments sont déjà dans cet espace.": "These items are already in this space.",
+  "Trop de dossiers imbriqués à l’arrivée : choisissez un dossier moins profond.": "Too many nested folders at the destination: choose a shallower folder.",
   // 2.27 — Groupes de personnes
   "Groupe introuvable.": "Group not found.",
   "Seuls les gestionnaires du groupe peuvent le modifier.": "Only the group’s managers can change it.",

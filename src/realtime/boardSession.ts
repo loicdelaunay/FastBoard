@@ -20,7 +20,7 @@ export class BoardSession {
   readonly synced = ref(false);
   readonly canWrite = ref(false);
   readonly savedAt = ref<string | null>(null);
-  readonly closed = ref<'deleted' | 'revoked' | null>(null);
+  readonly closed = ref<'deleted' | 'revoked' | 'moved' | null>(null);
   readonly #stops: Array<() => void> = [];
   /** Entrée par le lien de partage du tableau (et l'accès ouvert par son mot de passe). */
   readonly #share: { slug: string; token: string | null } | null;
@@ -106,7 +106,7 @@ export class BoardSnapshotSession implements BoardSessionLike {
   readonly synced = ref(true);
   readonly canWrite = ref(false);
   readonly savedAt = ref<string | null>(null);
-  readonly closed = ref<'deleted' | 'revoked' | null>(null);
+  readonly closed = ref<'deleted' | 'revoked' | 'moved' | null>(null);
 
   constructor(boardId: number, elements: readonly BoardElement[] = []) {
     this.boardId = boardId;

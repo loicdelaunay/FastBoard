@@ -31,6 +31,8 @@ const emit = defineEmits<{
   /** Plusieurs éléments à mettre à la corbeille (le contenu d'un dossier choisi n'est pas répété). */
   removeMany: [nodes: DocNodeDTO[]];
   move: [node: DocNodeDTO, folder: string];
+  /** Vers un autre espace (le contenu d'un dossier choisi n'est pas répété). */
+  moveTo: [nodes: DocNodeDTO[]];
   /** `null` : tout l'espace. */
   export: [node: DocNodeDTO | null];
   import: [node: DocNodeDTO | null];
@@ -322,7 +324,12 @@ const menuItems = computed<MenuItem[]>(() => {
       { label: t('{n} élément sélectionné|{n} éléments sélectionnés', { n: chosen.length }), disabled: true },
       { separator: true },
       ...(files.length ? [{ label: t('Ouvrir dans des onglets'), icon: 'pi pi-clone', command: () => files.forEach((file) => emit('open', file, true)) }] : []),
-      ...(props.editable ? [{ label: t('Supprimer la sélection'), icon: 'pi pi-trash', command: removeSelection }] : []),
+      ...(props.editable
+        ? [
+            { label: t('Déplacer vers…'), icon: 'pi pi-arrow-up-right', command: () => emit('moveTo', outermost(selectedNodes.value)) },
+            { label: t('Supprimer la sélection'), icon: 'pi pi-trash', command: removeSelection },
+          ]
+        : []),
       { label: t('Désélectionner'), icon: 'pi pi-times', command: () => (selection.value = new Set()) },
     ];
   }
@@ -349,7 +356,12 @@ const menuItems = computed<MenuItem[]>(() => {
     ? [
         { label: t('Nouvelle note'), icon: 'pi pi-file-plus', command: () => emit('create', 'markdown', folder) },
         { label: t('Nouveau dossier'), icon: 'pi pi-folder-plus', command: () => emit('create', 'folder', folder) },
-        ...(node ? [{ label: t('Renommer'), icon: 'pi pi-pencil', command: () => emit('rename', node) }] : []),
+        ...(node
+          ? [
+              { label: t('Renommer'), icon: 'pi pi-pencil', command: () => emit('rename', node) },
+              { label: t('Déplacer vers…'), icon: 'pi pi-arrow-up-right', command: () => emit('moveTo', [node]) },
+            ]
+          : []),
         ...(node?.kind === 'folder' ? [{ label: t('Icône et couleur…'), icon: 'pi pi-palette', command: () => emit('style', node) }] : []),
         ...(node?.kind === 'markdown' ? [{ label: t('Enregistrer comme modèle'), icon: 'pi pi-clone', command: () => emit('saveAsTemplate', node) }] : []),
         { separator: true },
@@ -379,6 +391,7 @@ function templateMenu(node: DocNodeDTO): MenuItem[] {
       ? [
           { label: t('Nouvelle note depuis ce modèle'), icon: 'pi pi-file-plus', command: () => emit('useTemplate', node, currentFolder.value) },
           { label: t('Renommer'), icon: 'pi pi-tag', command: () => emit('rename', node) },
+          { label: t('Déplacer vers…'), icon: 'pi pi-arrow-up-right', command: () => emit('moveTo', [node]) },
         ]
       : []),
     { separator: true },

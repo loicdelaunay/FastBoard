@@ -76,6 +76,22 @@ function forgetContainer(ctx: AppContext, scope: RagScope, containerId: number):
 }
 
 /**
+ * Éléments partis vers un autre espace : ils quittent l'index aussitôt (rien de ce qui venait de l'ancien espace ne
+ * reste interrogeable par ses membres), puis sont réindexés là où ils sont, si le RAG y est activé.
+ */
+export function forgetRagSources(ctx: AppContext, kind: RagKind, ids: readonly number[]): void {
+  if (!ids.length) return;
+  ctx.db.transaction(() => {
+    for (const id of ids) {
+      ctx.db.run('DELETE FROM rag_chunks WHERE kind = ? AND source_id = ?', kind, id);
+      ctx.db.run('DELETE FROM rag_sources WHERE kind = ? AND source_id = ?', kind, id);
+    }
+  });
+  ragRuntime(ctx).version += 1;
+  if (ragConfig(ctx)) requestRagRun(ctx);
+}
+
+/**
  * Active ou coupe le RAG d'un projet ou d'un espace. Coupé, son contenu quitte l'index aussitôt ; activé, il est
  * indexé dans les secondes qui suivent.
  */

@@ -7,6 +7,8 @@ import { headingKey } from '@shared/docLinks';
 import { headingTitle } from '@shared/docOutline';
 import { highlightColor, highlightMarker } from '@shared/docObsidian';
 import 'katex/dist/katex.min.css';
+import { t } from '@/i18n';
+import { codeLanguageLabel } from '@/utils/codeHighlight';
 
 /**
  * Rendu Markdown des descriptions : GitHub Flavored Markdown (tableaux, listes de tâches, barré), formules KaTeX
@@ -299,7 +301,10 @@ function createMarked(resolver: MentionResolver, obsidian = false, boardPreviews
         if (language === 'math' || language === 'latex' || language === 'katex') {
           return `<div class="md-math">${math(text, true)}</div>`;
         }
-        return `<pre class="md-code"><code${language ? ` data-lang="${escapeHtml(language)}"` : ''}>${escapeHtml(text)}</code></pre>`;
+        // Pastille du langage, en haut à droite (son texte vient d'un attribut : il ne se mêle ni au code ni à une sélection).
+        const label = escapeHtml(language ? codeLanguageLabel(language) : t('Texte'));
+        const chip = `<span class="md-code-lang" role="button" tabindex="-1" data-lang="${escapeHtml(language)}" data-label="${label}" aria-label="${label}"></span>`;
+        return `<pre class="md-code">${chip}<code${language ? ` data-lang="${escapeHtml(language)}"` : ''}>${escapeHtml(text)}</code></pre>`;
       },
       // Repère de chaque titre (numérotation comprise), pour le sommaire et les liens [[Note#Titre]] ou #ancre ; un
       // `{#id}` final ne s'affiche pas, il devient un identifiant du titre comme `<a id="…">`.

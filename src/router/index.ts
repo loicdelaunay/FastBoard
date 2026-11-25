@@ -102,7 +102,8 @@ const router = createRouter({
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
-  scrollBehavior: () => ({ top: 0 }),
+  // Seule l'ancre change (l'endroit lu d'une note, mis à jour en lisant) : la page ne remonte pas.
+  scrollBehavior: (to, from) => (to.path === from.path && JSON.stringify(to.query) === JSON.stringify(from.query) ? false : { top: 0 }),
 });
 
 router.beforeEach((to) => {

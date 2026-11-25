@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, pickedCompletion, type Completion, type CompletionContext, type CompletionResult } from '@codemirror/autocomplete';
+import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, pickedCompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSection } from '@codemirror/autocomplete';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
@@ -26,7 +26,12 @@ import { boardCitationRoute, docCitationRoute } from '@/utils/citations';
 import type { DocSession } from '@/realtime/docSession';
 import { copyText, pendingAnchor, renderDocBlock, selectionQuote } from '@/utils/docRender';
 import { markdownBlocks } from '@/utils/markdown';
-import { mentionToken, type MentionKind } from '@/utils/mentions';
+import { mentionToken } from '@/utils/mentions';
+import { mentionFilterInfo, mentionFilters, searchMentions, type MentionFilter, type MentionGroup, type MentionSources, type MentionSuggestion } from '@/utils/mentionSources';
+import MentionPickerDialog from '@/components/common/MentionPickerDialog.vue';
+import DocImagePickerDialog from '@/components/docs/DocImagePickerDialog.vue';
+import CodeLanguagePicker from '@/components/docs/CodeLanguagePicker.vue';
+import { fenceLanguageChange, matchingFences } from '@shared/codeFences';
 import { notify, notifyError } from '@/utils/notify';
 import { pickImage } from '@/utils/image';
 import { docImageIdOf, docImageUrl, replaceDocImage } from '@/utils/replaceImage';
@@ -117,58 +122,142 @@ function openAddress(url: string): void {
   window.open(url, '_blank', 'noopener');
 }
 
-/** `@` propose les personnes, les tickets et les fichiers de documentation. */
+// --- Mentions « @ » : pastilles de filtre par type en tête de liste, et « Voir tout » quand il y en a plus ---
+const mentionSources = computed<MentionSources>(() => ({ people: props.users, docs: app.info.docs, boards: app.info.boards }));
+/** Type choisi pour la mention en cours ; chaque nouvelle mention repart de « Tout ». */
+let mentionFilter: MentionFilter = 'all';
+let mentionStart = -1;
+const mentionPickerOpen = ref(false);
+const mentionPending = ref<{ from: number; to: number; query: string; filter: MentionFilter } | null>(null);
+
+/** Pastilles de filtre, dans la liste de CodeMirror : un clic garde le focus dans le texte et relance la recherche. */
+function mentionFilterBar(editor: EditorView): HTMLElement {
+  const bar = document.createElement('div');
+  bar.className = 'mention-filters cm-mention-filters';
+  for (const entry of mentionFilters(mentionSources.value)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `mention-filter${entry.key === mentionFilter ? ' active' : ''}`;
+    button.style.setProperty('--chip-color', entry.color);
+    const icon = document.createElement('i');
+    icon.className = entry.icon;
+    button.append(icon, t(entry.label));
+    button.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      mentionFilter = entry.key;
+      startCompletion(editor);
+    });
+    bar.append(button);
+  }
+  return bar;
+}
+
+/** Titre d'un type dans la liste (le premier porte aussi les pastilles de filtre). */
+function mentionSection(editor: EditorView, group: MentionGroup | 'more', rank: number, withFilters: boolean): CompletionSection {
+  return {
+    name: group,
+    rank,
+    header: () => {
+      const box = document.createElement('div');
+      box.className = 'cm-mention-head';
+      if (withFilters) box.append(mentionFilterBar(editor));
+      if (group !== 'more') {
+        const info = mentionFilterInfo(group);
+        const title = document.createElement('div');
+        title.className = 'cm-mention-title';
+        title.style.setProperty('--chip-color', info.color);
+        const icon = document.createElement('i');
+        icon.className = info.icon;
+        title.append(icon, t(info.label));
+        box.append(title);
+      } else if (!withFilters) box.classList.add('more');
+      return box;
+    },
+  };
+}
+
+/** Pose la mention entre `from` et `to` ; un tableau blanc ouvre la petite barre de son affichage. */
+function insertMention(editor: EditorView, suggestion: MentionSuggestion, from: number, to: number, completion?: Completion): void {
+  const insert = `${mentionToken(suggestion.kind, suggestion.id, suggestion.label, null, suggestion.suffix)} `;
+  editor.dispatch({
+    changes: { from, to, insert },
+    selection: { anchor: from + insert.length },
+    ...(suggestion.kind === 'board' && !suggestion.suffix ? { effects: showBoardChoice.of(from) } : {}),
+    ...(completion ? { annotations: pickedCompletion.of(completion) } : {}),
+    userEvent: 'input.complete',
+  });
+}
+
+/** `@` propose les personnes, les tickets, les notes, les tableaux et les versions étiquetées, filtrables par type. */
 async function mentions(context: CompletionContext): Promise<CompletionResult | null> {
   const match = context.matchBefore(/(^|[\s(])@[^\s@[\]()]{0,30}/);
   if (!match) return null;
   const at = match.text.indexOf('@');
+  const from = match.from + at;
   const query = match.text.slice(at + 1);
-  const option = (kind: MentionKind, id: number, label: string, detail: string, type: string): Completion => ({
-    label,
-    detail,
-    type,
-    apply:
-      kind !== 'board'
-        ? `${mentionToken(kind, id, label)} `
-        : (editor, completion, from, to) => {
-            // Un tableau blanc : la petite barre sous la mention propose son affichage (lien, carte, image, intégré).
-            const insert = `${mentionToken(kind, id, label)} `;
-            editor.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, effects: showBoardChoice.of(from), annotations: pickedCompletion.of(completion), userEvent: 'input.complete' });
-          },
-  });
-  const people = props.users
-    .filter((user) => user.isActive && (!query || matchesQuery(query, [user.name, user.email])))
-    .slice(0, 5)
-    .map((user) => option('user', user.id, user.name, user.email, 'variable'));
-  if (!query) return { from: match.from + at, options: people, filter: false };
-  const [tickets, files, boards, docTags, boardTags] = await Promise.all([
-    api.search(query, { type: ['tickets'], limit: 5 }).catch(() => null),
-    api.docSearch(query).catch(() => null),
-    app.info.boards ? api.boardSearch(query, 4).catch(() => null) : Promise.resolve(null),
-    api.docTags(query).catch(() => null),
-    app.info.boards ? api.boardTags(query).catch(() => null) : Promise.resolve(null),
-  ]);
-  // Version étiquetée d'une note ou d'un tableau : la mention garde la version (`#v:345`).
-  const tagged = [...(docTags?.tags ?? []), ...(boardTags?.tags ?? [])].slice(0, 5).map(
-    (hit): Completion => ({
-      label: `${hit.title} · ${hit.tag}`,
-      detail: `${t('Version étiquetée')} · ${hit.spaceName}`,
-      type: 'keyword',
-      apply: `${mentionToken(hit.kind, hit.id, `${hit.title} · ${hit.tag}`, null, `v:${hit.versionId}`)} `,
-    }),
-  );
+  if (from !== mentionStart) {
+    mentionStart = from;
+    mentionFilter = 'all';
+  }
+  const filter = mentionFilter;
+  const found = await searchMentions(query, filter, filter === 'all' ? 4 : 8, mentionSources.value);
   if (context.aborted) return null;
-  return {
-    from: match.from + at,
-    filter: false,
-    options: [
-      ...people,
-      ...(tickets?.tickets.items ?? []).map((ticket) => option('ticket', ticket.id, ticket.key, ticket.title, 'class')),
-      ...(files?.files ?? []).slice(0, 5).map((file) => option('doc', file.id, file.title, `${file.spaceName} · ${file.path}`, 'text')),
-      ...(boards?.boards ?? []).map((board) => option('board', board.id, board.title, `${t('Tableau blanc')} · ${board.spaceName}`, 'type')),
-      ...tagged,
-    ],
-  };
+  const editor = context.view;
+  if (!editor) return null;
+  const groups = [...new Set(found.items.map((item) => item.group))];
+  const sections = new Map(groups.map((group, index) => [group, mentionSection(editor, group, index, index === 0)]));
+  const options: Completion[] = found.items.map((suggestion) => {
+    const info = mentionFilterInfo(suggestion.group);
+    return {
+      label: suggestion.label,
+      detail: suggestion.hint,
+      type: 'mention',
+      section: sections.get(suggestion.group),
+      icon: info.icon,
+      color: info.color,
+      apply: (view: EditorView, completion: Completion, start: number, end: number) => insertMention(view, suggestion, start, end, completion),
+    } as Completion;
+  });
+  if (!options.length) {
+    // Rien pour ce type : la liste reste ouverte, pour changer de filtre.
+    if (filter === 'all' && !query) return null;
+    options.push({
+      label: filter === 'all' ? t('Rien ne correspond.') : t('Rien ne correspond : revenir à « Tout »'),
+      type: 'mention',
+      section: mentionSection(editor, 'more', 0, true),
+      icon: 'pi pi-filter-slash',
+      apply: (view: EditorView) => {
+        mentionFilter = 'all';
+        startCompletion(view);
+      },
+    } as Completion);
+  } else if (found.more) {
+    options.push({
+      label: t('Voir tout…'),
+      detail: t('Chercher parmi tous les éléments'),
+      type: 'mention',
+      section: mentionSection(editor, 'more', groups.length, false),
+      icon: 'pi pi-search-plus',
+      color: 'var(--fb-accent)',
+      apply: (_view: EditorView, _completion: Completion, start: number, end: number) => {
+        mentionPending.value = { from: start, to: end, query, filter };
+        mentionPickerOpen.value = true;
+      },
+    } as Completion);
+  }
+  return { from, filter: false, options };
+}
+
+/** Élément choisi dans « Voir tout » : il remplace la mention commencée si elle est toujours là, sinon il va au curseur. */
+function pickMention(suggestion: MentionSuggestion): void {
+  const pending = mentionPending.value;
+  mentionPending.value = null;
+  if (!view) return;
+  const still = pending !== null && view.state.sliceDoc(pending.from, pending.to) === `@${pending.query}`;
+  const { from, to } = still ? pending : view.state.selection.main;
+  insertMention(view, suggestion, from, to);
+  view.focus();
 }
 
 /** Texte le plus court qui désigne `node` depuis la note, comme dans Obsidian : son nom, sinon son chemin. */
@@ -322,12 +411,18 @@ function sourceImage(editor: EditorView, position: number): MenuTarget['image'] 
   return null;
 }
 
+/** Lien d'image à poser à `position` : sur sa propre ligne, même si le curseur est au milieu d'un texte. */
+function imageLine(path: string, position: number): string {
+  const before = position > 0 ? (view?.state.sliceDoc(position - 1, position) ?? '\n') : '\n';
+  return `${before === '\n' ? '' : '\n'}${imageMarkdown(props.notePath, path)}\n`;
+}
+
 /** Une image collée ou glissée est envoyée au serveur, puis son lien s'insère au curseur. */
 async function insertImages(files: File[], position: number): Promise<void> {
   for (const file of files) {
     try {
       const { node } = await api.docUploadImage(props.spaceId, docParent(props.notePath), file);
-      const text = `${imageMarkdown(props.notePath, node.path)}\n`;
+      const text = imageLine(node.path, Math.min(position, view?.state.doc.length ?? 0));
       view?.dispatch({ changes: { from: Math.min(position, view.state.doc.length), insert: text } });
       position += text.length;
     } catch (error) {
@@ -345,7 +440,18 @@ function onPicked(event: Event): void {
   if (view && files.length) void insertImages(files, view.state.selection.main.head);
 }
 
-const handlers: ToolHandlers = { pickImage: () => picker.value?.click() };
+// « Image » (barre d’outils, « / ») : une image déjà dans l’espace, ou une nouvelle depuis l’ordinateur.
+const imagePickerOpen = ref(false);
+const handlers: ToolHandlers = { pickImage: () => (imagePickerOpen.value = true) };
+
+/** Image de l’espace choisie : son lien s’insère au curseur, comme une image envoyée. */
+function insertExistingImage(node: DocNodeDTO): void {
+  if (!view) return;
+  const position = view.state.selection.main.head;
+  const text = imageLine(node.path, position);
+  view.dispatch({ changes: { from: position, insert: text }, selection: { anchor: position + text.length }, userEvent: 'input' });
+  view.focus();
+}
 
 // --- Barre d'outils ---
 const toolbar = computed<Array<DocTool | 'sep'>>(() => {
@@ -461,10 +567,40 @@ watch(
 );
 
 // --- Clics ---
+// --- Langage d'un bloc de code (pastille en haut à droite du bloc rendu) ---
+const languagePicker = ref<InstanceType<typeof CodeLanguagePicker> | null>(null);
+
+/** Propose un autre langage pour le bloc de code rendu dans `box`, puis l'écrit après sa clôture d'ouverture. */
+function pickCodeLanguage(event: MouseEvent, box: HTMLElement, chip: HTMLElement): void {
+  if (!view) return;
+  const lang = chip.dataset.lang ?? '';
+  const code = chip.closest('pre')?.querySelector('code')?.textContent ?? '';
+  const start = view.posAtDOM(box);
+  // Rang du bloc parmi ceux de même langage et de même code : il le retrouve même si le texte a bougé entre-temps.
+  const occurrence = matchingFences(view.state.doc.toString(), lang, code).findIndex((fence) => fence.from >= start);
+  if (occurrence < 0) return;
+  languagePicker.value?.open(event, chip, lang, (next) => {
+    if (!view) return;
+    const text = view.state.doc.toString();
+    const fence = matchingFences(text, lang, code)[occurrence];
+    if (!fence) {
+      notify('warn', t('Ce bloc de code a changé entre-temps.'));
+      return;
+    }
+    view.dispatch({ changes: fenceLanguageChange(text, fence, next), userEvent: 'input' });
+  });
+}
+
 function onClick(event: MouseEvent): void {
   const element = event.target as HTMLElement;
   if (!view || element.closest('.cm-table-editor')) return;
   const box = element.closest<HTMLElement>('.cm-live-block');
+  const chip = element.closest<HTMLElement>('.md-code-lang');
+  if (box && chip) {
+    event.preventDefault();
+    if (!props.readonly) pickCodeLanguage(event, box, chip);
+    return;
+  }
   if (box && element instanceof HTMLInputElement && element.type === 'checkbox') {
     event.preventDefault();
     const from = view.posAtDOM(box);
@@ -905,7 +1041,13 @@ onMounted(() => {
           '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'inherit', maxHeight: '18rem' },
           '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '0.2rem 0.5rem' },
           '.cm-slash-icon': { width: '1.4rem', color: 'var(--fb-muted)', fontSize: '0.8rem' },
-          '.cm-completionIcon-doc-image, .cm-completionIcon-doc-note, .cm-completionIcon-highlight': { display: 'none' },
+          '.cm-completionIcon-doc-image, .cm-completionIcon-doc-note, .cm-completionIcon-highlight, .cm-completionIcon-mention': { display: 'none' },
+          // Mentions « @ » : pastilles de filtre et titre de chaque type, à sa couleur.
+          '.cm-tooltip-autocomplete completion-section': { display: 'block', padding: '0', border: '0', fontFamily: 'var(--fb-font, system-ui, sans-serif)' },
+          '.cm-mention-head .cm-mention-filters': { padding: '0.35rem 0.35rem 0.2rem', maxWidth: '26rem' },
+          '.cm-mention-title': { display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.35rem 0.55rem 0.15rem', fontSize: '0.7rem', fontWeight: '700', letterSpacing: '0.03em', textTransform: 'uppercase', color: 'var(--fb-muted)' },
+          '.cm-mention-title .pi': { color: 'var(--chip-color)', fontSize: '0.72rem' },
+          '.cm-mention-head.more': { borderTop: '1px solid var(--fb-border)', margin: '0.2rem 0' },
           '.cm-file-thumb': { width: '2.2rem', height: '1.6rem', marginRight: '0.5rem', borderRadius: '4px', objectFit: 'cover', verticalAlign: 'middle', backgroundColor: 'var(--fb-panel-alt)' },
           '.cm-tooltip.cm-completionInfo': { padding: '0.4rem', maxWidth: '18rem' },
           // Choix de l'affichage d'un tableau qu'on vient de citer.
@@ -1176,9 +1318,12 @@ onBeforeUnmount(() => {
       </template>
       <span class="hint muted small">{{ $t('/ pour insérer · clic droit pour plus d’actions') }}</span>
     </div>
-    <div ref="host" class="host" @click="onClick" @contextmenu="onContextMenu"></div>
+    <div ref="host" class="host" :class="{ 'code-lang-editable': live && !readonly }" @click="onClick" @contextmenu="onContextMenu"></div>
     <input ref="picker" type="file" accept="image/*" multiple class="picker" @change="onPicked" />
     <ContextMenu ref="menu" :model="menuItems" />
+    <CodeLanguagePicker ref="languagePicker" />
+    <DocImagePickerDialog v-model:visible="imagePickerOpen" :nodes="nodes" :note-path="notePath" @pick="insertExistingImage" @upload="picker?.click()" />
+    <MentionPickerDialog v-model:visible="mentionPickerOpen" :sources="mentionSources" :query="mentionPending?.query" :filter="mentionPending?.filter" @pick="pickMention" />
   </div>
 </template>
 

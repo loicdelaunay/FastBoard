@@ -372,13 +372,14 @@ function cleanPath(raw: string, kind: DocNodeKind): string {
   return relative;
 }
 
-/** Variante libre d'un chemin occupé : `note (2).md`. */
-function freePath(db: Db, spaceId: number, relative: string, template = false): string {
+/** Variante libre d'un chemin occupé : `note (2).md`. `reserved` : chemins déjà promis (en minuscules), libres en base. */
+function freePath(db: Db, spaceId: number, relative: string, template = false, reserved?: ReadonlySet<string>): string {
   const dot = docBaseName(relative).lastIndexOf('.');
   const stem = dot > 0 ? relative.slice(0, relative.length - docBaseName(relative).length + dot) : relative;
   const extension = dot > 0 ? relative.slice(stem.length) : '';
+  const taken = (path: string): boolean => activeNode(db, spaceId, path, template) !== undefined || reserved?.has(path.toLowerCase()) === true;
   let candidate = relative;
-  for (let index = 2; activeNode(db, spaceId, candidate, template); index += 1) candidate = `${stem} (${index})${extension}`;
+  for (let index = 2; taken(candidate); index += 1) candidate = `${stem} (${index})${extension}`;
   return candidate;
 }
 
@@ -451,6 +452,90 @@ export function moveNode(ctx: AppContext, actor: Actor, nodeId: number, nextRaw:
 
 function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, '\\$&');
+}
+
+const TOO_DEEP = 'Trop de dossiers imbriqués à l’arrivée : choisissez un dossier moins profond.';
+
+/** Déplace un fichier ou un dossier sur le disque, en créant ce qu'il faut au-dessus. */
+function moveOnDisk(from: string, to: string, folder: boolean): void {
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  if (!fs.existsSync(from)) {
+    if (folder) fs.mkdirSync(to, { recursive: true });
+    return;
+  }
+  try {
+    fs.renameSync(from, to);
+  } catch {
+    // Destination déjà présente sur le disque (dossier hors de l'arbre) : copie, puis retrait de l'original.
+    fs.cpSync(from, to, { recursive: true, force: true });
+    fs.rmSync(from, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Déplace des éléments vers un autre espace (à sa racine ou dans `rawFolder`). Un dossier emporte tout ce qu'il
+ * contient ; un nom déjà pris à l'arrivée devient « Nom (2) ». Chaque élément garde son identifiant, donc son
+ * historique, ses commentaires, ses étiquettes de version et les favoris. Les salles d'édition ouvertes se ferment
+ * (« déplacé ») : elles vérifiaient les droits de l'ancien espace. Renvoie les éléments déplacés, à leur nouvelle place.
+ */
+export function moveNodesToSpace(ctx: AppContext, actor: Actor, nodeIds: readonly number[], targetSpaceId: number, rawFolder = ''): { nodes: DocNodeDTO[]; movedIds: number[] } {
+  const { db } = ctx;
+  const chosen = [...new Set(nodeIds)].map((id) => requireNode(db, id));
+  const sourceSpaceId = chosen[0]?.space_id;
+  if (sourceSpaceId === undefined) throw badRequest('Choisissez au moins un élément.');
+  if (chosen.some((node) => node.space_id !== sourceSpaceId)) throw badRequest('Les éléments à déplacer doivent venir du même espace.');
+  if (chosen.some((node) => node.deleted_at)) throw conflict('Cet élément est dans la corbeille.');
+  if (targetSpaceId === sourceSpaceId) throw badRequest('Ces éléments sont déjà dans cet espace.');
+  const folder = rawFolder.trim() ? cleanPath(rawFolder, 'folder') : '';
+  const landing = folder ? activeNode(db, targetSpaceId, folder) : undefined;
+  if (landing && landing.kind !== 'folder') throw conflict('Un fichier porte déjà ce nom.');
+
+  // Ce que contient déjà un dossier choisi part avec lui.
+  const folders = chosen.filter((node) => node.kind === 'folder').map((node) => `${node.path.toLowerCase()}/`);
+  const roots = chosen.filter((node) => node.kind === 'template' || !folders.some((prefix) => node.path.toLowerCase().startsWith(prefix)));
+  const reserved = { notes: new Set<string>(), templates: new Set<string>() };
+  const moves: Array<{ node: NodeRow; next: string }> = [];
+  for (const root of roots) {
+    const template = root.kind === 'template';
+    const wanted = template || !folder ? docBaseName(root.path) : `${folder}/${docBaseName(root.path)}`;
+    const next = freePath(db, targetSpaceId, wanted, template, template ? reserved.templates : reserved.notes);
+    (template ? reserved.templates : reserved.notes).add(next.toLowerCase());
+    if (next.split('/').length > DOC_LIMITS.depthMax) throw badRequest(TOO_DEEP);
+    moves.push({ node: root, next });
+    if (root.kind !== 'folder') continue;
+    const inside = db.all<NodeRow>(`SELECT ${NODE_COLUMNS} FROM doc_nodes WHERE space_id = ? AND deleted_at IS NULL AND kind != 'template' AND path LIKE ? ESCAPE ?`, sourceSpaceId, `${escapeLike(root.path)}/%`, '\\');
+    for (const child of inside) {
+      const childNext = next + child.path.slice(root.path.length);
+      if (childNext.split('/').length > DOC_LIMITS.depthMax) throw badRequest(TOO_DEEP);
+      if (activeNode(db, targetSpaceId, childNext)) throw conflict('Un élément porte déjà ce nom.');
+      reserved.notes.add(childNext.toLowerCase());
+      moves.push({ node: child, next: childNext });
+    }
+  }
+  const count = db.get<{ n: number }>('SELECT COUNT(*) AS n FROM doc_nodes WHERE space_id = ? AND deleted_at IS NULL', targetSpaceId)?.n ?? 0;
+  if (count + moves.length > DOC_LIMITS.nodesPerSpace) throw badRequest(`Un espace ne peut pas contenir plus de ${DOC_LIMITS.nodesPerSpace} éléments.`);
+
+  // Ce qui est en cours d'écriture part d'abord sur le disque, à son ancienne place.
+  for (const { node } of moves) if (isTextNode(node)) ctx.docRooms.closeNode(node.id, 'moved', targetSpaceId);
+  const now = nowIso();
+  db.transaction(() => {
+    if (folder) ensureFolders(ctx, targetSpaceId, `${folder}/-`, actor.userId);
+    for (const { node, next } of moves) db.run('UPDATE doc_nodes SET space_id = ?, path = ?, updated_at = ? WHERE id = ?', targetSpaceId, next, now, node.id);
+    db.run('UPDATE doc_spaces SET updated_at = ? WHERE id IN (?, ?)', now, sourceSpaceId, targetSpaceId);
+  });
+  if (folder) fs.mkdirSync(diskPath(ctx, targetSpaceId, folder), { recursive: true });
+  // Sur le disque, un dossier emporte ses fichiers : seuls les éléments choisis se déplacent.
+  for (const { node, next } of moves.filter((move) => roots.includes(move.node))) {
+    try {
+      moveOnDisk(fileOf(ctx, node), fileOf(ctx, { space_id: targetSpaceId, path: next, kind: node.kind }), node.kind === 'folder');
+    } catch (error) {
+      ctx.logger.warn('docs', `Déplacement sur le disque impossible : ${node.path}`, { nodeId: node.id, error: String(error) }, actor.userId);
+    }
+  }
+  ctx.docRooms.publishTree(sourceSpaceId);
+  ctx.docRooms.publishTree(targetSpaceId);
+  ctx.logger.info('docs', `${moves.length} élément(s) déplacé(s) vers un autre espace`, { from: sourceSpaceId, to: targetSpaceId, nodeIds: roots.map((node) => node.id) }, actor.userId);
+  return { nodes: roots.map((node) => toNodeDTO(requireNode(db, node.id))), movedIds: moves.map((move) => move.node.id) };
 }
 
 /** Met à la corbeille : la dernière version d'une note et le fichier d'une image restent 15 jours. */

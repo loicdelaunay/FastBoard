@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import {
   BOARD_LIMITS,
   boardSearchText,
@@ -22,7 +23,7 @@ import { getAuthUser, type AuthUser } from '../services/access.ts';
 import { roleOfRank, ROLE_RANK_SQL } from '../services/spaceRoles.ts';
 import { readSetting, writeSetting } from '../services/appSettings.ts';
 import { foldText } from '../services/tickets.ts';
-import { removeSpaceAssets } from './assets.ts';
+import { assetByKey, assetFile, removeSpaceAssets, storeAsset } from './assets.ts';
 import { sanitizeElements, stateOf, withoutTemplateLink } from './elements.ts';
 import { listBoardVersions, matchingVersion, readBoardVersion, recordBoardBaseline, recordBoardVersion } from './versions.ts';
 
@@ -231,12 +232,13 @@ function cleanPath(raw: string): string {
   return path;
 }
 
-/** Premier chemin libre : « Nom », « Nom (2) »… */
-function freePath(db: Db, spaceId: number, path: string, template = false): string {
-  if (!activeNode(db, spaceId, path, template)) return path;
+/** Premier chemin libre : « Nom », « Nom (2) »… `reserved` : chemins déjà promis (en minuscules), libres en base. */
+function freePath(db: Db, spaceId: number, path: string, template = false, reserved?: ReadonlySet<string>): string {
+  const taken = (candidate: string): boolean => activeNode(db, spaceId, candidate, template) !== undefined || reserved?.has(candidate.toLowerCase()) === true;
+  if (!taken(path)) return path;
   for (let index = 2; ; index += 1) {
     const candidate = `${path} (${index})`;
-    if (!activeNode(db, spaceId, candidate, template)) return candidate;
+    if (!taken(candidate)) return candidate;
   }
 }
 
@@ -311,6 +313,113 @@ export function moveBoardNode(ctx: AppContext, actor: Actor, nodeId: number, raw
 }
 
 const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (char) => `\\${char}`);
+
+const TOO_DEEP = 'Trop de dossiers imbriqués à l’arrivée : choisissez un dossier moins profond.';
+const tooDeep = (path: string): boolean => path.length > BOARD_LIMITS.pathMax || path.split('/').length > BOARD_LIMITS.depthMax;
+
+/**
+ * Ce qu'un tableau déplacé doit changer pour vivre dans son nouvel espace : les images de l'ancien espace qu'il affiche
+ * y sont copiées (elles restent visibles même si l'ancien espace les retire), et un lien vers un modèle resté dans
+ * l'ancien espace est retiré. `null` : rien à changer.
+ */
+function rehomeElements(ctx: AppContext, actor: Actor, elements: readonly BoardElement[], sourceSpaceId: number, targetSpaceId: number, copies: Map<string, string>): BoardElement[] | null {
+  let changed = false;
+  const next = elements.map((element) => {
+    let current = element;
+    if (current.tpl) {
+      const template = ctx.db.get<{ space_id: number }>("SELECT space_id FROM board_nodes WHERE id = ? AND kind = 'template' AND deleted_at IS NULL", current.tpl.id);
+      if (template?.space_id !== targetSpaceId) {
+        current = withoutTemplateLink(current);
+        changed = true;
+      }
+    }
+    if (current.type === 'image') {
+      let key = copies.get(current.asset);
+      if (key === undefined) {
+        key = current.asset;
+        const asset = assetByKey(ctx.db, current.asset);
+        if (asset?.spaceId === sourceSpaceId) {
+          try {
+            key = storeAsset(ctx, actor, targetSpaceId, asset.name, fs.readFileSync(assetFile(ctx, asset.key))).key;
+          } catch (error) {
+            // Fichier manquant ou espace plein : le tableau garde l'image de l'ancien espace, lisible par sa clé.
+            ctx.logger.warn('boards', `Image non copiée lors du déplacement : ${asset.name}`, { assetId: asset.id, error: String(error) }, actor.userId);
+          }
+        }
+        copies.set(current.asset, key);
+      }
+      if (key !== current.asset) {
+        current = { ...current, asset: key };
+        changed = true;
+      }
+    }
+    return current;
+  });
+  return changed ? next : null;
+}
+
+/**
+ * Déplace des tableaux, dossiers ou modèles vers un autre espace (à sa racine ou dans `rawFolder`). Un dossier emporte
+ * tout ce qu'il contient ; un nom déjà pris à l'arrivée devient « Nom (2) ». Chaque tableau garde son identifiant, donc
+ * son historique, ses étiquettes de version et son lien de partage. Les salles d'édition ouvertes se ferment
+ * (« déplacé ») : elles vérifiaient les droits de l'ancien espace. Renvoie les éléments déplacés, à leur nouvelle place.
+ */
+export function moveBoardNodesToSpace(ctx: AppContext, actor: Actor, nodeIds: readonly number[], targetSpaceId: number, rawFolder = ''): { nodes: BoardNodeDTO[]; movedIds: number[] } {
+  const { db } = ctx;
+  const chosen = [...new Set(nodeIds)].map((id) => requireBoardNode(db, id));
+  const sourceSpaceId = chosen[0]?.space_id;
+  if (sourceSpaceId === undefined) throw badRequest('Choisissez au moins un élément.');
+  if (chosen.some((node) => node.space_id !== sourceSpaceId)) throw badRequest('Les éléments à déplacer doivent venir du même espace.');
+  if (chosen.some((node) => node.deleted_at)) throw conflict('Ce tableau est dans la corbeille.');
+  if (targetSpaceId === sourceSpaceId) throw badRequest('Ces éléments sont déjà dans cet espace.');
+  const folder = rawFolder.trim() ? cleanPath(rawFolder) : '';
+  if (folder && activeNode(db, targetSpaceId, folder)?.kind === 'board') throw conflict('Un tableau porte déjà le nom de ce dossier.');
+
+  // Ce que contient déjà un dossier choisi part avec lui.
+  const folders = chosen.filter((node) => node.kind === 'folder').map((node) => `${node.path.toLowerCase()}/`);
+  const roots = chosen.filter((node) => node.kind === 'template' || !folders.some((prefix) => node.path.toLowerCase().startsWith(prefix)));
+  const reserved = { boards: new Set<string>(), templates: new Set<string>() };
+  const moves: Array<{ node: BoardNodeRow; next: string }> = [];
+  for (const root of roots) {
+    const template = root.kind === 'template';
+    const name = root.path.slice(root.path.lastIndexOf('/') + 1);
+    const next = freePath(db, targetSpaceId, template || !folder ? name : `${folder}/${name}`, template, template ? reserved.templates : reserved.boards);
+    if (tooDeep(next)) throw badRequest(TOO_DEEP);
+    (template ? reserved.templates : reserved.boards).add(next.toLowerCase());
+    moves.push({ node: root, next });
+    if (root.kind !== 'folder') continue;
+    const inside = db.all<BoardNodeRow>(`SELECT ${NODE_COLUMNS} FROM board_nodes WHERE space_id = ? AND deleted_at IS NULL AND kind != 'template' AND path LIKE ? ESCAPE '\\'`, sourceSpaceId, `${escapeLike(root.path)}/%`);
+    for (const child of inside) {
+      const childNext = next + child.path.slice(root.path.length);
+      if (tooDeep(childNext)) throw badRequest(TOO_DEEP);
+      if (activeNode(db, targetSpaceId, childNext)) throw conflict('Un élément porte déjà ce nom.');
+      reserved.boards.add(childNext.toLowerCase());
+      moves.push({ node: child, next: childNext });
+    }
+  }
+  const count = db.get<{ count: number }>('SELECT COUNT(*) AS count FROM board_nodes WHERE space_id = ? AND deleted_at IS NULL', targetSpaceId)?.count ?? 0;
+  if (count + moves.length > BOARD_LIMITS.nodesPerSpace) throw conflict(`Un espace ne peut pas contenir plus de ${BOARD_LIMITS.nodesPerSpace} tableaux et dossiers.`);
+
+  // Ce qui est en cours d'édition est enregistré, puis la salle se ferme.
+  for (const { node } of moves) if (node.kind !== 'folder') ctx.boardRooms.closeBoard(node.id, 'moved', targetSpaceId);
+  const now = nowIso();
+  ctx.db.transaction(() => {
+    if (folder) ensureFolders(db, targetSpaceId, `${folder}/-`, actor.userId);
+    for (const { node, next } of moves) db.run('UPDATE board_nodes SET space_id = ?, path = ?, updated_at = ?, updated_by = ? WHERE id = ?', targetSpaceId, next, now, actor.userId, node.id);
+    touchSpace(db, sourceSpaceId);
+    touchSpace(db, targetSpaceId);
+  });
+  const copies = new Map<string, string>();
+  for (const { node } of moves) {
+    if (node.kind === 'folder') continue;
+    const elements = rehomeElements(ctx, actor, readBoardElements(ctx, node), sourceSpaceId, targetSpaceId, copies);
+    if (elements) storeElements(db, node.id, elements, null, actor.userId);
+  }
+  ctx.boardRooms.publishTree(sourceSpaceId);
+  ctx.boardRooms.publishTree(targetSpaceId);
+  ctx.logger.info('boards', `${moves.length} élément(s) déplacé(s) vers un autre espace`, { from: sourceSpaceId, to: targetSpaceId, nodeIds: roots.map((node) => node.id) }, actor.userId);
+  return { nodes: roots.map((node) => toNodeDTO(requireBoardNode(db, node.id))), movedIds: moves.map((move) => move.node.id) };
+}
 
 /** Met à la corbeille un tableau, ou un dossier et tout ce qu'il contient. */
 export function deleteBoardNode(ctx: AppContext, actor: Actor, nodeId: number): void {

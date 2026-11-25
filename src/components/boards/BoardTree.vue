@@ -10,7 +10,11 @@ import { boardTitle, type BoardNodeDTO } from '@shared/boards';
 import { t } from '@/i18n';
 import { matchesQuery } from '@/utils/search';
 
-/** Arbre d'un espace de tableaux blancs : dossiers et sous-dossiers, tableaux ; glisser-déposer pour ranger. */
+/**
+ * Arbre d'un espace de tableaux blancs : dossiers et sous-dossiers, tableaux ; glisser-déposer pour ranger. Ctrl (Cmd)
+ * + clic ajoute ou retire un élément de la sélection, Maj + clic sélectionne une plage ; le clic droit agit alors sur
+ * toute la sélection (déplacer vers un autre espace).
+ */
 const props = defineProps<{ nodes: BoardNodeDTO[]; selectedId: number | null; editable: boolean; spaceId: number; owner?: boolean; templates?: BoardNodeDTO[] }>();
 const emit = defineEmits<{
   open: [node: BoardNodeDTO];
@@ -18,6 +22,8 @@ const emit = defineEmits<{
   rename: [node: BoardNodeDTO];
   remove: [node: BoardNodeDTO];
   move: [node: BoardNodeDTO, folder: string];
+  /** Vers un autre espace (le contenu d'un dossier choisi n'est pas répété). */
+  moveTo: [nodes: BoardNodeDTO[]];
   duplicate: [node: BoardNodeDTO];
   share: [node: BoardNodeDTO];
   collapse: [];
@@ -87,7 +93,47 @@ function toggleAll(): void {
   setClosed(allClosed.value ? new Set() : new Set(folders.value.map((node) => node.path)));
 }
 
-function click(node: BoardNodeDTO): void {
+// --- Sélection ---
+const selection = ref(new Set<number>());
+const anchor = ref<number | null>(null);
+const selectedNodes = computed(() => props.nodes.filter((node) => selection.value.has(node.id)));
+const multi = computed(() => selection.value.size > 1);
+
+/** Sans ce que contient déjà un dossier choisi : il l'emporte avec lui. */
+function outermost(nodes: readonly BoardNodeDTO[]): BoardNodeDTO[] {
+  const folders = nodes.filter((node) => node.kind === 'folder').map((node) => `${node.path}/`);
+  return nodes.filter((node) => !folders.some((prefix) => node.path.startsWith(prefix)));
+}
+
+function rangeIds(from: number, to: number): number[] {
+  const ids = rows.value.map((row) => row.node.id);
+  const start = ids.indexOf(from);
+  const end = ids.indexOf(to);
+  if (start < 0 || end < 0) return [to];
+  return ids.slice(Math.min(start, end), Math.max(start, end) + 1);
+}
+
+/** Ctrl ou Maj : la sélection change, rien ne s'ouvre. Vrai si le clic a été pris par la sélection. */
+function selectWith(node: BoardNodeDTO, event: MouseEvent | KeyboardEvent): boolean {
+  if (event.shiftKey && anchor.value !== null) {
+    selection.value = new Set(rangeIds(anchor.value, node.id));
+    return true;
+  }
+  if (event.ctrlKey || event.metaKey) {
+    const next = new Set(selection.value);
+    if (next.has(node.id) && next.size > 1) next.delete(node.id);
+    else next.add(node.id);
+    selection.value = next;
+    anchor.value = node.id;
+    return true;
+  }
+  selection.value = new Set([node.id]);
+  anchor.value = node.id;
+  return false;
+}
+
+function click(node: BoardNodeDTO, event?: MouseEvent | KeyboardEvent): void {
+  if (event && selectWith(node, event)) return;
   if (node.kind === 'folder') {
     folder.value = folder.value === node.path ? '' : node.path;
     return;
@@ -124,6 +170,7 @@ function openMenu(event: MouseEvent, node: BoardNodeDTO | null): void {
       ...(props.editable
         ? [
             { label: t('Renommer'), icon: 'pi pi-tag', command: () => emit('rename', node) },
+            { label: t('Déplacer vers…'), icon: 'pi pi-arrow-up-right', command: () => emit('moveTo', [node]) },
             { separator: true },
             { label: t('Supprimer'), icon: 'pi pi-trash', class: 'menu-danger', command: () => emit('remove', node) },
           ]
@@ -131,6 +178,21 @@ function openMenu(event: MouseEvent, node: BoardNodeDTO | null): void {
     ];
     menu.value?.show(event);
     return;
+  }
+  // Clic droit sur une sélection de plusieurs éléments : ce qui vaut pour tous.
+  if (node && multi.value && selection.value.has(node.id)) {
+    menuItems.value = [
+      { label: t('{n} élément sélectionné|{n} éléments sélectionnés', { n: selection.value.size }), disabled: true },
+      { separator: true },
+      ...(props.editable ? [{ label: t('Déplacer vers…'), icon: 'pi pi-arrow-up-right', command: () => emit('moveTo', outermost(selectedNodes.value)) }] : []),
+      { label: t('Désélectionner'), icon: 'pi pi-times', command: () => (selection.value = new Set()) },
+    ];
+    menu.value?.show(event);
+    return;
+  }
+  if (node && !selection.value.has(node.id)) {
+    selection.value = new Set([node.id]);
+    anchor.value = node.id;
   }
   const target = node?.kind === 'folder' ? node.path : node ? parentOf(node.path) : folder.value;
   menuItems.value = [
@@ -143,6 +205,7 @@ function openMenu(event: MouseEvent, node: BoardNodeDTO | null): void {
             ? [
                 { separator: true },
                 { label: t('Renommer'), icon: 'pi pi-pencil', command: () => emit('rename', node) },
+                { label: t('Déplacer vers…'), icon: 'pi pi-arrow-up-right', command: () => emit('moveTo', [node]) },
                 ...(node.kind === 'board' ? [{ label: t('Dupliquer'), icon: 'pi pi-clone', command: () => emit('duplicate', node) }] : []),
                 ...(node.kind === 'board' && props.owner ? [{ label: t('Partager…'), icon: 'pi pi-share-alt', command: () => emit('share', node) }] : []),
                 { separator: true },
@@ -172,14 +235,16 @@ function openMenu(event: MouseEvent, node: BoardNodeDTO | null): void {
       <li v-for="row in rows" :key="row.node.id" role="treeitem" :aria-expanded="row.node.kind === 'folder' ? !closed.has(row.node.path) : undefined">
         <div
           class="row"
-          :class="{ active: row.node.id === selectedId, chosen: row.node.kind === 'folder' && folder === row.node.path, over: over === row.node.path }"
+          :class="{ active: row.node.id === selectedId, chosen: row.node.kind === 'folder' && folder === row.node.path, over: over === row.node.path, selected: multi && selection.has(row.node.id) }"
+          :aria-selected="selection.has(row.node.id)"
           :style="{ paddingLeft: `${0.4 + row.depth * 0.9}rem` }"
           :draggable="editable"
           tabindex="0"
           :title="row.node.path"
-          @click="click(row.node)"
+          @click="click(row.node, $event)"
           @dblclick="row.node.kind === 'folder' && toggle(row.node.path)"
           @keydown.enter="click(row.node)"
+          @keydown.esc="selection = new Set()"
           @contextmenu="openMenu($event, row.node)"
           @dragstart="dragged = row.node"
           @dragend="dragged = null; over = null"
@@ -271,6 +336,9 @@ function openMenu(event: MouseEvent, node: BoardNodeDTO | null): void {
   background: var(--fb-accent-soft);
   color: var(--fb-accent);
   font-weight: 600;
+}
+.row.selected {
+  background: color-mix(in srgb, var(--fb-accent) 14%, transparent);
 }
 .row.chosen {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fb-accent) 45%, transparent);

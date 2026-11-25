@@ -35,7 +35,7 @@ export class DocSession {
   readonly canWrite = ref(false);
   readonly savedAt = ref<string | null>(null);
   /** Fichier supprimé ou accès retiré pendant l'édition. */
-  readonly closed = ref<'deleted' | 'revoked' | null>(null);
+  readonly closed = ref<'deleted' | 'revoked' | 'moved' | null>(null);
   readonly #stops: Array<() => void> = [];
 
   constructor(nodeId: number, user: Pick<DocPresence, 'id' | 'name'>) {

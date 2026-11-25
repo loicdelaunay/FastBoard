@@ -341,11 +341,11 @@ export class DocRooms {
     }
   }
 
-  /** Ferme la salle d'un fichier supprimé. */
-  closeNode(nodeId: number, reason: 'deleted' | 'revoked'): void {
+  /** Ferme la salle d'un fichier supprimé, ou déplacé vers un autre espace (`spaceId` : celui d'arrivée). */
+  closeNode(nodeId: number, reason: 'deleted' | 'revoked' | 'moved', spaceId?: number): void {
     const room = this.#rooms.get(nodeId);
     if (!room) return;
-    for (const peer of room.peers.keys()) peer.send({ t: 'doc.closed', nodeId, reason });
+    for (const peer of room.peers.keys()) peer.send({ t: 'doc.closed', nodeId, reason, ...(spaceId !== undefined ? { spaceId } : {}) });
     this.#close(room);
   }
 

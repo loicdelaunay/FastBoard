@@ -14,6 +14,33 @@ export function codeLanguage(name: string): LanguageDescription | null {
   return LanguageDescription.matchLanguageName(languages, wanted, false) ?? LanguageDescription.matchFilename(languages, `code.${wanted}`) ?? null;
 }
 
+/** Nom affiché du langage d'un bloc (`Python`, `Shell`…), ou ce qui est écrit s'il est inconnu. */
+export function codeLanguageLabel(name: string): string {
+  return codeLanguage(name)?.name ?? name.trim();
+}
+
+/** Nom à écrire après ``` pour un langage : lisible, et reconnu par la coloration. */
+function fenceName(description: LanguageDescription): string {
+  const lower = description.name.toLowerCase();
+  if (!/\s/.test(lower)) return lower;
+  return description.alias.find((alias) => !/\s/.test(alias)) ?? lower.replace(/\s+/g, '');
+}
+
+export interface CodeLanguageOption {
+  /** Écrit après ``` (vide : texte brut). */
+  value: string;
+  label: string;
+  /** Autres noms, pour la recherche (`py`, `sh`…). */
+  aliases: readonly string[];
+}
+
+/** Langages proposés pour un bloc de code, par ordre alphabétique. */
+export function codeLanguageOptions(): CodeLanguageOption[] {
+  return languages
+    .map((description) => ({ value: fenceName(description), label: description.name, aliases: [...description.alias, ...description.extensions] }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+}
+
 /** Colore les blocs de code d'un rendu qui ne le sont pas encore ; un langage inconnu laisse le bloc tel quel. */
 export async function highlightCodeBlocks(root: ParentNode): Promise<void> {
   const blocks = [...root.querySelectorAll<HTMLElement>('pre.md-code > code[data-lang]:not([data-highlighted])')];

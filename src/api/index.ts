@@ -396,6 +396,8 @@ export const api = {
   boardCreateNode: (spaceId: number, path: string, kind: BoardNodeKind, elements?: BoardElement[]) => http<{ node: BoardNodeDTO }>('POST', `/boards/spaces/${spaceId}/nodes`, { body: { path, kind, ...(elements ? { elements } : {}) } }),
   boardTrash: (spaceId: number) => http<{ nodes: BoardNodeDTO[] }>('GET', `/boards/spaces/${spaceId}/trash`),
   boardMoveNode: (nodeId: number, path: string) => http<{ node: BoardNodeDTO }>('PATCH', `/boards/nodes/${nodeId}`, { body: { path } }),
+  /** Vers un autre espace (à sa racine, ou dans `folder`). */
+  boardMoveToSpace: (nodeIds: number[], spaceId: number, folder = '') => http<{ nodes: BoardNodeDTO[] }>('POST', '/boards/nodes/move', { body: { nodeIds, spaceId, folder } }),
   boardDeleteNode: (nodeId: number) => http<{ ok: true }>('DELETE', `/boards/nodes/${nodeId}`),
   boardRestoreNode: (nodeId: number) => http<{ node: BoardNodeDTO }>('POST', `/boards/nodes/${nodeId}/restore`, { body: {} }),
   boardDuplicate: (nodeId: number) => http<{ node: BoardNodeDTO }>('POST', `/boards/nodes/${nodeId}/duplicate`, { body: {} }),
@@ -455,6 +457,8 @@ export const api = {
   wikiPage: (slug: string, nodeId: number) => http<WikiPageDTO>('GET', `/wiki/${encodeURIComponent(slug)}/pages/${nodeId}`, { silent401: true }),
   docSetContent: (nodeId: number, content: string) => http<{ ok: true }>('PUT', `/documentation/nodes/${nodeId}/content`, { body: { content } }),
   docMoveNode: (nodeId: number, path: string) => http<{ node: DocNodeDTO }>('PATCH', `/documentation/nodes/${nodeId}`, { body: { path } }),
+  /** Vers un autre espace (à sa racine, ou dans `folder`). */
+  docMoveToSpace: (nodeIds: number[], spaceId: number, folder = '') => http<{ nodes: DocNodeDTO[] }>('POST', '/documentation/nodes/move', { body: { nodeIds, spaceId, folder } }),
   docDeleteNode: (nodeId: number) => http<{ ok: true }>('DELETE', `/documentation/nodes/${nodeId}`),
   docRestoreNode: (nodeId: number) => http<{ node: DocNodeDTO }>('POST', `/documentation/nodes/${nodeId}/restore`, { body: {} }),
   docVersions: (nodeId: number) => http<{ versions: DocVersionDTO[]; retentionDays: number }>('GET', `/documentation/nodes/${nodeId}/versions`),
@@ -465,7 +469,7 @@ export const api = {
   docForkVersion: (versionId: number) => http<{ node: DocNodeDTO }>('POST', `/documentation/versions/${versionId}/fork`, { body: {} }),
   docTags: (q: string) => http<{ tags: VersionTagHitDTO[] }>('GET', `/documentation/tags?q=${encodeURIComponent(q)}`),
   docRestoreVersion: (versionId: number, content?: string) => http<{ ok: true }>('POST', `/documentation/versions/${versionId}/restore`, { body: content === undefined ? {} : { content } }),
-  docSearch: (q: string) => http<{ files: DocSearchHitDTO[] }>('GET', `/documentation/search?q=${encodeURIComponent(q)}`),
+  docSearch: (q: string, limit = 10) => http<{ files: DocSearchHitDTO[] }>('GET', `/documentation/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   docApplyImport: (spaceId: number, importId: string, decisions: Array<{ path: string; action: DocImportAction; content?: string }>) =>
     http<{ written: number; deleted: number }>('POST', `/documentation/spaces/${spaceId}/import/${importId}/apply`, { body: { decisions } }),
   docImportCompare: (spaceId: number, importId: string, path: string) => http<DocImportCompareDTO>('GET', `/documentation/spaces/${spaceId}/import/${importId}/compare?path=${encodeURIComponent(path)}`),

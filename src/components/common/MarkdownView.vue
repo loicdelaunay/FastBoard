@@ -225,6 +225,39 @@ function onClick(event: MouseEvent): void {
   background: none;
   color: inherit;
 }
+/* Pastille du langage d'un bloc de code, en haut à droite ; là où l'on peut écrire, un clic le change. */
+.markdown pre.md-code {
+  position: relative;
+}
+.markdown .md-code-lang {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.45rem;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid var(--fb-border);
+  border-radius: 999px;
+  background: var(--fb-panel);
+  color: var(--fb-muted);
+  font-family: var(--fb-font, system-ui, sans-serif);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  opacity: 0.85;
+  user-select: none;
+}
+.markdown .md-code-lang::before {
+  content: attr(data-label);
+}
+.code-lang-editable .md-code-lang {
+  cursor: pointer;
+}
+.code-lang-editable .md-code-lang:hover {
+  border-color: var(--fb-accent);
+  color: var(--fb-text);
+  opacity: 1;
+}
+.code-lang-editable .md-code-lang::after {
+  content: ' ▾';
+}
 .markdown table {
   border-collapse: collapse;
   display: block;

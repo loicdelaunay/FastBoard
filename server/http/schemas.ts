@@ -642,6 +642,12 @@ export const docNodeSchema = z.object({
   fromId: id.optional().describe('Note ou modèle de l’espace dont partir, à la place de `content` : une note créée d’après un modèle reçoit son texte, `{{title}}`, `{{date}}`, `{{time}}` et `{{author}}` remplis ; sinon le texte est copié tel quel.'),
 });
 export const docMoveSchema = z.object({ path: z.string().min(1).max(1000).describe('Nouveau chemin (renommage ou déplacement).') });
+/** Vers un autre espace : des éléments d'un même espace, à la racine de l'espace d'arrivée ou dans un de ses dossiers. */
+export const spaceMoveSchema = z.object({
+  nodeIds: z.array(id).min(1).max(500).describe('Éléments à déplacer, tous du même espace (un dossier emporte son contenu).'),
+  spaceId: id.describe('Espace d’arrivée (éditeur requis, comme dans l’espace de départ).'),
+  folder: z.string().max(1000).default('').describe('Dossier d’arrivée, créé au besoin ; vide : la racine.'),
+});
 export const docContentSchema = z.object({ content: z.string().max(DOC_LIMITS.fileChars) });
 export const docMemoSchema = z.object({ memo: z.string().max(DOC_LIMITS.memoMax).describe('À quoi sert ce fichier ou ce dossier (vide pour effacer).') });
 export const docFolderStyleSchema = z.object({
@@ -672,7 +678,7 @@ export const docCommentSchema = z.object({
   parentId: id.optional().describe('Commentaire auquel celui-ci répond.'),
 });
 export const docCommentResolveSchema = z.object({ resolved: z.boolean() });
-export const docSearchSchema = z.object({ q: z.string().trim().max(100).default('') });
+export const docSearchSchema = z.object({ q: z.string().trim().max(100).default(''), limit: z.coerce.number().int().min(1).max(60).default(10).describe('Nombre de notes au plus.') });
 
 // --- Tableaux blancs ---------------------------------------------------------------------------------------------------
 

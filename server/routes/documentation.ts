@@ -24,6 +24,7 @@ import {
   listTrash,
   listVersions,
   moveNode,
+  moveNodesToSpace,
   nodeInfo,
   readBytes,
   readText,
@@ -50,14 +51,14 @@ import {
 } from '../docs/store.ts';
 import { badRequest, conflict, notFound } from '../http/errors.ts';
 import { actorOf, csrfGuard, currentUser, requireAuth, sessionOnly } from '../http/middleware.ts';
-import { docCommentResolveSchema, docCommentSchema, docContentSchema, docFolderStyleSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemoSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSiteSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema, spaceGroupSchema, tagSearchSchema, versionTagSchema, versionTagUpdateSchema } from '../http/schemas.ts';
+import { docCommentResolveSchema, docCommentSchema, docContentSchema, docFolderStyleSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemoSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSiteSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema, spaceGroupSchema, spaceMoveSchema, tagSearchSchema, versionTagSchema, versionTagUpdateSchema } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal } from '../services/access.ts';
 import { listSpaceGroups } from '../services/groupRows.ts';
 import { removeSpaceGroup, setSpaceGroup } from '../services/groups.ts';
 import { appInfo } from '../services/appSettings.ts';
 import { contentDisposition } from '../services/attachments.ts';
-import { setRagScope } from '../rag/index.ts';
+import { forgetRagSources, setRagScope } from '../rag/index.ts';
 import { forkDocVersion, searchDocTags, tagDocVersion } from '../docs/tags.ts';
 
 function decodedName(raw: string | undefined): string {
@@ -380,6 +381,17 @@ export function documentationRouter(ctx: AppContext): Router {
     res.json(noteLinks(ctx, currentUser(res), node));
   });
 
+  // Vers un autre espace : éditeur des deux côtés. Ce qui part quitte aussitôt l'index du RAG de l'ancien espace.
+  router.post('/documentation/nodes/move', (req, res) => {
+    const input = parse(spaceMoveSchema, req.body);
+    const user = currentUser(res);
+    for (const nodeId of new Set(input.nodeIds)) nodeAccess(res, nodeId, 'editor');
+    requireSpace(ctx, user, input.spaceId, 'editor');
+    const { nodes, movedIds } = moveNodesToSpace(ctx, actorOf(req, res), input.nodeIds, input.spaceId, input.folder);
+    forgetRagSources(ctx, 'doc', movedIds);
+    res.json({ nodes });
+  });
+
   router.patch('/documentation/nodes/:id', (req, res) => {
     const { node } = nodeAccess(res, idParam(req.params.id), 'editor');
     res.json({ node: moveNode(ctx, actorOf(req, res), node.id, parse(docMoveSchema, req.body).path) });
@@ -470,7 +482,8 @@ export function documentationRouter(ctx: AppContext): Router {
 
   router.get('/documentation/search', (req, res) => {
     requireDocsEnabled(ctx.db);
-    res.json({ files: searchNodes(ctx, currentUser(res), parse(docSearchSchema, req.query).q) });
+    const { q, limit } = parse(docSearchSchema, req.query);
+    res.json({ files: searchNodes(ctx, currentUser(res), q, limit) });
   });
 
   return router;

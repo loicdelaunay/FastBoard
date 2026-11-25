@@ -97,8 +97,8 @@ export type ServerMessage =
   /** Curseurs et sélections des participants (Yjs, base64). */
   | { t: 'doc.awareness'; nodeId: number; update: string }
   | { t: 'doc.saved'; nodeId: number; at: string }
-  /** Fichier supprimé ou accès retiré pendant l'édition. */
-  | { t: 'doc.closed'; nodeId: number; reason: 'deleted' | 'revoked' }
+  /** Fichier supprimé, accès retiré pendant l'édition, ou fichier déplacé vers un autre espace (`spaceId` : celui d'arrivée). */
+  | { t: 'doc.closed'; nodeId: number; reason: 'deleted' | 'revoked' | 'moved'; spaceId?: number }
   /** Arborescence d'un espace de tableaux blancs modifiée. */
   | { t: 'boards.tree'; spaceId: number; nodes: BoardNodeDTO[] }
   /** Rôle ou réglages changés dans un espace de tableaux : relire ses droits. */
@@ -109,8 +109,8 @@ export type ServerMessage =
   | { t: 'board.update'; boardId: number; update: string }
   | { t: 'board.awareness'; boardId: number; update: string }
   | { t: 'board.saved'; boardId: number; at: string }
-  /** `changed` : les droits ont changé, se raccorder. */
-  | { t: 'board.closed'; boardId: number; reason: 'deleted' | 'revoked' | 'changed' }
+  /** `changed` : les droits ont changé, se raccorder ; `moved` : tableau déplacé vers un autre espace (`spaceId`). */
+  | { t: 'board.closed'; boardId: number; reason: 'deleted' | 'revoked' | 'changed' | 'moved'; spaceId?: number }
   | { t: 'pong' }
   | { t: 'error'; message: string };
 

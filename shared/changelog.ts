@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.27.0';
+export const APP_VERSION = '2.28.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,20 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.28.0',
+    date: '2026-11-25',
+    changes: [
+      { category: 'Nouveauté', text: 'Documentation et tableaux blancs : clic droit sur un ou plusieurs éléments, « Déplacer vers… » les envoie dans un autre espace, à sa racine ou dans un de ses dossiers ; ils gardent leur historique, leurs commentaires et leur partage.' },
+      { category: 'Sécurité', text: 'Un élément déplacé quitte aussitôt l’ancien espace pour qui n’a pas accès au nouveau, y compris pour l’assistant IA et la recherche sémantique ; les images d’un tableau déplacé sont copiées dans son nouvel espace.' },
+      { category: 'Amélioration', text: 'Tableaux blancs : Ctrl + clic et Maj + clic sélectionnent plusieurs éléments dans l’arbre.' },
+      { category: 'Nouveauté', text: 'Mentions « @ » : des pastilles filtrent par type (personnes, tickets, documents, tableaux blancs, versions), chacun avec son icône et sa couleur ; « Voir tout… » ouvre une fenêtre pour trouver vite l’élément quand la liste ne suffit pas.' },
+      { category: 'Amélioration', text: 'Recherche Ctrl + K : les mêmes pastilles par catégorie (Tab pour passer de l’une à l’autre), et les tableaux blancs y sont trouvés.' },
+      { category: 'Nouveauté', text: 'Documentation : « Image » propose de réutiliser une image déjà rangée dans l’espace (recherche, vignettes) ou d’en importer une depuis l’ordinateur ; l’image s’insère sur sa propre ligne.' },
+      { category: 'Nouveauté', text: 'Blocs de code : une pastille en haut à droite affiche leur langage ; un clic permet d’en choisir un autre.' },
+      { category: 'Nouveauté', text: 'Documentation : l’adresse suit l’endroit lu (`#etape-2+12` : le titre au-dessus et le décalage) ; en changeant de note ou d’onglet puis en revenant, avec Précédent ou en ouvrant un lien partagé, la note s’ouvre au même endroit.' },
+    ],
+  },
   {
     version: '2.27.0',
     date: '2026-11-25',

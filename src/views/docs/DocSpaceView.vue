@@ -24,6 +24,8 @@ import DocEditor from '@/components/docs/DocEditor.vue';
 import DocHistoryDialog from '@/components/docs/DocHistoryDialog.vue';
 import DocImportDialog from '@/components/docs/DocImportDialog.vue';
 import DocMembersDialog from '@/components/docs/DocMembersDialog.vue';
+import MoveToSpaceDialog from '@/components/common/MoveToSpaceDialog.vue';
+import { fenceLanguageChange, matchingFences } from '@shared/codeFences';
 import DocNodeInfoDialog from '@/components/docs/DocNodeInfoDialog.vue';
 import DocFolderStyleDialog from '@/components/docs/DocFolderStyleDialog.vue';
 import DocOutline from '@/components/docs/DocOutline.vue';
@@ -44,6 +46,8 @@ import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
 import { downloadFrom } from '@/utils/files';
 import { clearCitedBlocks, clearPreviewLines, markCitedBlocks, numberPreviewLines } from '@/utils/citedPreview';
+import { pendingAnchor } from '@/utils/docRender';
+import { anchorLine, lineAnchor } from '@shared/docAnchors';
 import { markdownBlocks } from '@/utils/markdown';
 import { formatDateTime, formatRelative } from '@/utils/format';
 import { notify, notifyError } from '@/utils/notify';
@@ -108,10 +112,11 @@ watch(
   { immediate: true },
 );
 
-// Chaque fichier affiché est une étape du navigateur : précédent et suivant passent d'une note à l'autre.
+// Chaque fichier affiché est une étape du navigateur : précédent et suivant passent d'une note à l'autre. L'adresse
+// reprend l'endroit où l'on en était dans la note où l'on va (son ancre).
 watch(fileId, (id) => {
   if (!ready.value || queryFile() === id) return;
-  void router.push({ query: id ? { file: String(id) } : {} });
+  void router.push({ query: id ? { file: String(id) } : {}, hash: id ? (placeOf(id) ?? '') : '' });
 });
 watch(
   () => route.query.file,
@@ -304,6 +309,7 @@ function onPreviewScroll(): void {
     if (pane && !writing.value && !restoringPosition) {
       topLine = previewTopLine() ?? topLine;
       shareLine();
+      noteAnchor();
     }
     if (!pane || !showOutline.value || Date.now() < followAfter) return;
     const elements = renderedHeadings();
@@ -317,6 +323,7 @@ function onEditorLine(line: number, fraction = 0): void {
   if (!restoringPosition) {
     topLine = line + fraction;
     shareLine();
+    noteAnchor();
   }
   // Défilement de l'éditeur sans déplacer le curseur : l'aperçu suit le haut de l'éditeur.
   if (Date.now() > cursorSyncedAt + 400) syncPreview(line, 0);
@@ -428,8 +435,103 @@ watch([mode, writing], async () => {
     }, 180);
   });
 });
-// Une autre note repart du haut.
+// Une autre note repart du haut (ou de son ancre, voir plus bas).
 watch(() => selected.value?.id, () => (topLine = 1));
+
+// --- Ancre de l'adresse : l'endroit lu (titre au-dessus et décalage, `#etape-2+12`), pour y revenir et le partager ---
+const PLACES_KEY = 'fb.docs.places';
+/** Dernier endroit lu de chaque note (son ancre), retrouvé en y revenant pendant la session du navigateur. */
+const places = new Map<number, string>(
+  (() => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(PLACES_KEY) ?? '[]') as unknown;
+      return Array.isArray(stored) ? stored.filter((entry): entry is [number, string] => Array.isArray(entry) && typeof entry[0] === 'number' && typeof entry[1] === 'string') : [];
+    } catch {
+      return [];
+    }
+  })(),
+);
+const placeOf = (nodeId: number): string | undefined => places.get(nodeId);
+function rememberPlace(nodeId: number, hash: string): void {
+  if (places.get(nodeId) === hash) return;
+  places.delete(nodeId);
+  if (hash) places.set(nodeId, hash);
+  // Les plus anciennes s'oublient.
+  while (places.size > 300) places.delete(places.keys().next().value!);
+}
+function savePlaces(): void {
+  try {
+    sessionStorage.setItem(PLACES_KEY, JSON.stringify([...places]));
+  } catch {
+    // Stockage indisponible : l'endroit est gardé pour cette page seulement.
+  }
+}
+
+/** Ancre que l'on a soi-même mise dans l'adresse : ce n'est pas une demande d'aller ailleurs. */
+let writtenHash = '';
+let anchorTimer: number | undefined;
+/** Tant que l'on n'a pas repris la main, l'écran revient sur l'ancre (le rendu se précise peu à peu). */
+let anchorScroll = false;
+let anchorTimers: number[] = [];
+
+/** L'endroit lu a changé : il est retenu pour la note, puis l'adresse le reprend (sans étape dans l'historique). */
+function noteAnchor(): void {
+  const node = selected.value;
+  if (!node || !isText(node) || anchorScroll) return;
+  const hash = (() => {
+    const anchor = lineAnchor(headings.value, topLine);
+    return anchor ? `#${anchor}` : '';
+  })();
+  rememberPlace(node.id, hash);
+  window.clearTimeout(anchorTimer);
+  anchorTimer = window.setTimeout(() => {
+    savePlaces();
+    if (queryFile() !== node.id || selected.value?.id !== node.id) return;
+    const target = router.resolve({ query: route.query, hash });
+    if (target.hash === route.hash) return;
+    writtenHash = target.hash;
+    void router.replace({ query: route.query, hash });
+  }, 350);
+}
+
+/** Amène l'écran à l'endroit d'une ancre ; quelques essais, le temps que le texte, les images et les schémas se placent. */
+function goToAnchor(hash: string): void {
+  const line = anchorLine(headings.value, hash);
+  if (line === null) return;
+  topLine = line;
+  anchorTimers.forEach((timer) => window.clearTimeout(timer));
+  anchorScroll = true;
+  restoringPosition = true;
+  const go = (): void => {
+    if (!anchorScroll) return;
+    if (writing.value) editor.value?.scrollToSourceLine(line);
+    else scrollPreviewToLine(line, 0);
+  };
+  anchorTimers = [80, 400, 900, 1600].map((delay) => window.setTimeout(go, delay));
+  anchorTimers.push(
+    window.setTimeout(() => {
+      anchorScroll = false;
+      restoringPosition = false;
+    }, 1800),
+  );
+}
+
+/** La note ouverte a une ancre (adresse, ou dernier endroit lu) : on y va, sauf si autre chose dit où aller. */
+function openAtAnchor(): void {
+  const node = selected.value;
+  if (!node || !isText(node) || !synced.value || queryFile() !== node.id) return;
+  if (cited.value || follow.following.value !== null || pendingAnchor.value?.path === node.path) return;
+  const hash = route.hash || placeOf(node.id) || '';
+  if (hash) goToAnchor(hash);
+}
+watch([() => selected.value?.id, synced], openAtAnchor);
+// Ancre changée dans l'adresse (précédent, suivant, ou écrite à la main) : on y va.
+watch(
+  () => route.hash,
+  (hash) => {
+    if (hash && hash !== writtenHash) openAtAnchor();
+  },
+);
 
 // --- Suivre quelqu'un : notre page défile là où il lit ---
 let lineSharedAt = 0;
@@ -467,8 +569,12 @@ watch([() => follow.following.value, synced, mode, writing, () => selected.value
 
 /** Notre première action dans la note (clic, molette, touche) nous rend la main. */
 function onFollowAction(event: Event): void {
-  // On reprend la main : les lignes citées ne ramènent plus l'écran sur elles.
+  // On reprend la main : les lignes citées, ni l'ancre de l'adresse, ne ramènent plus l'écran sur elles.
   citedScroll = false;
+  if (anchorScroll) {
+    anchorScroll = false;
+    restoringPosition = false;
+  }
   if (follow.following.value === null) return;
   if (event instanceof KeyboardEvent && ['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return;
   follow.stop();
@@ -687,7 +793,9 @@ function revealComment(comment: DocCommentDTO): void {
 }
 
 watch(closed, (reason) => {
-  if (reason === 'deleted') tabsState.prune(new Set(allNodes.value.filter((node) => node.id !== session.value?.nodeId).map((node) => node.id)));
+  // Déplacée par quelqu'un d'autre (pas par soi, depuis « Déplacer vers… ») : on le dit, puis l'onglet se ferme.
+  if (reason === 'moved' && !moveOpen.value) notify('info', t('Cette note vient d’être déplacée dans un autre espace.'));
+  if (reason === 'deleted' || reason === 'moved') tabsState.prune(new Set(allNodes.value.filter((node) => node.id !== session.value?.nodeId).map((node) => node.id)));
   else if (reason === 'revoked' && !store.revoked) void store.reload(spaceId.value).catch(() => undefined);
 });
 
@@ -764,6 +872,37 @@ async function submitName(): Promise<void> {
   } finally {
     nameBusy.value = false;
   }
+}
+
+// --- Langage d'un bloc de code, choisi sur sa pastille dans le rendu ---
+function setCodeLanguage(change: { lang: string; code: string; occurrence: number; next: string }): void {
+  const current = session.value;
+  if (!current?.canWrite.value) return;
+  const text = current.text.toString();
+  const fence = matchingFences(text, change.lang, change.code)[change.occurrence];
+  if (!fence) {
+    notify('warn', t('Ce bloc de code a changé entre-temps.'));
+    return;
+  }
+  const { from, to, insert } = fenceLanguageChange(text, fence, change.next);
+  // Écrit dans le document partagé : les autres le voient aussitôt, et l'historique garde la modification.
+  current.doc.transact(() => {
+    current.text.delete(from, to - from);
+    current.text.insert(from, insert);
+  });
+}
+
+// --- Déplacer vers un autre espace ---
+const moveOpen = ref(false);
+const moveItems = ref<Array<{ id: number; name: string; kind: string }>>([]);
+
+function askMoveTo(nodes: DocNodeDTO[]): void {
+  moveItems.value = nodes.map((node) => ({ id: node.id, name: node.kind === 'template' || node.kind === 'markdown' ? docTitle(node.path) : docBaseName(node.path), kind: node.kind }));
+  moveOpen.value = true;
+}
+
+function onMovedTo(_spaceId: number, spaceName: string, movedIds: number[]): void {
+  notify('success', movedIds.length > 1 ? t('{n} éléments déplacés vers « {name} »', { n: movedIds.length, name: spaceName }) : t('Déplacé vers « {name} »', { name: spaceName }));
 }
 
 async function moveNode(node: DocNodeDTO, folder: string): Promise<void> {
@@ -1181,6 +1320,7 @@ const recent = computed(() =>
         @remove="askRemove"
         @remove-many="askRemoveMany"
         @move="moveNode"
+        @move-to="askMoveTo"
         @export="exportNode"
         @import="askImport"
         @info="showInfo($event, 'info')"
@@ -1393,7 +1533,7 @@ const recent = computed(() =>
                 />
               </div>
               <div v-if="!writing || (showPreview && !live)" ref="previewPane" class="pane preview" @scroll.passive="onPreviewScroll">
-                <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" :obsidian="obsidian" :editable="store.canEdit" @open="openNode" @comment="startComment" @focus-comment="focusComment" />
+                <DocPreview v-if="content" :text="content" :nodes="store.nodes" :note-path="selected.path" :users="users" :comments="store.comments" :obsidian="obsidian" :editable="store.canEdit" :writable="canWrite" @open="openNode" @comment="startComment" @focus-comment="focusComment" @code-language="setCodeLanguage" />
                 <p v-else class="muted empty-note">{{ canWrite ? $t('Cette note est vide. Passez en écriture pour la rédiger.') : $t('Cette note est vide.') }}</p>
               </div>
             </div>
@@ -1490,6 +1630,7 @@ const recent = computed(() =>
     </Dialog>
 
     <DocMembersDialog v-model:visible="membersOpen" :users="users" />
+    <MoveToSpaceDialog v-model:visible="moveOpen" module="docs" :space-id="spaceId" :items="moveItems" @moved="onMovedTo" />
     <DocImportDialog v-model:visible="importOpen" :space-id="spaceId" :node="importNode" @done="store.reload(spaceId)" />
     <DocTrashDialog v-model:visible="trashOpen" :space-id="spaceId" />
     <Dialog v-model:visible="tagDialog.open" modal :header="tagDialog.versionId ? $t('Étiqueter cette version') : $t('Étiqueter la version actuelle')" :style="{ width: 'min(28rem, calc(100vw - 2rem))' }">
