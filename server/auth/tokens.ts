@@ -75,7 +75,7 @@ export interface CreateTokenInput {
 export function createApiToken(ctx: AppContext, user: AuthUser, input: CreateTokenInput): { token: ApiTokenDTO; secret: string } {
   const { db } = ctx;
   if (input.projectIds !== null) {
-    const accessible = db.all<{ project_id: number }>('SELECT project_id FROM project_members WHERE user_id = ?', user.id).map((row) => row.project_id);
+    const accessible = db.all<{ project_id: number }>('SELECT DISTINCT project_id FROM project_access WHERE user_id = ?', user.id).map((row) => row.project_id);
     const canSeeAll = user.permissions.includes('*') || user.permissions.includes('projects.view_all') || user.permissions.includes('projects.manage_all');
     for (const projectId of input.projectIds) {
       const exists = db.get('SELECT 1 FROM projects WHERE id = ?', projectId);

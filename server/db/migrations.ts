@@ -840,6 +840,68 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       ALTER TABLE doc_nodes ADD COLUMN color TEXT;
     `);
   },
+  // 32 — Groupes de personnes : ajoutés d'un coup à un projet, un espace de documentation ou de tableaux blancs, avec un
+  // rôle. Les droits d'une personne sont ceux de son rôle direct et de ceux de ses groupes ; les vues *_access réunissent
+  // les deux, et c'est là qu'on les lit. Supprimer un groupe, un projet ou un espace efface ses accès (cascade).
+  (db) => {
+    db.exec(`
+      CREATE TABLE user_groups (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        name        TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        color       TEXT,
+        created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX idx_user_groups_name ON user_groups (name COLLATE NOCASE);
+      CREATE TABLE user_group_members (
+        group_id   INTEGER NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role       TEXT NOT NULL DEFAULT 'member',
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (group_id, user_id)
+      );
+      CREATE INDEX idx_user_group_members_user ON user_group_members (user_id);
+      CREATE TABLE project_groups (
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        group_id   INTEGER NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+        role_id    INTEGER NOT NULL REFERENCES roles(id),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, group_id)
+      );
+      CREATE INDEX idx_project_groups_group ON project_groups (group_id);
+      CREATE TABLE doc_space_groups (
+        space_id   INTEGER NOT NULL REFERENCES doc_spaces(id) ON DELETE CASCADE,
+        group_id   INTEGER NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+        role       TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (space_id, group_id)
+      );
+      CREATE INDEX idx_doc_space_groups_group ON doc_space_groups (group_id);
+      CREATE TABLE board_space_groups (
+        space_id   INTEGER NOT NULL REFERENCES board_spaces(id) ON DELETE CASCADE,
+        group_id   INTEGER NOT NULL REFERENCES user_groups(id) ON DELETE CASCADE,
+        role       TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (space_id, group_id)
+      );
+      CREATE INDEX idx_board_space_groups_group ON board_space_groups (group_id);
+      CREATE VIEW project_access AS
+        SELECT project_id, user_id, role_id, NULL AS group_id FROM project_members
+        UNION ALL
+        SELECT g.project_id, m.user_id, g.role_id, g.group_id FROM project_groups g JOIN user_group_members m ON m.group_id = g.group_id;
+      CREATE VIEW doc_access AS
+        SELECT space_id, user_id, role, NULL AS group_id FROM doc_members
+        UNION ALL
+        SELECT g.space_id, m.user_id, g.role, g.group_id FROM doc_space_groups g JOIN user_group_members m ON m.group_id = g.group_id;
+      CREATE VIEW board_access AS
+        SELECT space_id, user_id, role, NULL AS group_id FROM board_members
+        UNION ALL
+        SELECT g.space_id, m.user_id, g.role, g.group_id FROM board_space_groups g JOIN user_group_members m ON m.group_id = g.group_id;
+    `);
+    grantSystemRoles(db, 'global', { admin: ['groups.create', 'groups.manage'], member: ['groups.create'] });
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

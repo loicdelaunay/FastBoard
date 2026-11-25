@@ -5,6 +5,18 @@ import { currentLocale } from './index';
  * puis modèles à variables (noms, nombres), puis messages de validation (« champ : message »).
  */
 const EXACT: Record<string, string> = {
+  // 2.27 — Groupes de personnes
+  "Groupe introuvable.": "Group not found.",
+  "Seuls les gestionnaires du groupe peuvent le modifier.": "Only the group’s managers can change it.",
+  "Un groupe porte déjà ce nom.": "A group already has this name.",
+  "Un groupe doit garder au moins un gestionnaire.": "A group must keep at least one manager.",
+  "Un groupe doit garder au moins un gestionnaire : nommez-en un autre avant.": "A group must keep at least one manager: appoint another one first.",
+  "Cette personne n’est pas dans le groupe.": "This person is not in the group.",
+  "Un groupe ne peut pas être propriétaire d’un projet.": "A group cannot own a project.",
+  "Ce groupe n’a pas accès à ce projet.": "This group does not have access to this project.",
+  "Ce groupe n’a pas accès à cet espace.": "This group does not have access to this space.",
+  "Vous ne pouvez pas modifier un groupe plus privilégié que vous.": "You cannot change a group with more privileges than yours.",
+  "Un groupe ne peut pas compter plus de 500 personnes.": "A group cannot have more than 500 people.",
   // 2.0
   "La documentation n'est pas activée sur ce site.": "Documentation is not enabled on this site.",
   "Espace de documentation introuvable.": "Documentation space not found.",

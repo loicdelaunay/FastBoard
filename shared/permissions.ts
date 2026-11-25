@@ -34,6 +34,8 @@ export const GLOBAL_PERMISSIONS: readonly PermissionDef[] = [
   { key: 'docs.manage', group: 'Documentation', label: 'Administrer la documentation', description: 'Activer la fonctionnalité sur le site et accéder à tous les espaces.' },
   { key: 'boards.create', group: 'Tableaux blancs', label: 'Créer des espaces de tableaux blancs', description: 'Créer ses propres espaces de tableaux blancs et y inviter des personnes.' },
   { key: 'boards.manage', group: 'Tableaux blancs', label: 'Administrer les tableaux blancs', description: 'Activer ou couper la fonctionnalité sur le site et accéder à tous les espaces de tableaux.' },
+  { key: 'groups.create', group: 'Groupes', label: 'Créer des groupes', description: 'Créer des groupes de personnes, à ajouter d’un coup aux projets, à la documentation et aux tableaux blancs.' },
+  { key: 'groups.manage', group: 'Groupes', label: 'Administrer tous les groupes', description: 'Renommer, supprimer et changer les membres de tous les groupes.' },
   { key: 'projects.create', group: 'Projets', label: 'Créer des projets', description: 'Créer ses propres projets.' },
   { key: 'projects.view_all', group: 'Projets', label: 'Voir tous les projets', description: 'Accéder en lecture à tous les projets, même sans en être membre.' },
   { key: 'projects.manage_all', group: 'Projets', label: 'Gérer tous les projets', description: 'Toutes les permissions de projet sur tous les projets.' },
@@ -109,6 +111,7 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
     permissions: [
       'admin.access', 'users.view', 'users.create', 'users.edit', 'users.delete', 'roles.manage',
       'tokens.create', 'tokens.manage', 'monitoring.view', 'logs.view', 'backups.manage', 'system.manage', 'settings.manage', 'auth.manage', 'docs.create', 'docs.manage', 'boards.create', 'boards.manage', 'ai.use', 'ai.manage', 'projects.create', 'projects.view_all', 'projects.manage_all',
+      'groups.create', 'groups.manage',
     ],
   },
   {
@@ -116,7 +119,7 @@ export const SYSTEM_ROLES: readonly SystemRoleSeed[] = [
     scope: 'global',
     name: 'Membre',
     description: 'Peut créer ses projets et collaborer sur ceux auxquels il est invité.',
-    permissions: ['projects.create', 'tokens.create', 'ai.use', 'docs.create', 'boards.create'],
+    permissions: ['projects.create', 'tokens.create', 'ai.use', 'docs.create', 'boards.create', 'groups.create'],
   },
   {
     key: 'guest',

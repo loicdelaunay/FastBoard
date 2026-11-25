@@ -33,6 +33,8 @@ import {
 } from './rows.ts';
 import { listTicketDTOs } from './tickets.ts';
 import { ragScopeEnabled } from '../rag/scopes.ts';
+import { listProjectGroups } from './groupRows.ts';
+import type { ProjectGroupDTO } from '../../shared/groups.ts';
 
 export function getProjectDTO(db: Db, projectId: number): ProjectDTO {
   const row = db.get<ProjectRow>('SELECT * FROM projects WHERE id = ?', projectId);
@@ -42,7 +44,11 @@ export function getProjectDTO(db: Db, projectId: number): ProjectDTO {
   return toProjectDTO(row, ragScopeEnabled(db, 'project', row.id));
 }
 
-export function listMembers(db: Db, projectId: number): { members: ProjectMemberDTO[]; users: UserSummaryDTO[] } {
+/**
+ * Membres directs d'un projet, groupes qui y ont été ajoutés, et toutes les personnes qui y ont accès (directement ou
+ * par un groupe) : ce sont elles qu'on assigne, mentionne et affiche.
+ */
+export function listMembers(db: Db, projectId: number): { members: ProjectMemberDTO[]; groups: ProjectGroupDTO[]; users: UserSummaryDTO[] } {
   const rows = db.all<{ user_id: number; role_id: number; created_at: string }>(
     'SELECT user_id, role_id, created_at FROM project_members WHERE project_id = ? ORDER BY created_at, user_id',
     projectId,
@@ -50,22 +56,24 @@ export function listMembers(db: Db, projectId: number): { members: ProjectMember
   const users = db
     .all<UserRow>(
       `SELECT u.id, u.email, u.name, u.role_id, u.is_active, u.theme, u.avatar_version, u.created_at, u.last_login_at
-         FROM users u JOIN project_members m ON m.user_id = u.id WHERE m.project_id = ? ORDER BY u.name COLLATE NOCASE`,
+         FROM users u WHERE u.id IN (SELECT user_id FROM project_access WHERE project_id = ?) ORDER BY u.name COLLATE NOCASE`,
       projectId,
     )
     .map(toUserSummary);
   return {
     members: rows.map((row) => ({ userId: row.user_id, roleId: row.role_id, joinedAt: row.created_at })),
+    groups: listProjectGroups(db, projectId),
     users,
   };
 }
 
 export function buildSnapshot(db: Db, access: ProjectAccess): ProjectSnapshotDTO {
   const projectId = access.project.id;
-  const { members, users } = listMembers(db, projectId);
+  const { members, groups, users } = listMembers(db, projectId);
   return {
     project: toProjectDTO(access.project, ragScopeEnabled(db, 'project', projectId)),
     members,
+    groups,
     users,
     categories: db
       .all<CategoryRow>('SELECT * FROM categories WHERE project_id = ? ORDER BY position, id', projectId)
@@ -80,20 +88,21 @@ export function buildSnapshot(db: Db, access: ProjectAccess): ProjectSnapshotDTO
   };
 }
 
+/** Rôle de la personne dans le projet `p` : son rôle direct, sinon celui d'un de ses groupes (premier paramètre : son id). */
+const MY_ROLE = 'SELECT a.role_id FROM project_access a WHERE a.project_id = p.id AND a.user_id = ? ORDER BY a.group_id IS NOT NULL, a.group_id LIMIT 1';
+
 /** Projets visibles par l'utilisateur, avec indicateurs de progression. */
 export function listProjectSummaries(db: Db, user: AuthUser): ProjectSummaryDTO[] {
   const seesAll = hasPermission(user.permissions, 'projects.view_all') || hasPermission(user.permissions, 'projects.manage_all');
   const rows = db.all<ProjectRow & { my_role_id: number | null; my_role_name: string | null; my_role_key: string | null }>(
     seesAll
-      ? `SELECT p.*, m.role_id AS my_role_id, r.name AS my_role_name, r.key AS my_role_key
+      ? `SELECT p.*, r.id AS my_role_id, r.name AS my_role_name, r.key AS my_role_key
            FROM projects p
-           LEFT JOIN project_members m ON m.project_id = p.id AND m.user_id = ?
-           LEFT JOIN roles r ON r.id = m.role_id
+           LEFT JOIN roles r ON r.id = (${MY_ROLE})
           ORDER BY p.archived, p.name COLLATE NOCASE`
-      : `SELECT p.*, m.role_id AS my_role_id, r.name AS my_role_name, r.key AS my_role_key
+      : `SELECT p.*, r.id AS my_role_id, r.name AS my_role_name, r.key AS my_role_key
            FROM projects p
-           JOIN project_members m ON m.project_id = p.id AND m.user_id = ?
-           JOIN roles r ON r.id = m.role_id
+           JOIN roles r ON r.id = (${MY_ROLE})
           ORDER BY p.archived, p.name COLLATE NOCASE`,
     user.id,
   );
@@ -215,7 +224,7 @@ export function updateProject(
   const project = getProjectDTO(db, projectId);
   ctx.hub.publish(projectId, [{ type: 'project.updated', project }], actor);
   if (input.archived !== undefined) {
-    ctx.hub.refreshProjectLists(listMembers(db, projectId).members.map((member) => member.userId));
+    ctx.hub.refreshProjectLists(listMembers(db, projectId).users.map((member) => member.id));
   }
   const changes: ProjectChange[] = [];
   if (project.name !== before.name) changes.push({ field: 'name', from: before.name, to: project.name });
@@ -231,7 +240,7 @@ export function updateProject(
 }
 
 export function deleteProject(ctx: AppContext, projectId: number): void {
-  const memberIds = listMembers(ctx.db, projectId).members.map((member) => member.userId);
+  const memberIds = listMembers(ctx.db, projectId).users.map((member) => member.id);
   const name = getProjectDTO(ctx.db, projectId).name;
   const files = storagesOfProject(ctx.db, projectId);
   ctx.db.run('DELETE FROM projects WHERE id = ?', projectId);
@@ -336,7 +345,8 @@ function guardLastOwner(db: Db, projectId: number, userId: number, nextRoleId: n
   }
 }
 
-function broadcastMembers(ctx: AppContext, actor: Actor, projectId: number): void {
-  const { members, users } = listMembers(ctx.db, projectId);
-  ctx.hub.publish(projectId, [{ type: 'members.changed', members, users }], actor);
+/** Membres, groupes et personnes du projet ont changé : tout le monde dans le projet les relit (et ses propres droits). */
+export function broadcastMembers(ctx: AppContext, actor: Actor, projectId: number): void {
+  const { members, groups, users } = listMembers(ctx.db, projectId);
+  ctx.hub.publish(projectId, [{ type: 'members.changed', members, groups, users }], actor);
 }

@@ -50,9 +50,11 @@ import {
 } from '../docs/store.ts';
 import { badRequest, conflict, notFound } from '../http/errors.ts';
 import { actorOf, csrfGuard, currentUser, requireAuth, sessionOnly } from '../http/middleware.ts';
-import { docCommentResolveSchema, docCommentSchema, docContentSchema, docFolderStyleSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemoSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSiteSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema, tagSearchSchema, versionTagSchema, versionTagUpdateSchema } from '../http/schemas.ts';
+import { docCommentResolveSchema, docCommentSchema, docContentSchema, docFolderStyleSchema, docImportApplySchema, docImportCompareSchema, docMemberRoleSchema, docMemoSchema, docMemberSchema, docMoveSchema, docNodeSchema, docRestoreSchema, docSearchSchema, docSiteSchema, docSettingsSchema, docSpaceSchema, docSpaceUpdateSchema, spaceGroupSchema, tagSearchSchema, versionTagSchema, versionTagUpdateSchema } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal } from '../services/access.ts';
+import { listSpaceGroups } from '../services/groupRows.ts';
+import { removeSpaceGroup, setSpaceGroup } from '../services/groups.ts';
 import { appInfo } from '../services/appSettings.ts';
 import { contentDisposition } from '../services/attachments.ts';
 import { setRagScope } from '../rag/index.ts';
@@ -184,7 +186,7 @@ export function documentationRouter(ctx: AppContext): Router {
     const spaceId = idParam(req.params.id);
     const user = currentUser(res);
     requireSpace(ctx, user, spaceId);
-    res.json({ space: getSpace(ctx, user, spaceId), nodes: listNodes(ctx.db, spaceId), templates: listTemplates(ctx.db, spaceId), members: listMembers(ctx.db, spaceId) });
+    res.json({ space: getSpace(ctx, user, spaceId), nodes: listNodes(ctx.db, spaceId), templates: listTemplates(ctx.db, spaceId), members: listMembers(ctx.db, spaceId), groups: listSpaceGroups(ctx.db, 'doc_space_groups', spaceId) });
   });
 
   router.patch('/documentation/spaces/:id', (req, res) => {
@@ -221,6 +223,21 @@ export function documentationRouter(ctx: AppContext): Router {
     const spaceId = idParam(req.params.id);
     requireSpace(ctx, currentUser(res), spaceId, 'owner');
     res.json({ members: removeMember(ctx, spaceId, idParam(req.params.userId)) });
+  });
+
+  // Groupes : leurs membres ont accès à l'espace avec le rôle du groupe (lecteur ou éditeur).
+  router.put('/documentation/spaces/:id/groups/:groupId', (req, res) => {
+    const spaceId = idParam(req.params.id);
+    requireSpace(ctx, currentUser(res), spaceId, 'owner');
+    setSpaceGroup(ctx, actorOf(req, res), 'docs', spaceId, idParam(req.params.groupId), parse(spaceGroupSchema, req.body).role);
+    res.json({ groups: listSpaceGroups(ctx.db, 'doc_space_groups', spaceId) });
+  });
+
+  router.delete('/documentation/spaces/:id/groups/:groupId', (req, res) => {
+    const spaceId = idParam(req.params.id);
+    requireSpace(ctx, currentUser(res), spaceId, 'owner');
+    removeSpaceGroup(ctx, actorOf(req, res), 'docs', spaceId, idParam(req.params.groupId));
+    res.json({ groups: listSpaceGroups(ctx.db, 'doc_space_groups', spaceId) });
   });
 
   router.get('/documentation/spaces/:id/site', (req, res) => {

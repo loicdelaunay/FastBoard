@@ -5,8 +5,10 @@ import Dialog from 'primevue/dialog';
 import Select from 'primevue/select';
 import Tag from 'primevue/tag';
 import { DOC_ROLE_LABELS, DOC_ROLES, type DocRole } from '@shared/docs';
+import { GROUP_SPACE_ROLES, type GroupSpaceRole } from '@shared/groups';
 import type { UserSummaryDTO } from '@shared/types';
 import { api } from '@/api';
+import GroupGrants from '@/components/common/GroupGrants.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useDocsStore } from '@/stores/docs';
 import { notifyError } from '@/utils/notify';
@@ -21,6 +23,18 @@ const newUser = ref<number | null>(null);
 const newRole = ref<DocRole>('editor');
 
 const roleOptions = computed(() => DOC_ROLES.map((role) => ({ value: role, label: t(DOC_ROLE_LABELS[role]) })));
+/** Un groupe est lecteur ou éditeur, jamais propriétaire. */
+const groupRoleOptions = computed(() => GROUP_SPACE_ROLES.map((role) => ({ value: role, label: t(DOC_ROLE_LABELS[role]) })));
+
+async function runGroups(action: () => Promise<{ groups: typeof store.groups }>): Promise<void> {
+  try {
+    store.groups = (await action()).groups;
+  } catch (error) {
+    notifyError(error);
+  }
+}
+const setGroup = (groupId: number, role: GroupSpaceRole) => runGroups(() => api.docSetGroup(store.space!.id, groupId, role));
+const removeGroup = (groupId: number) => runGroups(() => api.docRemoveGroup(store.space!.id, groupId));
 const candidates = computed(() => props.users.filter((user) => user.isActive && !store.members.some((member) => member.userId === user.id)));
 const userOf = (id: number) => props.users.find((user) => user.id === id);
 
@@ -63,6 +77,7 @@ async function add(): Promise<void> {
       <Select v-model="newRole" :options="roleOptions" option-label="label" option-value="value" size="small" :aria-label="$t('Rôle')" />
       <Button type="submit" icon="pi pi-plus" size="small" :disabled="newUser === null" :aria-label="$t('Ajouter')" />
     </form>
+    <GroupGrants class="groups" :grants="store.groups" :role-options="groupRoleOptions" :editable="store.isOwner" :users="users" default-role="reader" @set="setGroup" @remove="removeGroup" />
     <p class="muted small hint">{{ $t('Lecteur : consulte et suit en direct. Éditeur : écrit, importe, restaure. Propriétaire : gère aussi les membres et l’espace.') }}</p>
   </Dialog>
 </template>
@@ -88,5 +103,10 @@ async function add(): Promise<void> {
 }
 .hint {
   margin: 0.75rem 0 0;
+}
+.groups {
+  margin-top: 1.1rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--fb-border);
 }
 </style>

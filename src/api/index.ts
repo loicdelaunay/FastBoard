@@ -1,4 +1,5 @@
 import { FILE_NAME_HEADER, type NotificationLevel, type TicketStatus } from '@shared/constants';
+import type { GroupAccessDTO, GroupDTO, GroupMemberRole, GroupSpaceRole, ProjectGroupDTO, SpaceGroupDTO } from '@shared/groups';
 import type { RoleScope, PermissionDef } from '@shared/permissions';
 import type { DocBookmarkDTO, DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocNodeInfoDTO, DocRescanResultDTO, DocRole, DocSearchHitDTO, DocSiteDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, WikiDTO, WikiPageDTO, WikiSearchHitDTO } from '@shared/docs';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
@@ -280,6 +281,18 @@ export const api = {
     http<{ ok: true }>('PATCH', `/projects/${projectId}/members/${userId}`, { body: { roleId } }),
   removeMember: (projectId: number, userId: number) =>
     http<{ ok: true }>('DELETE', `/projects/${projectId}/members/${userId}`),
+  setProjectGroup: (projectId: number, groupId: number, roleId: number) =>
+    http<{ groups: ProjectGroupDTO[] }>('PUT', `/projects/${projectId}/groups/${groupId}`, { body: { roleId } }),
+  removeProjectGroup: (projectId: number, groupId: number) => http<{ groups: ProjectGroupDTO[] }>('DELETE', `/projects/${projectId}/groups/${groupId}`),
+
+  // Groupes de personnes
+  groups: () => http<{ groups: GroupDTO[] }>('GET', '/groups'),
+  group: (groupId: number) => http<{ group: GroupDTO; access: GroupAccessDTO[] }>('GET', `/groups/${groupId}`),
+  createGroup: (input: { name: string; description?: string; color?: string | null; memberIds?: number[] }) => http<{ group: GroupDTO }>('POST', '/groups', { body: input }),
+  updateGroup: (groupId: number, patch: { name?: string; description?: string; color?: string | null }) => http<{ group: GroupDTO }>('PATCH', `/groups/${groupId}`, { body: patch }),
+  deleteGroup: (groupId: number) => http<{ ok: true }>('DELETE', `/groups/${groupId}`),
+  setGroupMember: (groupId: number, userId: number, role: GroupMemberRole) => http<{ group: GroupDTO }>('PUT', `/groups/${groupId}/members/${userId}`, { body: { role } }),
+  removeGroupMember: (groupId: number, userId: number) => http<{ group: GroupDTO }>('DELETE', `/groups/${groupId}/members/${userId}`),
 
   createCategory: (projectId: number, input: { name: string; color: string }) =>
     http<{ category: CategoryDTO }>('POST', `/projects/${projectId}/categories`, { body: input }),
@@ -372,12 +385,14 @@ export const api = {
   adminSetBoards: (enabled: boolean) => http<{ enabled: boolean; app: AppInfoDTO }>('PUT', '/admin/boards', { body: { enabled } }),
   boardSpaces: () => http<{ spaces: BoardSpaceDTO[] }>('GET', '/boards/spaces'),
   boardCreateSpace: (input: { name: string; description: string }) => http<{ space: BoardSpaceDTO }>('POST', '/boards/spaces', { body: input }),
-  boardSpace: (spaceId: number) => http<{ space: BoardSpaceDTO; role: BoardRole; nodes: BoardNodeDTO[]; members: BoardMemberDTO[] }>('GET', `/boards/spaces/${spaceId}`),
+  boardSpace: (spaceId: number) => http<{ space: BoardSpaceDTO; role: BoardRole; nodes: BoardNodeDTO[]; members: BoardMemberDTO[]; groups: SpaceGroupDTO[] }>('GET', `/boards/spaces/${spaceId}`),
   boardUpdateSpace: (spaceId: number, input: { name?: string; description?: string; rag?: boolean }) => http<{ space: BoardSpaceDTO }>('PATCH', `/boards/spaces/${spaceId}`, { body: input }),
   boardDeleteSpace: (spaceId: number) => http<{ ok: true }>('DELETE', `/boards/spaces/${spaceId}`),
   boardAddMember: (spaceId: number, userId: number, role: BoardRole) => http<{ members: BoardMemberDTO[] }>('POST', `/boards/spaces/${spaceId}/members`, { body: { userId, role } }),
   boardSetMember: (spaceId: number, userId: number, role: BoardRole) => http<{ members: BoardMemberDTO[] }>('PUT', `/boards/spaces/${spaceId}/members/${userId}`, { body: { role } }),
   boardRemoveMember: (spaceId: number, userId: number) => http<{ members: BoardMemberDTO[] }>('DELETE', `/boards/spaces/${spaceId}/members/${userId}`),
+  boardSetGroup: (spaceId: number, groupId: number, role: GroupSpaceRole) => http<{ groups: SpaceGroupDTO[] }>('PUT', `/boards/spaces/${spaceId}/groups/${groupId}`, { body: { role } }),
+  boardRemoveGroup: (spaceId: number, groupId: number) => http<{ groups: SpaceGroupDTO[] }>('DELETE', `/boards/spaces/${spaceId}/groups/${groupId}`),
   boardCreateNode: (spaceId: number, path: string, kind: BoardNodeKind, elements?: BoardElement[]) => http<{ node: BoardNodeDTO }>('POST', `/boards/spaces/${spaceId}/nodes`, { body: { path, kind, ...(elements ? { elements } : {}) } }),
   boardTrash: (spaceId: number) => http<{ nodes: BoardNodeDTO[] }>('GET', `/boards/spaces/${spaceId}/trash`),
   boardMoveNode: (nodeId: number, path: string) => http<{ node: BoardNodeDTO }>('PATCH', `/boards/nodes/${nodeId}`, { body: { path } }),
@@ -414,12 +429,14 @@ export const api = {
 
   docSpaces: () => http<{ spaces: DocSpaceDTO[] }>('GET', '/documentation/spaces'),
   docCreateSpace: (input: { name: string; description: string; obsidian?: boolean; imageFolder?: string | null }) => http<{ space: DocSpaceDTO }>('POST', '/documentation/spaces', { body: input }),
-  docSpace: (spaceId: number) => http<{ space: DocSpaceDTO; nodes: DocNodeDTO[]; templates: DocNodeDTO[]; members: DocMemberDTO[] }>('GET', `/documentation/spaces/${spaceId}`),
+  docSpace: (spaceId: number) => http<{ space: DocSpaceDTO; nodes: DocNodeDTO[]; templates: DocNodeDTO[]; members: DocMemberDTO[]; groups: SpaceGroupDTO[] }>('GET', `/documentation/spaces/${spaceId}`),
   docUpdateSpace: (spaceId: number, input: { name?: string; description?: string; obsidian?: boolean; imageFolder?: string | null; rag?: boolean }) => http<{ space: DocSpaceDTO }>('PATCH', `/documentation/spaces/${spaceId}`, { body: input }),
   docDeleteSpace: (spaceId: number) => http<{ ok: true }>('DELETE', `/documentation/spaces/${spaceId}`),
   docAddMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('POST', `/documentation/spaces/${spaceId}/members`, { body: { userId, role } }),
   docSetMember: (spaceId: number, userId: number, role: DocRole) => http<{ members: DocMemberDTO[] }>('PATCH', `/documentation/spaces/${spaceId}/members/${userId}`, { body: { role } }),
   docRemoveMember: (spaceId: number, userId: number) => http<{ members: DocMemberDTO[] }>('DELETE', `/documentation/spaces/${spaceId}/members/${userId}`),
+  docSetGroup: (spaceId: number, groupId: number, role: GroupSpaceRole) => http<{ groups: SpaceGroupDTO[] }>('PUT', `/documentation/spaces/${spaceId}/groups/${groupId}`, { body: { role } }),
+  docRemoveGroup: (spaceId: number, groupId: number) => http<{ groups: SpaceGroupDTO[] }>('DELETE', `/documentation/spaces/${spaceId}/groups/${groupId}`),
   docTrash: (spaceId: number) => http<{ nodes: DocNodeDTO[] }>('GET', `/documentation/spaces/${spaceId}/trash`),
   /** `fromId` : note ou modèle dont partir (une note créée d'après un modèle reçoit son texte, variables remplies). */
   docCreateNode: (spaceId: number, path: string, kind: 'folder' | 'markdown' | 'template', from: { content?: string; fromId?: number } = {}) =>

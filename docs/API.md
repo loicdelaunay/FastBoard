@@ -455,6 +455,37 @@ curl -s "$FASTBOARD/api/search?q=paiement&type=tickets&limit=20" -H "Authorizati
 curl -s "$FASTBOARD/api/search?q=installation&type=docs" -H "Authorization: Bearer $TOKEN"
 ```
 
+### Groupes
+
+Un groupe rassemble des personnes ; on l'ajoute d'un coup à un projet, un espace de documentation ou de tableaux
+blancs, avec un rôle. Les droits d'une personne sont l'**union** de son rôle direct et des rôles de ses groupes (le plus
+large l'emporte) : un groupe « Lecteur » plus un rôle direct « Éditeur » pour une personne donne Éditeur à cette
+personne seulement. Un groupe n'est jamais propriétaire. Ajouter ou retirer quelqu'un d'un groupe change ses accès
+aussitôt, partout : API, jetons, temps réel, assistant IA et recherche sémantique.
+
+```bash
+# Lister les groupes, en créer un (vous en êtes gestionnaire), voir ses membres et ses accès
+curl -s $FASTBOARD/api/groups -H "Authorization: Bearer $TOKEN"
+curl -s -X POST $FASTBOARD/api/groups -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "name": "Comptabilité", "description": "Équipe finance", "memberIds": [4, 7] }'
+curl -s $FASTBOARD/api/groups/3 -H "Authorization: Bearer $TOKEN"   # { group, access: [{ kind, id, name, role }] }
+
+# Ajouter ou retirer une personne (role : member ou manager), renommer, supprimer
+curl -s -X PUT $FASTBOARD/api/groups/3/members/9 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "role": "member" }'
+curl -s -X DELETE $FASTBOARD/api/groups/3/members/9 -H "Authorization: Bearer $TOKEN"
+curl -s -X PATCH $FASTBOARD/api/groups/3 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "name": "Finance" }'
+
+# Donner un accès au groupe : rôle de projet (roleId, pas propriétaire), ou reader / editor sur un espace
+curl -s -X PUT $FASTBOARD/api/projects/1/groups/3 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "roleId": 5 }'
+curl -s -X PUT $FASTBOARD/api/documentation/spaces/2/groups/3 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "role": "reader" }'
+curl -s -X PUT $FASTBOARD/api/boards/spaces/1/groups/3 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "role": "editor" }'
+curl -s -X DELETE $FASTBOARD/api/projects/1/groups/3 -H "Authorization: Bearer $TOKEN"
+```
+
+Seuls les gestionnaires du groupe (ou la permission `groups.manage`) le modifient ; créer un groupe demande
+`groups.create`. Donner un accès à un groupe demande les mêmes droits que d'ajouter un membre (`project.members`,
+propriétaire de l'espace), et jamais un rôle plus large que le sien.
+
 ### Catégories, priorités, composants et livraisons
 
 ```bash
@@ -484,6 +515,10 @@ Le serveur diffuse les évènements d'un projet en WebSocket : `ws://<hôte>/ws`
 ```
 
 Types d'évènements : `ticket.created|updated|deleted`, `tickets.reordered`, `comment.created|updated|deleted`, `history.created`, `activity.created`, `category.*`, `priority.*`, `component.*`, `delivery.*`, `project.updated`, `members.changed`. La définition complète est dans `shared/realtime.ts`.
+
+Hors projet, le serveur envoie aussi `{ "t": "projects.refresh" }` et `{ "t": "spaces.refresh" }` quand la liste des
+projets ou des espaces visibles change (par exemple après un ajout à un groupe), `{ "t": "project.revoked", … }`
+quand un accès est perdu, et `{ "t": "groups.changed" }` quand un groupe change.
 
 ---
 

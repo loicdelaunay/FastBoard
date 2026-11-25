@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.26.1';
+export const APP_VERSION = '2.27.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,16 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.27.0',
+    date: '2026-11-25',
+    changes: [
+      { category: 'Nouveauté', text: 'Groupes : un nouvel onglet « Groupes » rassemble des personnes pour les ajouter ou les retirer d’un coup des projets, des espaces de documentation et des tableaux blancs.' },
+      { category: 'Nouveauté', text: 'Un groupe reçoit un rôle (par exemple Lecteur) et une personne du groupe peut recevoir en plus son propre rôle (par exemple Éditeur), comme sur Google Drive : le rôle le plus large l’emporte.' },
+      { category: 'Sécurité', text: 'Ajouter ou retirer une personne d’un groupe, changer le rôle d’un groupe ou le supprimer met à jour ses accès aussitôt, y compris dans un document ou un tableau déjà ouvert.' },
+      { category: 'Sécurité', text: 'L’assistant IA et la recherche sémantique suivent les groupes : une personne retirée d’un groupe ne retrouve plus rien de ce qu’elle voyait seulement par lui.' },
+    ],
+  },
   {
     version: '2.26.1',
     date: '2026-11-25',

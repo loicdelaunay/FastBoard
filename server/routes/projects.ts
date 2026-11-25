@@ -17,11 +17,14 @@ import {
   listItemSchema,
   memberRoleSchema,
   memberSchema,
+  projectGroupSchema,
   ticketQuerySchema,
   updateProjectSchema,
 } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal, requireProject } from '../services/access.ts';
+import { listProjectGroups } from '../services/groupRows.ts';
+import { removeProjectGroup, setProjectGroup } from '../services/groups.ts';
 import { listActivities } from '../services/activity.ts';
 import { createActivityComment, deleteActivityComment, requireActivity, requireActivityComment, updateActivityComment } from '../services/activityComments.ts';
 import {
@@ -159,6 +162,40 @@ export function projectsRouter(ctx: AppContext): Router {
     }
     removeMember(ctx, actorOf(req, res), projectId, userId);
     res.json({ ok: true });
+  });
+
+  // --- Groupes ------------------------------------------------------------------------------------------------------
+
+  /** Le groupe a déjà un rôle plus large que celui de la personne qui le change : elle n'y touche pas. */
+  function assertGroupNotAbove(projectId: number, groupId: number, actorPermissions: Set<string>): void {
+    const current = ctx.db.get<{ permissions: string }>(
+      'SELECT r.permissions FROM project_groups g JOIN roles r ON r.id = g.role_id WHERE g.project_id = ? AND g.group_id = ?',
+      projectId,
+      groupId,
+    );
+    if (current && !isSubsetOfPermissions(parsePermissions(current.permissions), [...actorPermissions])) {
+      throw forbidden('Vous ne pouvez pas modifier un groupe plus privilégié que vous.');
+    }
+  }
+
+  router.put('/projects/:id/groups/:groupId', (req, res) => {
+    const projectId = idParam(req.params.id);
+    const access = requireProject(ctx, currentUser(res), projectId, 'project.members');
+    const groupId = idParam(req.params.groupId);
+    const { roleId } = parse(projectGroupSchema, req.body);
+    assertCanGrant(roleId, access.permissions);
+    assertGroupNotAbove(projectId, groupId, access.permissions);
+    setProjectGroup(ctx, actorOf(req, res), projectId, groupId, roleId);
+    res.json({ groups: listProjectGroups(ctx.db, projectId) });
+  });
+
+  router.delete('/projects/:id/groups/:groupId', (req, res) => {
+    const projectId = idParam(req.params.id);
+    const access = requireProject(ctx, currentUser(res), projectId, 'project.members');
+    const groupId = idParam(req.params.groupId);
+    assertGroupNotAbove(projectId, groupId, access.permissions);
+    removeProjectGroup(ctx, actorOf(req, res), projectId, groupId);
+    res.json({ groups: listProjectGroups(ctx.db, projectId) });
   });
 
   // --- Catégories ----------------------------------------------------------------------------------------------------

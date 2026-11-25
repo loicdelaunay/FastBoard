@@ -9,6 +9,7 @@ import type { Actor, AppContext } from '../context.ts';
 import { nowIso, type Db } from '../db/database.ts';
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../http/errors.ts';
 import { getAuthUser, type AuthUser } from '../services/access.ts';
+import { roleOfRank, ROLE_RANK_SQL } from '../services/spaceRoles.ts';
 import { readSetting, writeSetting } from '../services/appSettings.ts';
 import { mentionedUserIds, notifyDocMention } from '../services/notifications.ts';
 import { foldText } from '../services/tickets.ts';
@@ -97,11 +98,14 @@ export function nodeDTO(row: NodeRow): DocNodeDTO {
 
 // --- Droits ----------------------------------------------------------------------------------------------------------
 
-/** Rôle de la personne dans un espace ; `docs.manage` donne la main sur tous, pour reprendre un espace sans propriétaire. */
+/**
+ * Rôle de la personne dans un espace : le plus large de son rôle direct et de ceux de ses groupes (vue doc_access) ;
+ * `docs.manage` donne la main sur tous, pour reprendre un espace sans propriétaire.
+ */
 export function docRole(db: Db, user: AuthUser, spaceId: number): DocRole | null {
   if (!db.get('SELECT 1 FROM doc_spaces WHERE id = ?', spaceId)) return null;
   if (hasPermission(user.permissions, 'docs.manage')) return 'owner';
-  return db.get<{ role: DocRole }>('SELECT role FROM doc_members WHERE space_id = ? AND user_id = ?', spaceId, user.id)?.role ?? null;
+  return roleOfRank(db.get<{ rank: number | null }>(`SELECT ${ROLE_RANK_SQL} AS rank FROM doc_access WHERE space_id = ? AND user_id = ?`, spaceId, user.id)?.rank);
 }
 
 /** Vérifie l'accès à un espace : introuvable pour qui n'en est pas membre, interdit en dessous du rôle demandé. */
@@ -188,16 +192,20 @@ export function reindexDocs(ctx: AppContext): void {
 
 export function listSpaces(ctx: AppContext, user: AuthUser): DocSpaceDTO[] {
   const seesAll = hasPermission(user.permissions, 'docs.manage');
-  const rows = ctx.db.all<SpaceRow & { my_role: DocRole | null; files: number; members: number; rag: number; site_slug: string | null; site_visibility: DocSiteVisibility | null }>(
-    `SELECT s.*, m.role AS my_role, w.slug AS site_slug, w.visibility AS site_visibility,
-            EXISTS (SELECT 1 FROM rag_scopes r WHERE r.scope = 'docs' AND r.container_id = s.id) AS rag,
-            (SELECT COUNT(*) FROM doc_nodes n WHERE n.space_id = s.id AND n.deleted_at IS NULL AND n.kind = 'markdown') AS files,
-            (SELECT COUNT(*) FROM doc_members x WHERE x.space_id = s.id) AS members
-       FROM doc_spaces s LEFT JOIN doc_members m ON m.space_id = s.id AND m.user_id = ? LEFT JOIN doc_sites w ON w.space_id = s.id
-      ${seesAll ? '' : 'WHERE m.role IS NOT NULL'}
-      ORDER BY s.updated_at DESC`,
-    user.id,
-  );
+  // Rôle de la personne : le plus large, direct ou par un de ses groupes ; les membres comptent aussi ceux des groupes.
+  const rows = ctx.db
+    .all<SpaceRow & { my_rank: number | null; files: number; members: number; rag: number; site_slug: string | null; site_visibility: DocSiteVisibility | null }>(
+      `SELECT s.*, w.slug AS site_slug, w.visibility AS site_visibility,
+              (SELECT ${ROLE_RANK_SQL} FROM doc_access a WHERE a.space_id = s.id AND a.user_id = ?) AS my_rank,
+              EXISTS (SELECT 1 FROM rag_scopes r WHERE r.scope = 'docs' AND r.container_id = s.id) AS rag,
+              (SELECT COUNT(*) FROM doc_nodes n WHERE n.space_id = s.id AND n.deleted_at IS NULL AND n.kind = 'markdown') AS files,
+              (SELECT COUNT(DISTINCT x.user_id) FROM doc_access x WHERE x.space_id = s.id) AS members
+         FROM doc_spaces s LEFT JOIN doc_sites w ON w.space_id = s.id
+        ORDER BY s.updated_at DESC`,
+      user.id,
+    )
+    .map((row) => ({ ...row, my_role: roleOfRank(row.my_rank) }))
+    .filter((row) => seesAll || row.my_role !== null);
   const defaultImageFolder = docSettings(ctx.db).imageFolder;
   return rows.map((row) => ({
     id: row.id,

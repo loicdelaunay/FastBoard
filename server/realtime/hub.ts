@@ -260,6 +260,16 @@ export class Hub {
     }
   }
 
+  /** Les espaces de documentation et de tableaux blancs accessibles à ces personnes ont changé (groupes). */
+  refreshSpaces(userIds: Iterable<number>): void {
+    const targets = new Set(userIds);
+    for (const client of this.#clients) {
+      if (targets.has(client.userId)) {
+        this.#send(client, { t: 'spaces.refresh' });
+      }
+    }
+  }
+
   /** Retire un utilisateur d'un projet (perte d'accès). */
   revokeProject(projectId: number, userId: number): void {
     for (const client of this.#clients) {

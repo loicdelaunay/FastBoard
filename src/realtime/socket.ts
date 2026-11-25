@@ -22,6 +22,10 @@ interface Handlers {
   presence: Array<(projectId: number, users: PresenceUser[]) => void>;
   meRefresh: Array<() => void>;
   projectsRefresh: Array<() => void>;
+  /** Espaces (documentation, tableaux blancs) accessibles changés : un groupe a été ajouté ou retiré. */
+  spacesRefresh: Array<() => void>;
+  /** Un groupe a été créé, modifié ou supprimé. */
+  groupsChanged: Array<() => void>;
   revoked: Array<(projectId: number) => void>;
   /** Reconnexion réussie : l'état local a pu manquer des évènements. */
   resync: Array<() => void>;
@@ -52,7 +56,7 @@ class RealtimeClient {
   #hasConnectedOnce = false;
   /** Visiteur sans compte d'un tableau partagé : connexion limitée aux tableaux. */
   #guest = false;
-  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], notificationSettings: [], doc: [], board: [] };
+  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], spacesRefresh: [], groupsChanged: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], notificationSettings: [], doc: [], board: [] };
 
   on<K extends keyof Handlers>(type: K, handler: Handlers[K][number]): () => void {
     (this.#handlers[type] as Array<typeof handler>).push(handler);
@@ -171,6 +175,12 @@ class RealtimeClient {
         break;
       case 'projects.refresh':
         this.#handlers.projectsRefresh.forEach((handler) => handler());
+        break;
+      case 'spaces.refresh':
+        this.#handlers.spacesRefresh.forEach((handler) => handler());
+        break;
+      case 'groups.changed':
+        this.#handlers.groupsChanged.forEach((handler) => handler());
         break;
       case 'app':
         this.#handlers.app.forEach((handler) => handler(message.app));

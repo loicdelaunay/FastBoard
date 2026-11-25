@@ -6,6 +6,7 @@ import type { Locale } from './locales.ts';
 import type { ProjectSettingsDTO } from './settings.ts';
 import type { CustomFieldType, CustomFieldValue } from './ticketFields.ts';
 import type { AppearanceDTO } from './themes.ts';
+import type { ProjectGroupDTO } from './groups.ts';
 
 export interface UserSummaryDTO {
   id: number;
@@ -327,8 +328,11 @@ export interface HistoryEntryDTO {
 
 export interface ProjectSnapshotDTO {
   project: ProjectDTO;
+  /** Membres directs du projet. */
   members: ProjectMemberDTO[];
-  /** Informations des membres du projet. */
+  /** Groupes ajoutés au projet : leurs membres y ont accès avec le rôle du groupe. */
+  groups: ProjectGroupDTO[];
+  /** Personnes qui ont accès au projet, directement ou par un groupe. */
   users: UserSummaryDTO[];
   categories: CategoryDTO[];
   priorities: PriorityDTO[];

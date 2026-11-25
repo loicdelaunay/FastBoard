@@ -6,9 +6,10 @@ import { badRequest, conflict, forbidden, notFound } from '../http/errors.ts';
 import type { AuthUser } from './access.ts';
 import { parsePermissions, toRoleDTO, type RoleRow } from './rows.ts';
 
+/** Comptes (rôle global), ou membres et groupes de projets (rôle de projet) qui ont ce rôle : on ne le supprime pas. */
 function usageOf(db: Db, role: Pick<RoleRow, 'id' | 'scope'>): number {
-  const table = role.scope === 'global' ? 'users' : 'project_members';
-  return db.get<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table} WHERE role_id = ?`, role.id)?.n ?? 0;
+  if (role.scope === 'global') return db.get<{ n: number }>('SELECT COUNT(*) AS n FROM users WHERE role_id = ?', role.id)?.n ?? 0;
+  return db.get<{ n: number }>('SELECT (SELECT COUNT(*) FROM project_members WHERE role_id = ?) + (SELECT COUNT(*) FROM project_groups WHERE role_id = ?) AS n', role.id, role.id)?.n ?? 0;
 }
 
 export function listRoles(db: Db, scope?: RoleScope): RoleDTO[] {

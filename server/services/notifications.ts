@@ -91,8 +91,8 @@ export function listNotificationSettings(db: Db, user: AuthUser): NotificationSe
   const rows = db.all<SettingRow>(
     `SELECT p.id, p.key, p.name, p.archived, s.level
        FROM projects p
-       ${seesAll ? '' : 'JOIN project_members m ON m.project_id = p.id AND m.user_id = ?'}
        LEFT JOIN notification_settings s ON s.project_id = p.id AND s.user_id = ?
+       ${seesAll ? '' : 'WHERE p.id IN (SELECT project_id FROM project_access WHERE user_id = ?)'}
       ORDER BY p.archived, p.name COLLATE NOCASE`,
     ...(seesAll ? [user.id] : [user.id, user.id]),
   );

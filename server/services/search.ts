@@ -26,7 +26,7 @@ export function visibleProjects(db: Db, user: AuthUser): ProjectRow[] {
   const seesAll = hasPermission(user.permissions, 'projects.view_all') || hasPermission(user.permissions, 'projects.manage_all');
   const rows = seesAll
     ? db.all<ProjectRow>('SELECT * FROM projects ORDER BY name COLLATE NOCASE')
-    : db.all<ProjectRow>('SELECT p.* FROM projects p JOIN project_members m ON m.project_id = p.id AND m.user_id = ? ORDER BY p.name COLLATE NOCASE', user.id);
+    : db.all<ProjectRow>('SELECT p.* FROM projects p WHERE p.id IN (SELECT project_id FROM project_access WHERE user_id = ?) ORDER BY p.name COLLATE NOCASE', user.id);
   const allowed = user.token?.projectIds ?? null;
   return allowed === null ? rows : rows.filter((row) => allowed.includes(row.id));
 }
@@ -185,8 +185,12 @@ export function userSummary(db: Db, viewer: AuthUser, userId: number): UserSumma
 
   const projects = db
     .all<{ id: number; key: string; name: string; role_name: string }>(
-      `SELECT p.id, p.key, p.name, r.name AS role_name FROM project_members m JOIN projects p ON p.id = m.project_id JOIN roles r ON r.id = m.role_id
-        WHERE m.user_id = ? AND p.id IN ${inList} ORDER BY p.archived, p.name COLLATE NOCASE`,
+      // Son rôle direct d'abord, sinon celui d'un de ses groupes.
+      `SELECT p.id, p.key, p.name,
+              (SELECT r.name FROM project_access a JOIN roles r ON r.id = a.role_id WHERE a.project_id = p.id AND a.user_id = ? ORDER BY a.group_id IS NOT NULL, a.group_id LIMIT 1) AS role_name
+         FROM projects p
+        WHERE p.id IN (SELECT project_id FROM project_access WHERE user_id = ?) AND p.id IN ${inList} ORDER BY p.archived, p.name COLLATE NOCASE`,
+      userId,
       userId,
       ...visibleIds,
     )

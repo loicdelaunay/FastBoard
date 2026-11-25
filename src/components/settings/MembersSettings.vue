@@ -6,6 +6,7 @@ import Select from 'primevue/select';
 import type { RoleDTO, UserSummaryDTO } from '@shared/types';
 import { isSubsetOfPermissions } from '@shared/permissions';
 import { api } from '@/api';
+import GroupGrants from '@/components/common/GroupGrants.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
@@ -32,7 +33,37 @@ const roleById = computed(() => new Map(roles.value.map((role) => [role.id, role
 const rows = computed(() =>
   project.members.map((member) => ({ member, user: project.usersById.get(member.userId), role: roleById.value.get(member.roleId) })),
 );
-const candidates = computed(() => directory.value.filter((user) => !project.usersById.has(user.id)));
+// Une personne qui a déjà accès par un groupe peut recevoir en plus un rôle direct (ex. éditrice dans un groupe lecteur).
+const candidates = computed(() => directory.value.filter((user) => !project.members.some((member) => member.userId === user.id)));
+
+// --- Groupes ---
+const ownerRoleId = computed(() => roles.value.find((role) => role.key === 'owner')?.id ?? null);
+/** Rôles qu'on peut donner à un groupe : les siens au plus, jamais propriétaire. */
+const groupRoleOptions = computed(() => grantableRoles.value.filter((role) => role.id !== ownerRoleId.value).map((role) => ({ value: role.id, label: t(role.name) })));
+const groupGrants = computed(() => project.groups.map((group) => ({ ...group, role: group.roleId })));
+const groupDefaultRole = computed(() => roles.value.find((role) => role.key === 'viewer')?.id ?? groupRoleOptions.value[0]?.value ?? 0);
+/** Un groupe au rôle plus large que le sien ne se change pas. */
+const groupLocked = (roleId: number) => !canEditMember(roleId);
+
+async function setGroup(groupId: number, roleId: number): Promise<void> {
+  if (project.projectId === null) return;
+  try {
+    await api.setProjectGroup(project.projectId, groupId, roleId);
+    await project.reload();
+  } catch (error) {
+    notifyError(error, t('Groupe non enregistré'));
+  }
+}
+
+async function removeGroup(groupId: number): Promise<void> {
+  if (project.projectId === null) return;
+  try {
+    await api.removeProjectGroup(project.projectId, groupId);
+    await project.reload();
+  } catch (error) {
+    notifyError(error, t('Retrait impossible'));
+  }
+}
 
 onMounted(async () => {
   try {
@@ -136,6 +167,18 @@ function askRemove(userId: number, name: string): void {
         <Button v-if="canEditMember(row.member.roleId) && row.member.userId !== auth.user?.id" icon="pi pi-user-minus" text rounded severity="danger" size="small" :aria-label="$t('Retirer {name}', { name: row.user?.name })" @click="askRemove(row.member.userId, row.user?.name ?? '')" />
       </li>
     </ul>
+
+    <GroupGrants
+      class="card group-card"
+      :grants="groupGrants"
+      :role-options="groupRoleOptions"
+      :editable="canManage"
+      :users="project.users"
+      :default-role="groupDefaultRole"
+      :locked="groupLocked"
+      @set="setGroup"
+      @remove="removeGroup"
+    />
   </div>
 </template>
 
@@ -179,6 +222,9 @@ function askRemove(userId: number, name: string): void {
   flex: 1;
   flex-direction: column;
   min-width: 0;
+}
+.group-card {
+  padding: 1rem 1.1rem;
 }
 .role-label {
   min-width: 8rem;

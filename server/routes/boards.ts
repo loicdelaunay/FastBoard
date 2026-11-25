@@ -53,12 +53,15 @@ import {
   boardShareSchema,
   boardSpaceSchema,
   boardSpaceUpdateSchema,
+  spaceGroupSchema,
   tagSearchSchema,
   versionTagSchema,
   versionTagUpdateSchema,
 } from '../http/schemas.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { requireGlobal } from '../services/access.ts';
+import { listSpaceGroups } from '../services/groupRows.ts';
+import { removeSpaceGroup, setSpaceGroup } from '../services/groups.ts';
 import { appInfo } from '../services/appSettings.ts';
 import { setRagScope } from '../rag/index.ts';
 import { searchBoardTags, tagBoardVersion } from '../boards/tags.ts';
@@ -145,7 +148,7 @@ export function boardsRouter(ctx: AppContext): Router {
   router.get('/boards/spaces/:id', (req, res) => {
     const spaceId = idParam(req.params.id);
     const role = spaceAccess(res, spaceId);
-    res.json({ space: getBoardSpace(ctx, currentUser(res), spaceId), role, nodes: listBoardNodes(ctx.db, spaceId), members: listBoardMembers(ctx.db, spaceId) });
+    res.json({ space: getBoardSpace(ctx, currentUser(res), spaceId), role, nodes: listBoardNodes(ctx.db, spaceId), members: listBoardMembers(ctx.db, spaceId), groups: listSpaceGroups(ctx.db, 'board_space_groups', spaceId) });
   });
 
   router.patch('/boards/spaces/:id', (req, res) => {
@@ -190,6 +193,21 @@ export function boardsRouter(ctx: AppContext): Router {
     // Chacun peut quitter un espace ; retirer quelqu'un d'autre est réservé aux propriétaires.
     spaceAccess(res, spaceId, userId === currentUser(res).id ? 'reader' : 'owner');
     res.json({ members: removeBoardMember(ctx, spaceId, userId) });
+  });
+
+  // Groupes : leurs membres ont accès à l'espace avec le rôle du groupe (lecteur ou éditeur).
+  router.put('/boards/spaces/:id/groups/:groupId', (req, res) => {
+    const spaceId = idParam(req.params.id);
+    spaceAccess(res, spaceId, 'owner');
+    setSpaceGroup(ctx, actorOf(req, res), 'boards', spaceId, idParam(req.params.groupId), parse(spaceGroupSchema, req.body).role);
+    res.json({ groups: listSpaceGroups(ctx.db, 'board_space_groups', spaceId) });
+  });
+
+  router.delete('/boards/spaces/:id/groups/:groupId', (req, res) => {
+    const spaceId = idParam(req.params.id);
+    spaceAccess(res, spaceId, 'owner');
+    removeSpaceGroup(ctx, actorOf(req, res), 'boards', spaceId, idParam(req.params.groupId));
+    res.json({ groups: listSpaceGroups(ctx.db, 'board_space_groups', spaceId) });
   });
 
   // --- Arbre ---------------------------------------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import { badRequest, conflict, forbidden, notFound } from '../http/errors.ts';
 import { getAuthUser, type AuthUser } from './access.ts';
 import { DEFAULT_THEME_ID, isCustomThemeId, normalizeAppearance } from '../../shared/themes.ts';
 import { parsePermissions, toUserSummary, USER_COLUMNS, type UserRow } from './rows.ts';
+import { broadcastMembers } from './projects.ts';
 
 interface AdminUserRow extends UserRow {
   role_key: string | null;
@@ -191,7 +192,7 @@ export function deleteUserByAdmin(ctx: AppContext, actor: AuthUser, targetId: nu
     throw conflict('Il doit rester au moins un super administrateur actif.');
   }
   const projectIds = db
-    .all<{ project_id: number }>('SELECT project_id FROM project_members WHERE user_id = ?', targetId)
+    .all<{ project_id: number }>('SELECT DISTINCT project_id FROM project_access WHERE user_id = ?', targetId)
     .map((row) => row.project_id);
   ctx.hub.disconnectUser(targetId);
   // Ses lignes qui ont un texte restent sur les tickets, sans personne (clé étrangère).
@@ -205,7 +206,7 @@ export function deleteUserByAdmin(ctx: AppContext, actor: AuthUser, targetId: nu
 /** Informe les projets partagés qu'un profil (nom, image) a changé. */
 export function notifyProfileChange(ctx: AppContext, userId: number): void {
   const projectIds = ctx.db
-    .all<{ project_id: number }>('SELECT project_id FROM project_members WHERE user_id = ?', userId)
+    .all<{ project_id: number }>('SELECT DISTINCT project_id FROM project_access WHERE user_id = ?', userId)
     .map((row) => row.project_id);
   for (const projectId of projectIds) {
     notifyMembersOfProject(ctx, projectId);
@@ -213,20 +214,7 @@ export function notifyProfileChange(ctx: AppContext, userId: number): void {
 }
 
 function notifyMembersOfProject(ctx: AppContext, projectId: number): void {
-  const users = ctx.db
-    .all<UserRow>(
-      `SELECT ${USER_COLUMNS} FROM users u JOIN project_members m ON m.user_id = u.id
-        WHERE m.project_id = ? ORDER BY u.name COLLATE NOCASE`,
-      projectId,
-    )
-    .map(toUserSummary);
-  const members = ctx.db
-    .all<{ user_id: number; role_id: number; created_at: string }>(
-      'SELECT user_id, role_id, created_at FROM project_members WHERE project_id = ? ORDER BY created_at, user_id',
-      projectId,
-    )
-    .map((row) => ({ userId: row.user_id, roleId: row.role_id, joinedAt: row.created_at }));
-  ctx.hub.publish(projectId, [{ type: 'members.changed', members, users }], { userId: null, origin: null });
+  broadcastMembers(ctx, { userId: null, origin: null }, projectId);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

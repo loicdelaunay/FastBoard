@@ -6,6 +6,7 @@ import { progressReminderUsers, withProgressUpdate } from '@shared/progressRemin
 import { defaultSettings, type ColumnConfig, type ProjectSettingsDTO } from '@shared/settings';
 import type { PresenceUser, ProjectEvent } from '@shared/realtime';
 import type { TicketFieldKey } from '@shared/ticketFields';
+import type { ProjectGroupDTO } from '@shared/groups';
 import type {
   AttachmentDTO,
   CategoryDTO,
@@ -44,6 +45,8 @@ export const useProjectStore = defineStore('project', () => {
   const projectId = ref<number | null>(null);
   const project = ref<ProjectDTO | null>(null);
   const members = ref<ProjectMemberDTO[]>([]);
+  /** Groupes ajoutés au projet (leurs membres y ont accès avec le rôle du groupe). */
+  const groups = ref<ProjectGroupDTO[]>([]);
   const users = ref<UserSummaryDTO[]>([]);
   const rawCategories = ref<CategoryDTO[]>([]);
   /** Catégories ; les noms par défaut (créés avec le projet) sont affichés dans la langue de l'interface. */
@@ -167,6 +170,7 @@ export const useProjectStore = defineStore('project', () => {
   function clearData(): void {
     project.value = null;
     members.value = [];
+    groups.value = [];
     users.value = [];
     rawCategories.value = [];
     rawPriorities.value = [];
@@ -194,6 +198,7 @@ export const useProjectStore = defineStore('project', () => {
   function applySnapshot(snapshot: ProjectSnapshotDTO): void {
     project.value = snapshot.project;
     members.value = snapshot.members;
+    groups.value = snapshot.groups;
     users.value = snapshot.users;
     rawCategories.value = snapshot.categories;
     rawPriorities.value = snapshot.priorities ?? [];
@@ -399,8 +404,10 @@ export const useProjectStore = defineStore('project', () => {
         break;
       case 'members.changed': {
         members.value = event.members;
+        groups.value = event.groups;
         users.value = event.users;
-        const memberIds = new Set(event.members.map((member) => member.userId));
+        // Les personnes du projet : membres directs et membres de ses groupes.
+        const memberIds = new Set(event.users.map((user) => user.id));
         for (const ticket of tickets.value) {
           if (ticket.assignees.some((assignee) => !memberIds.has(assignee.userId))) {
             ticket.assignees = ticket.assignees.filter((assignee) => memberIds.has(assignee.userId));
@@ -790,7 +797,7 @@ export const useProjectStore = defineStore('project', () => {
 
   return {
     // état
-    projectId, project, settings, columns, visibleColumns, statusOrder, statusMeta, members, users, categories, priorities, rawPriorities, components, deliveries, tickets, permissions, presence, status, error, flashes, comments, history, attachments,
+    projectId, project, settings, columns, visibleColumns, statusOrder, statusMeta, members, groups, users, categories, priorities, rawPriorities, components, deliveries, tickets, permissions, presence, status, error, flashes, comments, history, attachments,
     unseenActivity, setActivityViewOpen,
     // index
     ticketsById, usersById, categoriesById, deliveriesById, prioritiesById, componentsById, priorityRank, currentDelivery, nextDelivery,

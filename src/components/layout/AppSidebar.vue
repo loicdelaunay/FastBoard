@@ -113,6 +113,9 @@ const accountItems = computed<MenuItem[]>(() => [
       <router-link v-if="app.info.boards" v-tooltip.right="collapsed ? $t('Tableaux blancs') : undefined" :to="{ name: 'boards' }" class="item" active-class="active">
         <i class="pi pi-objects-column module-icon boards"></i><span class="label">{{ $t('Tableaux blancs') }}</span>
       </router-link>
+      <router-link v-tooltip.right="collapsed ? $t('Groupes') : undefined" :to="{ name: 'groups' }" class="item" active-class="active">
+        <i class="pi pi-users module-icon groups"></i><span class="label">{{ $t('Groupes') }}</span>
+      </router-link>
       <router-link v-if="auth.canAdmin" v-tooltip.right="collapsed ? $t('Administration') : undefined" :to="{ name: 'admin' }" class="item" active-class="active">
         <i class="pi pi-cog"></i><span class="label">{{ $t('Administration') }}</span>
       </router-link>
@@ -302,6 +305,9 @@ const accountItems = computed<MenuItem[]>(() => [
 }
 .item .module-icon.boards {
   color: var(--fb-module-boards);
+}
+.item .module-icon.groups {
+  color: #14b8a6;
 }
 .nav {
   display: flex;

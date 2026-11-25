@@ -19,6 +19,7 @@ import type { Actor, AppContext } from '../context.ts';
 import { nowIso, type Db } from '../db/database.ts';
 import { badRequest, conflict, forbidden, HttpError, notFound } from '../http/errors.ts';
 import { getAuthUser, type AuthUser } from '../services/access.ts';
+import { roleOfRank, ROLE_RANK_SQL } from '../services/spaceRoles.ts';
 import { readSetting, writeSetting } from '../services/appSettings.ts';
 import { foldText } from '../services/tickets.ts';
 import { removeSpaceAssets } from './assets.ts';
@@ -79,11 +80,14 @@ export const boardNodeDTO = toNodeDTO;
 
 // --- Droits ----------------------------------------------------------------------------------------------------------
 
-/** Rôle de la personne dans un espace ; `boards.manage` donne la main sur tous. */
+/**
+ * Rôle de la personne dans un espace : le plus large de son rôle direct et de ceux de ses groupes (vue board_access) ;
+ * `boards.manage` donne la main sur tous.
+ */
 export function boardRole(db: Db, user: AuthUser, spaceId: number): BoardRole | null {
   if (!db.get('SELECT 1 FROM board_spaces WHERE id = ?', spaceId)) return null;
   if (hasPermission(user.permissions, 'boards.manage')) return 'owner';
-  return db.get<{ role: BoardRole }>('SELECT role FROM board_members WHERE space_id = ? AND user_id = ?', spaceId, user.id)?.role ?? null;
+  return roleOfRank(db.get<{ rank: number | null }>(`SELECT ${ROLE_RANK_SQL} AS rank FROM board_access WHERE space_id = ? AND user_id = ?`, spaceId, user.id)?.rank);
 }
 
 /** Accès à un espace : introuvable pour qui n'en est pas membre, interdit en dessous du rôle demandé. */
@@ -113,16 +117,20 @@ export function requireBoard(ctx: AppContext, user: AuthUser, nodeId: number, mi
 
 export function listBoardSpaces(ctx: AppContext, user: AuthUser): BoardSpaceDTO[] {
   const seesAll = hasPermission(user.permissions, 'boards.manage');
-  const rows = ctx.db.all<SpaceRow & { my_role: BoardRole | null; boards: number; members: number; rag: number }>(
-    `SELECT s.*, m.role AS my_role,
-            EXISTS (SELECT 1 FROM rag_scopes r WHERE r.scope = 'boards' AND r.container_id = s.id) AS rag,
-            (SELECT COUNT(*) FROM board_nodes n WHERE n.space_id = s.id AND n.deleted_at IS NULL AND n.kind = 'board') AS boards,
-            (SELECT COUNT(*) FROM board_members x WHERE x.space_id = s.id) AS members
-       FROM board_spaces s LEFT JOIN board_members m ON m.space_id = s.id AND m.user_id = ?
-      ${seesAll ? '' : 'WHERE m.role IS NOT NULL'}
-      ORDER BY s.updated_at DESC`,
-    user.id,
-  );
+  // Rôle de la personne : le plus large, direct ou par un de ses groupes ; les membres comptent aussi ceux des groupes.
+  const rows = ctx.db
+    .all<SpaceRow & { my_rank: number | null; boards: number; members: number; rag: number }>(
+      `SELECT s.*,
+              (SELECT ${ROLE_RANK_SQL} FROM board_access a WHERE a.space_id = s.id AND a.user_id = ?) AS my_rank,
+              EXISTS (SELECT 1 FROM rag_scopes r WHERE r.scope = 'boards' AND r.container_id = s.id) AS rag,
+              (SELECT COUNT(*) FROM board_nodes n WHERE n.space_id = s.id AND n.deleted_at IS NULL AND n.kind = 'board') AS boards,
+              (SELECT COUNT(DISTINCT x.user_id) FROM board_access x WHERE x.space_id = s.id) AS members
+         FROM board_spaces s
+        ORDER BY s.updated_at DESC`,
+      user.id,
+    )
+    .map((row) => ({ ...row, my_role: roleOfRank(row.my_rank) as BoardRole | null }))
+    .filter((row) => seesAll || row.my_role !== null);
   return rows.map((row) => ({
     id: row.id,
     name: row.name,

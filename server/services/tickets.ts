@@ -341,7 +341,7 @@ function assertDelivery(db: Db, projectId: number, deliveryId: number | null | u
 export function assertMembers(db: Db, projectId: number, userIds: number[]): void {
   for (const userId of userIds) {
     const member = db.get(
-      `SELECT 1 FROM project_members m JOIN users u ON u.id = m.user_id
+      `SELECT 1 FROM project_access m JOIN users u ON u.id = m.user_id
         WHERE m.project_id = ? AND m.user_id = ? AND u.is_active = 1`,
       projectId,
       userId,
@@ -909,7 +909,7 @@ export function transferTicket(ctx: AppContext, actor: Actor, ticketId: number, 
       db.run('INSERT INTO ticket_components (ticket_id, component_id) VALUES (?, ?)', ticketId, componentId);
     }
     const members = new Set(
-      db.all<{ user_id: number }>('SELECT m.user_id FROM project_members m JOIN users u ON u.id = m.user_id WHERE m.project_id = ? AND u.is_active = 1', destination.id).map((member) => member.user_id),
+      db.all<{ user_id: number }>('SELECT DISTINCT m.user_id FROM project_access m JOIN users u ON u.id = m.user_id WHERE m.project_id = ? AND u.is_active = 1', destination.id).map((member) => member.user_id),
     );
     for (const part of db.all<{ user_id: number }>('SELECT DISTINCT user_id FROM ticket_parts WHERE ticket_id = ? AND user_id IS NOT NULL', ticketId)) {
       if (!members.has(part.user_id)) releaseParts(db, ticketId, part.user_id);

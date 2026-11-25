@@ -1,6 +1,7 @@
 /** Protocole WebSocket (JSON). */
 
 import type { BoardNodeDTO } from './boards.ts';
+import type { ProjectGroupDTO } from './groups.ts';
 import type { NotificationLevel } from './constants.ts';
 import type { DocNodeDTO } from './docs.ts';
 import type { DocCommentDTO } from './docComments.ts';
@@ -47,7 +48,8 @@ export type ProjectEvent =
   | { type: 'delivery.upserted'; delivery: DeliveryDTO }
   | { type: 'delivery.deleted'; deliveryId: number }
   | { type: 'project.updated'; project: ProjectDTO }
-  | { type: 'members.changed'; members: ProjectMemberDTO[]; users: UserSummaryDTO[] };
+  /** `members` : membres directs ; `groups` : groupes ajoutés ; `users` : toutes les personnes qui ont accès. */
+  | { type: 'members.changed'; members: ProjectMemberDTO[]; groups: ProjectGroupDTO[]; users: UserSummaryDTO[] };
 
 export interface PresenceUser {
   userId: number;
@@ -66,6 +68,10 @@ export type ServerMessage =
   | { t: 'me.refresh' }
   /** La liste des projets accessibles a changé. */
   | { t: 'projects.refresh' }
+  /** La liste des espaces (documentation, tableaux blancs) accessibles a changé : un groupe a été ajouté ou retiré. */
+  | { t: 'spaces.refresh' }
+  /** Un groupe a été créé, modifié ou supprimé : la liste des groupes se relit. */
+  | { t: 'groups.changed' }
   /** L'accès à un projet a été retiré (ou le projet supprimé). */
   | { t: 'project.revoked'; projectId: number }
   /** Nom, logo ou message de maintenance de l'application modifiés. */

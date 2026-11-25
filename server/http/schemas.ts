@@ -17,6 +17,7 @@ import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
 import { CUSTOM_FIELD_LIMITS, CUSTOM_FIELD_TYPES, TICKET_FIELDS } from '../../shared/ticketFields.ts';
 import { APPEARANCE_LIMITS, READING_WIDTHS, SURFACE_PALETTES, THEME_COLORS, THEME_PRESETS, isFontFamily, isThemeId, type ThemeColorKey } from '../../shared/themes.ts';
+import { GROUP_LIMITS, GROUP_MEMBER_ROLES, GROUP_SPACE_ROLES } from '../../shared/groups.ts';
 import { z } from './validate.ts';
 
 // --- Briques communes -----------------------------------------------------------------------------------------------
@@ -278,6 +279,24 @@ export const updateProjectSchema = z.object({
 
 export const memberSchema = z.object({ userId: id, roleId: id.describe('Identifiant d\'un rôle de projet (`GET /roles`).') });
 export const memberRoleSchema = z.object({ roleId: id });
+
+// --- Groupes ---------------------------------------------------------------------------------------------------------
+
+const groupColor = z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().describe('Couleur #RRGGBB du groupe, ou `null`.');
+export const groupSchema = z.object({
+  name: z.string().trim().min(1).max(GROUP_LIMITS.nameMax),
+  description: z.string().max(GROUP_LIMITS.descriptionMax).default(''),
+  color: groupColor.default(null),
+  memberIds: z.array(id).max(GROUP_LIMITS.membersMax).default([]).describe('Personnes à mettre dans le groupe (qui le crée en est gestionnaire).'),
+});
+export const groupPatchSchema = z.object({
+  name: z.string().trim().min(1).max(GROUP_LIMITS.nameMax).optional(),
+  description: z.string().max(GROUP_LIMITS.descriptionMax).optional(),
+  color: groupColor.optional(),
+});
+export const groupMemberSchema = z.object({ role: z.enum(GROUP_MEMBER_ROLES).default('member').describe('`manager` : gère le groupe ; `member` : en fait partie.') });
+export const projectGroupSchema = z.object({ roleId: id.describe('Rôle de projet donné aux membres du groupe (pas propriétaire).') });
+export const spaceGroupSchema = z.object({ role: z.enum(GROUP_SPACE_ROLES).describe('Rôle des membres du groupe dans l’espace : `reader` ou `editor`.') });
 
 export const categorySchema = z.object({ name: z.string().trim().min(1).max(60), color });
 

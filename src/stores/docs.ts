@@ -2,6 +2,7 @@ import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { DocCommentDTO } from '@shared/docComments';
 import { docRoleAtLeast, type DocBookmarkDTO, type DocMemberDTO, type DocNodeDTO, type DocRole, type DocSpaceDTO } from '@shared/docs';
+import type { SpaceGroupDTO } from '@shared/groups';
 import { api } from '@/api';
 import { realtime } from '@/realtime/socket';
 import { notifyError } from '@/utils/notify';
@@ -19,6 +20,8 @@ export const useDocsStore = defineStore('docs', () => {
   /** Modèles de notes de l'espace ouvert, à part de l'arbre. */
   const templates = ref<DocNodeDTO[]>([]);
   const members = ref<DocMemberDTO[]>([]);
+  /** Groupes ajoutés à l'espace ouvert. */
+  const groups = ref<SpaceGroupDTO[]>([]);
   /** L'accès à l'espace ouvert vient d'être retiré. */
   const revoked = ref(false);
   /** Commentaires de la note ouverte. */
@@ -48,6 +51,7 @@ export const useDocsStore = defineStore('docs', () => {
     nodes.value = result.nodes;
     templates.value = result.templates;
     members.value = result.members;
+    groups.value = result.groups;
   }
 
   async function openSpace(spaceId: number): Promise<void> {
@@ -94,6 +98,10 @@ export const useDocsStore = defineStore('docs', () => {
     else if (message.t === 'docs.revoked') revoked.value = true;
     else if (message.t === 'docs.comments' && message.nodeId === commentsNode.value) comments.value = message.comments;
   });
+  // Un groupe a été ajouté ou retiré : la liste des espaces accessibles a changé.
+  realtime.on('spacesRefresh', () => {
+    if (loaded.value) void fetchSpaces().catch(() => undefined);
+  });
   // Connexion ouverte après l'espace, ou coupure : l'arbre a pu changer, et le serveur ne sait pas encore qui regarde quoi.
   realtime.on('open', () => {
     if (!space.value) return;
@@ -102,5 +110,5 @@ export const useDocsStore = defineStore('docs', () => {
     void loadComments(commentsNode.value).catch(() => undefined);
   });
 
-  return { spaces, loading, loaded, space, nodes, templates, members, revoked, comments, bookmarks, bookmarked, canEdit, isOwner, role, fetchSpaces, openSpace, closeSpace, reload, loadComments, loadBookmarks, toggleBookmark };
+  return { spaces, loading, loaded, space, nodes, templates, members, groups, revoked, comments, bookmarks, bookmarked, canEdit, isOwner, role, fetchSpaces, openSpace, closeSpace, reload, loadComments, loadBookmarks, toggleBookmark };
 });

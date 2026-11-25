@@ -100,7 +100,7 @@ export interface ProjectAccess {
   project: ProjectRow;
   /** Permissions effectives dans ce projet. */
   permissions: Set<string>;
-  /** Rôle de projet de l'utilisateur (null s'il n'est pas membre). */
+  /** Rôle de projet de l'utilisateur : son rôle direct, sinon celui d'un de ses groupes (null s'il n'a ni l'un ni l'autre). */
   roleId: number | null;
 }
 
@@ -114,20 +114,23 @@ export function resolveProjectAccess(db: Db, user: AuthUser, projectId: number):
   if (!project) {
     return null;
   }
-  const member = db.get<{ role_id: number; permissions: string }>(
-    `SELECT m.role_id, r.permissions FROM project_members m JOIN roles r ON r.id = m.role_id
-      WHERE m.project_id = ? AND m.user_id = ?`,
+  // Rôle direct et rôles des groupes de la personne (vue project_access) : leurs permissions s'additionnent, comme dans
+  // Google Drive un groupe en lecture et une de ses personnes en plus en éditrice.
+  const grants = db.all<{ role_id: number; permissions: string; group_id: number | null }>(
+    `SELECT a.role_id, r.permissions, a.group_id FROM project_access a JOIN roles r ON r.id = a.role_id
+      WHERE a.project_id = ? AND a.user_id = ?`,
     projectId,
     user.id,
   );
+  const roleId = (grants.find((grant) => grant.group_id === null) ?? grants[0])?.role_id ?? null;
 
   if (hasPermission(user.permissions, 'projects.manage_all')) {
-    return { project, permissions: new Set(ALL_PROJECT_PERMISSION_KEYS), roleId: member?.role_id ?? null };
+    return { project, permissions: new Set(ALL_PROJECT_PERMISSION_KEYS), roleId };
   }
-  if (member) {
-    const granted = parsePermissions(member.permissions);
+  if (grants.length) {
+    const granted = grants.flatMap((grant) => parsePermissions(grant.permissions));
     const permissions = granted.includes('*') ? new Set(ALL_PROJECT_PERMISSION_KEYS) : new Set(granted);
-    return { project, permissions, roleId: member.role_id };
+    return { project, permissions, roleId };
   }
   if (hasPermission(user.permissions, 'projects.view_all')) {
     return { project, permissions: new Set(), roleId: null };

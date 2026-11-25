@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { BoardMemberDTO, BoardNodeDTO, BoardRole, BoardSpaceDTO } from '@shared/boards';
+import type { SpaceGroupDTO } from '@shared/groups';
 import { docRoleAtLeast } from '@shared/docs';
 import { api } from '@/api';
 import { realtime } from '@/realtime/socket';
@@ -14,6 +15,8 @@ export const useBoardsStore = defineStore('boards', () => {
   const space = ref<BoardSpaceDTO | null>(null);
   const nodes = ref<BoardNodeDTO[]>([]);
   const members = ref<BoardMemberDTO[]>([]);
+  /** Groupes ajoutés à l'espace ouvert. */
+  const groups = ref<SpaceGroupDTO[]>([]);
   const revoked = ref(false);
 
   const role = computed<BoardRole>(() => space.value?.role ?? 'reader');
@@ -35,6 +38,7 @@ export const useBoardsStore = defineStore('boards', () => {
     space.value = result.space;
     nodes.value = result.nodes;
     members.value = result.members;
+    groups.value = result.groups;
   }
 
   async function openSpace(spaceId: number): Promise<void> {
@@ -47,6 +51,7 @@ export const useBoardsStore = defineStore('boards', () => {
     space.value = null;
     nodes.value = [];
     members.value = [];
+    groups.value = [];
     realtime.sendBoard({ t: 'boards.watch', spaceId: null });
   }
 
@@ -59,6 +64,10 @@ export const useBoardsStore = defineStore('boards', () => {
   realtime.on('open', () => {
     if (space.value) void openSpace(space.value.id).catch(() => undefined);
   });
+  // Un groupe a été ajouté ou retiré : la liste des espaces accessibles a changé.
+  realtime.on('spacesRefresh', () => {
+    if (loaded.value) void fetchSpaces().catch(() => undefined);
+  });
 
-  return { spaces, loading, loaded, space, nodes, members, revoked, role, canEdit, isOwner, fetchSpaces, openSpace, closeSpace, reload };
+  return { spaces, loading, loaded, space, nodes, members, groups, revoked, role, canEdit, isOwner, fetchSpaces, openSpace, closeSpace, reload };
 });
