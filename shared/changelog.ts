@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.26.0';
+export const APP_VERSION = '2.26.1';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,11 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.26.1',
+    date: '2026-11-25',
+    changes: [{ category: 'Correction', text: 'Documentation : après une sélection (Ctrl A, ou un passage choisi à la souris), un clic dans le texte la défait de nouveau entièrement.' }],
+  },
   {
     version: '2.26.0',
     date: '2026-11-24',

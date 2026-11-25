@@ -892,8 +892,9 @@ onMounted(() => {
         EditorView.theme({
           '&': { height: '100%', fontSize: '0.9rem', backgroundColor: 'transparent', color: 'var(--fb-text)' },
           '&.cm-focused': { outline: 'none' },
-          // Sélection dessinée au-dessus du texte, translucide : un fond (citation, code, surlignage) ne la cache plus.
-          '& .cm-selectionLayer': { zIndex: '2 !important' },
+          // Sélection dessinée au-dessus du texte, translucide : un fond (citation, code, surlignage) ne la cache plus. Elle
+          // laisse passer les clics : sinon un clic sur du texte sélectionné tombe sur elle, et la sélection ne se défait pas.
+          '& .cm-selectionLayer': { zIndex: '2 !important', pointerEvents: 'none' },
           '& .cm-selectionLayer .cm-selectionBackground': { background: 'color-mix(in srgb, var(--fb-accent) 18%, transparent) !important' },
           '&.cm-focused .cm-selectionLayer .cm-selectionBackground': { background: 'color-mix(in srgb, var(--fb-accent) 30%, transparent) !important' },
           '.cm-scroller': { fontFamily: FONT_MONO, lineHeight: '1.55' },
