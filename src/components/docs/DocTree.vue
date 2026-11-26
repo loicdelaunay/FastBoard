@@ -193,6 +193,7 @@ function updateStuck(): void {
 }
 
 function onListScroll(): void {
+  if (memoTip.value) memoTip.value = null;
   if (!stickFrame) stickFrame = requestAnimationFrame(updateStuck);
 }
 
@@ -206,6 +207,55 @@ function revealRow(row: Row): void {
 
 watch(rows, () => void nextTick(updateStuck));
 onBeforeUnmount(() => cancelAnimationFrame(stickFrame));
+
+// --- Note d'un fichier ou d'un dossier : une petite fenêtre au survol (ou au clavier), à droite de la ligne ---
+const memoTip = ref<{ node: DocNodeDTO; top: number; left: number } | null>(null);
+let memoShow = 0;
+let memoHide = 0;
+const MEMO_WIDTH = 288;
+
+function showMemo(event: MouseEvent | FocusEvent, node: DocNodeDTO): void {
+  window.clearTimeout(memoHide);
+  window.clearTimeout(memoShow);
+  if (!node.memo || dragged.value.length) return;
+  const row = event.currentTarget as HTMLElement;
+  memoShow = window.setTimeout(() => {
+    const rect = row.getBoundingClientRect();
+    // À droite de la ligne ; au bord de l'écran, elle passe à gauche ; jamais sous le bas de la fenêtre.
+    const left = rect.right + 10 + MEMO_WIDTH > window.innerWidth ? Math.max(8, rect.left - MEMO_WIDTH - 10) : rect.right + 10;
+    memoTip.value = { node, top: Math.max(8, Math.min(rect.top - 6, window.innerHeight - 220)), left };
+  }, event.type === 'focus' ? 0 : 350);
+}
+
+function hideMemo(): void {
+  window.clearTimeout(memoShow);
+  window.clearTimeout(memoHide);
+  memoHide = window.setTimeout(() => (memoTip.value = null), 160);
+}
+
+function keepMemo(): void {
+  window.clearTimeout(memoHide);
+}
+
+function editMemo(node: DocNodeDTO): void {
+  memoTip.value = null;
+  emit('memo', node);
+}
+
+// La note d'une ligne qui change (note retirée, élément supprimé) suit ; un défilement la ferme.
+watch(
+  () => [props.nodes, props.templates],
+  () => {
+    const shown = memoTip.value;
+    if (!shown) return;
+    const fresh = [...props.nodes, ...props.templates].find((node) => node.id === shown.node.id);
+    memoTip.value = fresh?.memo ? { ...shown, node: fresh } : null;
+  },
+);
+onBeforeUnmount(() => {
+  window.clearTimeout(memoShow);
+  window.clearTimeout(memoHide);
+});
 
 const ICONS: Record<DocNodeDTO['kind'], string> = { folder: 'pi pi-folder', markdown: 'pi pi-file', image: 'pi pi-image', template: 'pi pi-clone' };
 
@@ -493,9 +543,14 @@ function dropOn(folder: string): void {
         :class="{ selected: selection.has(row.node.id), dropping: over === row.node.path }"
         :style="{ paddingLeft: indent(row.depth) }"
         :draggable="editable"
-        :title="row.node.memo ? `${row.node.path}\n${row.node.memo}` : row.node.path"
+        :title="row.node.memo ? undefined : row.node.path"
+        :aria-describedby="memoTip?.node.id === row.node.id ? 'doc-memo-tip' : undefined"
         tabindex="0"
-        @click="select(row, $event)"
+        @mouseenter="showMemo($event, row.node)"
+        @mouseleave="hideMemo"
+        @focus="showMemo($event, row.node)"
+        @blur="hideMemo"
+        @click="memoTip = null; select(row, $event)"
         @dblclick="row.node.kind === 'folder' && toggle(row.node)"
         @auxclick.prevent="$event.button === 1 && row.node.kind !== 'folder' && emit('open', row.node, true)"
         @keydown.enter="select(row, $event)"
@@ -532,8 +587,13 @@ function dropOn(folder: string): void {
           :key="node.id"
           class="row"
           :class="{ selected: node.id === selectedId }"
-          :title="node.memo ? `${docTitle(node.path)}\n${node.memo}` : $t('Modifier le modèle')"
+          :title="node.memo ? undefined : $t('Modifier le modèle')"
+          :aria-describedby="memoTip?.node.id === node.id ? 'doc-memo-tip' : undefined"
           tabindex="0"
+          @mouseenter="showMemo($event, node)"
+          @mouseleave="hideMemo"
+          @focus="showMemo($event, node)"
+          @blur="hideMemo"
           @click="emit('open', node, $event.ctrlKey || $event.metaKey)"
           @auxclick.prevent="$event.button === 1 && emit('open', node, true)"
           @keydown.enter="emit('open', node, false)"
@@ -548,10 +608,101 @@ function dropOn(folder: string): void {
       <p v-if="templatesOpen && !templates.length" class="muted small empty">{{ $t('Clic droit sur une note, « Enregistrer comme modèle », ou « + » pour en écrire un.') }}</p>
     </section>
     <ContextMenu ref="menu" :model="menuItems" />
+
+    <!-- Note d'un fichier ou d'un dossier, au survol de sa ligne -->
+    <Teleport to="body">
+      <Transition name="memo-pop">
+        <div v-if="memoTip" id="doc-memo-tip" class="memo-pop" role="tooltip" :style="{ top: `${memoTip.top}px`, left: `${memoTip.left}px`, width: `${MEMO_WIDTH}px` }" @mouseenter="keepMemo" @mouseleave="hideMemo">
+          <header class="memo-head">
+            <i :class="memoTip.node.kind === 'folder' ? folderIcon(memoTip.node, false) : ICONS[memoTip.node.kind]" :style="memoTip.node.kind === 'folder' ? folderIconStyle(memoTip.node) : undefined" class="memo-kind" :data-kind="memoTip.node.kind"></i>
+            <strong class="truncate">{{ memoTip.node.kind === 'markdown' || memoTip.node.kind === 'template' ? docTitle(memoTip.node.path) : docBaseName(memoTip.node.path) }}</strong>
+          </header>
+          <p v-if="memoTip.node.kind !== 'template' && docParent(memoTip.node.path)" class="memo-path muted truncate">{{ docParent(memoTip.node.path) }}</p>
+          <p class="memo-text">{{ memoTip.node.memo }}</p>
+          <button v-if="editable" type="button" class="memo-edit" @click="editMemo(memoTip.node)"><i class="pi pi-pencil"></i> {{ $t('Modifier la note') }}</button>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
+.memo-pop {
+  position: fixed;
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: min(18rem, 60vh);
+  padding: 0.7rem 0.85rem 0.6rem;
+  border: 1px solid var(--fb-border);
+  border-left: 3px solid var(--fb-module-docs, #10b981);
+  border-radius: 10px;
+  background: var(--fb-panel);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.16), 0 2px 6px rgb(0 0 0 / 0.08);
+  color: var(--fb-text);
+  font-size: 0.85rem;
+}
+.memo-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.memo-kind {
+  flex: none;
+  color: var(--fb-muted);
+}
+.memo-kind[data-kind='folder'] {
+  color: #f59e0b;
+}
+.memo-path {
+  margin: -0.2rem 0 0;
+  font-size: 0.75rem;
+}
+.memo-text {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding-top: 0.4rem;
+  overflow-y: auto;
+  border-top: 1px solid var(--fb-border);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.memo-edit {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.4rem;
+  margin-left: -0.4rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--fb-accent);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.memo-edit:hover {
+  background: var(--fb-accent-soft);
+}
+.memo-edit .pi {
+  font-size: 0.75rem;
+}
+.memo-pop-enter-active,
+.memo-pop-leave-active {
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+.memo-pop-enter-from,
+.memo-pop-leave-to {
+  opacity: 0;
+  transform: translateX(-4px);
+}
 .doc-tree {
   display: flex;
   flex-direction: column;

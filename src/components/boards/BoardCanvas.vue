@@ -7,7 +7,7 @@ import InputText from 'primevue/inputtext';
 import type { MenuItem } from 'primevue/menuitem';
 import FollowPill from '@/components/common/FollowPill.vue';
 import { SNAP_LIMITS, snapMove, snapResize, type SnapGuide } from '@shared/boardSnap';
-import { anchor, anchorOf, attachAt, boundsOf, connectorGeometry, connectorStroke, crossingsOf, lineLength, shiftSegment, waypointRank, intersects, mindLink, mindRoot, shapePath, sideToward, textBox, type ConnectorGeometry, type Point, type Rect } from '@shared/boardGeometry';
+import { anchor, anchorOf, attachAt, boundsOf, contains as rectContains, connectorGeometry, connectorStroke, crossingsOf, lineLength, shiftSegment, waypointRank, intersects, mindLink, mindRoot, shapePath, sideToward, textBox, type ConnectorGeometry, type Point, type Rect } from '@shared/boardGeometry';
 import { exportMermaid, mermaidToElements } from '@shared/boardMermaid';
 import { drawioImageData, drawioImageName, looksLikeDrawio, type DrawioImage } from '@shared/boardDrawio';
 import { MOCKUP_SPECS, mockupSvg } from '@shared/boardMockup';
@@ -146,6 +146,30 @@ watch(snapping, (value) => {
 });
 /** Traits de guidage du geste en cours. */
 const guides = ref<SnapGuide[]>([]);
+
+/**
+ * Texte d'un post-it, lisible à tout niveau de zoom : en dézoomant, il grandit pour garder au moins `READABLE_PX` à
+ * l'écran (dans la limite d'une ligne qui tienne dans le post-it), et ce qui ne tient plus finit par « … ». À 100 %, il
+ * garde sa taille.
+ */
+const STICKY_FONT = 15;
+const STICKY_PADDING = 14;
+const READABLE_PX = 12;
+/** En dessous, à l'écran, on préfère couper un mot que de rendre le texte illisible. */
+const SMALLEST_PX = 10;
+const STICKY_LINE = 1.35;
+/** Largeur moyenne d'un caractère (gras), en proportion de la taille du texte. */
+const CHAR_WIDTH = 0.56;
+function stickyTextStyle(element: Pick<StickyElement, 'w' | 'h' | 'text'>): Record<string, string | number> {
+  const room = Math.max(1, element.h - STICKY_PADDING * 2);
+  const width = Math.max(1, element.w - STICKY_PADDING * 2);
+  let font = Math.min(READABLE_PX / view.zoom, room / STICKY_LINE);
+  // Le mot le plus long tient sur une ligne, tant que le texte reste lisible : pas de mot coupé en deux.
+  const longest = Math.max(1, ...element.text.split(/\s+/).map((word) => word.length));
+  font = Math.min(font, Math.max(width / (longest * CHAR_WIDTH), SMALLEST_PX / view.zoom));
+  font = Math.max(STICKY_FONT, font);
+  return { fontSize: `${Math.round(font * 10) / 10}px`, WebkitLineClamp: Math.max(1, Math.floor(room / (font * STICKY_LINE))) };
+}
 const gapText = (guide: SnapGuide): string => String(Math.round(Math.hypot(guide.x2 - guide.x1, guide.y2 - guide.y1)));
 const gapWidth = (guide: SnapGuide): number => gapText(guide).length * 7 + 12;
 
@@ -1146,8 +1170,9 @@ function onPointerMove(event: PointerEvent): void {
       const ids = withUnits(touched);
       for (const element of elements.value) {
         if (element.type !== 'connector' || ids.has(element.id)) continue;
+        // Un lien n'est pris que si le cadre l'englobe tout entier (son tracé complet), quelles que soient ses formes.
         const bounds = boundsOf([element], index.value);
-        if (bounds && intersects(rect, bounds) && (!element.from.id || ids.has(element.from.id)) && (!element.to.id || ids.has(element.to.id))) ids.add(element.id);
+        if (bounds && rectContains(rect, bounds)) ids.add(element.id);
       }
       select(withUnits(ids));
       break;
@@ -2976,7 +3001,7 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
           <g v-else-if="element.type === 'sticky'" :data-id="element.id" class="el sticky" :class="[`c-${element.color}`, { selected: outlined.has(element.id), hover: hoverId === element.id }]" :transform="`translate(${element.x},${element.y})`">
             <rect class="sticky-body" :width="element.w" :height="element.h" rx="6" />
             <foreignObject v-if="editingId !== element.id" x="0" y="0" :width="element.w" :height="element.h">
-              <div class="sticky-text">{{ element.text }}</div>
+              <div class="sticky-text"><span class="sticky-lines" :style="stickyTextStyle(element)">{{ element.text }}</span></div>
             </foreignObject>
             <g v-if="element.votes.length || mode === 'sticky'" class="votes" :class="{ mine: myVote(element) }" :transform="`translate(${element.w - 54},${element.h - 30})`" @pointerdown.stop="editable && toggleVote(element)">
               <rect width="46" height="22" rx="11" />
@@ -3402,6 +3427,13 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
   padding: 14px;
   color: #1f2937;
   font-size: 15px;
+}
+/* Lignes du texte : coupées par « … » quand le zoom grossit le texte au-delà de la place. */
+.sticky-lines {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 .votes rect {
   fill: rgb(255 255 255 / 0.75);

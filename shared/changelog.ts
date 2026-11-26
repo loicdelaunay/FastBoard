@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.31.0';
+export const APP_VERSION = '2.32.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,15 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.32.0',
+    date: '2026-11-26',
+    changes: [
+      { category: 'Amélioration', text: 'Tableaux blancs : le texte des post-it reste lisible en dézoomant (il grandit pour garder une taille lisible à l’écran, sans couper les mots), et ce qui ne tient plus se termine par « … » ; à 100 %, rien ne change.' },
+      { category: 'Amélioration', text: 'Documentation : la note d’un fichier ou d’un dossier s’affiche dans une petite fenêtre au survol de sa ligne dans l’arbre (et des modèles), avec « Modifier la note » pour les éditeurs, au lieu de la bulle du navigateur.' },
+      { category: 'Correction', text: 'Tableaux blancs : le cadre de sélection ne prend un lien que s’il l’englobe en entier, comme les autres éléments, au lieu de le prendre dès qu’il en touche un bout.' },
+    ],
+  },
   {
     version: '2.31.0',
     date: '2026-11-26',
