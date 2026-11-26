@@ -57,6 +57,7 @@ import { enV60 } from './en.v60.ts';
 import { enV61 } from './en.v61.ts';
 import { enV62 } from './en.v62.ts';
 import { enV63 } from './en.v63.ts';
+import { enV64 } from './en.v64.ts';
 
 /** Catalogue anglais : clé = texte français (voir `index.ts`). */
-export const en: Record<string, string> = { ...enA, ...enB, ...enC, ...enPdf, ...enV11, ...enV12, ...enV13, ...enV14, ...enV15, ...enV16, ...enV17, ...enV18, ...enV19, ...enV20, ...enV21, ...enV22, ...enV23, ...enV24, ...enV25, ...enV26, ...enV27, ...enV27Boards, ...enV27Notifications, ...enV27Images, ...enV28, ...enV29, ...enV30, ...enV31, ...enV32, ...enV33, ...enV34, ...enV35, ...enV36, ...enV37, ...enV38, ...enV39, ...enV40, ...enV41, ...enV42, ...enV43, ...enV44, ...enV45, ...enV46, ...enV47, ...enV48, ...enV49, ...enV50, ...enV51, ...enV52, ...enV53, ...enV54, ...enV55, ...enV56, ...enV57, ...enV58, ...enV59, ...enV60, ...enV61, ...enV62, ...enV63 };
+export const en: Record<string, string> = { ...enA, ...enB, ...enC, ...enPdf, ...enV11, ...enV12, ...enV13, ...enV14, ...enV15, ...enV16, ...enV17, ...enV18, ...enV19, ...enV20, ...enV21, ...enV22, ...enV23, ...enV24, ...enV25, ...enV26, ...enV27, ...enV27Boards, ...enV27Notifications, ...enV27Images, ...enV28, ...enV29, ...enV30, ...enV31, ...enV32, ...enV33, ...enV34, ...enV35, ...enV36, ...enV37, ...enV38, ...enV39, ...enV40, ...enV41, ...enV42, ...enV43, ...enV44, ...enV45, ...enV46, ...enV47, ...enV48, ...enV49, ...enV50, ...enV51, ...enV52, ...enV53, ...enV54, ...enV55, ...enV56, ...enV57, ...enV58, ...enV59, ...enV60, ...enV61, ...enV62, ...enV63, ...enV64 };

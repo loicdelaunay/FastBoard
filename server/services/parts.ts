@@ -6,7 +6,9 @@ import { badRequest, notFound } from '../http/errors.ts';
 import { addHistory } from './history.ts';
 import { watchTicket } from './notifications.ts';
 import type { PartRow } from './rows.ts';
-import { assertMembers, insertPart, POSITION_STEP, publishTicketChange, reconcileStatus, requireTicket, touchTicket, truncate, userRef } from './tickets.ts';
+import { splitPlan } from '../../shared/partSplit.ts';
+import { assertMembers, createTicket, getTicketDTO, insertPart, POSITION_STEP, publishTicketChange, reconcileStatus, requireTicket, touchTicket, truncate, userRef } from './tickets.ts';
+import { getProjectSettings } from './projectSettings.ts';
 
 /** Lignes d'avancement d'un ticket : un texte, une personne facultative, un pourcentage. À 100 %, la ligne est terminée. */
 
@@ -141,4 +143,57 @@ export function deletePart(ctx: AppContext, actor: Actor, partId: number): Ticke
     reconcileStatus(db, actor, row.ticket_id, { events: [], history }, { reopened: false });
   });
   return publishTicketChange(ctx, actor, row.ticket_id, history);
+}
+
+/**
+ * « Découper en sous-tickets » : chaque ligne d'avancement devient un sous-ticket du ticket (voir `splitPlan`), qui
+ * reprend sa personne, son avancement, et la catégorie, la priorité, la livraison, les composants et les dates du
+ * ticket. Les lignes quittent le ticket, dont l'avancement suit ensuite celui de ses sous-tickets. Tout ou rien.
+ */
+export function splitPartsIntoTickets(ctx: AppContext, actor: Actor, ticketId: number): { ticket: TicketDTO; children: TicketDTO[] } {
+  const { db } = ctx;
+  const parent = requireTicket(db, ticketId);
+  if (parent.parent_id !== null) throw badRequest('Ce ticket est déjà un sous-ticket : ses lignes ne peuvent pas devenir des sous-tickets (un seul niveau).');
+  const parts = db.all<PartRow>('SELECT * FROM ticket_parts WHERE ticket_id = ? ORDER BY position, id', ticketId);
+  if (!parts.length) throw badRequest('Ce ticket n’a aucune ligne d’avancement à découper.');
+  const settings = getProjectSettings(db, parent.project_id);
+  const available = (status: string): boolean => !settings.columns.find((column) => column.status === status)?.hidden;
+  const shared = getTicketDTO(db, ticketId);
+  const history: HistoryEntryDTO[] = [];
+  const children: TicketDTO[] = [];
+
+  db.transaction(() => {
+    const before = peopleOf(db, ticketId);
+    for (const part of parts) {
+      const user = part.user_id === null ? null : userRef(db, part.user_id);
+      const plan = splitPlan({ note: part.note, done: part.done === 1, progress: part.progress }, { title: parent.title, status: parent.status }, user?.name ?? null, available);
+      const child = createTicket(ctx, actor, parent.project_id, {
+        title: plan.title,
+        description: plan.description || undefined,
+        status: plan.status,
+        categoryId: shared.categoryId,
+        priorityId: shared.priorityId,
+        deliveryId: shared.deliveryId,
+        componentIds: shared.componentIds,
+        startDate: shared.startDate,
+        endDate: shared.endDate,
+        progress: part.user_id === null ? (part.done === 1 ? 100 : part.progress) : 0,
+        assigneeIds: part.user_id === null ? [] : [part.user_id],
+        parentId: ticketId,
+      });
+      // La ligne de la personne garde son avancement (et sa fin).
+      if (part.user_id !== null && (part.progress > 0 || part.done === 1)) {
+        db.run('UPDATE ticket_parts SET progress = ?, done = ?, done_at = ? WHERE ticket_id = ? AND user_id = ?', part.done === 1 ? 100 : part.progress, part.done, part.done_at, child.id, part.user_id);
+      }
+      children.push(child);
+      history.push(addHistory(db, ticketId, actor, { kind: 'part', action: 'removed', user, line: truncate(`${plan.title} → sous-ticket`, 200) }));
+    }
+    db.run('DELETE FROM ticket_parts WHERE ticket_id = ?', ticketId);
+    db.run('UPDATE tickets SET progress_from_children = 1 WHERE id = ?', ticketId);
+    touchTicket(db, ticketId);
+    recordPeopleChange(db, actor, ticketId, before, history);
+  });
+  // Les sous-tickets dont la ligne avait avancé, tels qu'ils sont maintenant.
+  const fresh = children.map((child) => publishTicketChange(ctx, actor, child.id, []));
+  return { ticket: publishTicketChange(ctx, actor, ticketId, history), children: fresh };
 }

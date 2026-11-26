@@ -5,6 +5,9 @@ import { currentLocale } from './index';
  * puis modèles à variables (noms, nombres), puis messages de validation (« champ : message »).
  */
 const EXACT: Record<string, string> = {
+  // 2.40 — Découper les lignes d'avancement en sous-tickets
+  "Ce ticket est déjà un sous-ticket : ses lignes ne peuvent pas devenir des sous-tickets (un seul niveau).": "This ticket is already a sub-ticket: its lines cannot become sub-tickets (one level only).",
+  "Ce ticket n’a aucune ligne d’avancement à découper.": "This ticket has no progress line to split.",
   // 2.38 — Accueil, espaces favoris
   "Type d’espace inconnu : docs, boards ou project.": "Unknown space type: docs, boards or project.",
   // 2.36 — Étiquettes d'espace

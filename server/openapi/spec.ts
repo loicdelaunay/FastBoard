@@ -1058,6 +1058,17 @@ const OPERATIONS: Operation[] = [
     ok: obj({ ticket: ref('Ticket') }),
   },
   {
+    method: 'post',
+    path: '/tickets/{id}/parts/split',
+    tag: 'Avancement',
+    permission: 'ticket.edit et ticket.create',
+    summary: 'Découper les lignes d’avancement en sous-tickets',
+    description:
+      'Chaque ligne devient un sous-ticket : titre = première ligne du texte (le texte entier en description s’il est plus long), ou le titre du ticket et le nom de la personne ; il reprend la personne, l’avancement (terminée → « Terminé », commencée → « En cours »), la catégorie, la priorité, la livraison, les composants et les dates du ticket. Les lignes quittent le ticket, dont l’avancement suit ensuite ses sous-tickets. Refusé pour un sous-ticket (un seul niveau) ou sans ligne.',
+    params: TICKET_ID,
+    ok: obj({ ticket: ref('Ticket'), children: arr(ref('Ticket')) }),
+  },
+  {
     method: 'patch',
     path: '/parts/{id}',
     tag: 'Avancement',

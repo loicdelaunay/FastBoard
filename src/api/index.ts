@@ -340,6 +340,8 @@ export const api = {
     http<{ ticket: TicketDTO; key: string }>('POST', `/tickets/${ticketId}/transfer`, { body: { projectId, status } }),
 
   addPart: (ticketId: number, input: { note?: string; userId?: number | null }) => http<{ ticket: TicketDTO }>('POST', `/tickets/${ticketId}/parts`, { body: input }),
+  /** Chaque ligne d'avancement devient un sous-ticket. */
+  splitParts: (ticketId: number) => http<{ ticket: TicketDTO; children: TicketDTO[] }>('POST', `/tickets/${ticketId}/parts/split`, { body: {} }),
   updatePart: (partId: number, patch: { note?: string; userId?: number | null; done?: boolean; progress?: number; position?: number }) =>
     http<{ ticket: TicketDTO }>('PATCH', `/parts/${partId}`, { body: patch }),
   deletePart: (partId: number) => http<{ ticket: TicketDTO }>('DELETE', `/parts/${partId}`),

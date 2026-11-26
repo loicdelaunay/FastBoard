@@ -9,7 +9,7 @@ import { listHistory } from '../services/history.ts';
 import { deleteTicket, getTicketDTO, moveTicket, requireTicket, ticketKeyOf, ticketPreview, transferTicket, updateTicket } from '../services/tickets.ts';
 import { commentEditSchema, commentSchema, linkSchema, moveTicketSchema, partCreateSchema, partPatchSchema, transferTicketSchema, updateTicketSchema } from '../http/schemas.ts';
 import { createLink, deleteLink, requireLink } from '../services/links.ts';
-import { createPart, deletePart, requirePart, updatePart } from '../services/parts.ts';
+import { createPart, deletePart, requirePart, splitPartsIntoTickets, updatePart } from '../services/parts.ts';
 import { unwatchTicket, watchTicket } from '../services/notifications.ts';
 import { publishTicketChange } from '../services/tickets.ts';
 
@@ -72,6 +72,15 @@ export function ticketsRouter(ctx: AppContext): Router {
     const ticketId = idParam(req.params.id);
     ticketAccess(currentUser(res), ticketId, 'ticket.edit');
     res.status(201).json({ ticket: createPart(ctx, actorOf(req, res), ticketId, parse(partCreateSchema, req.body)) });
+  });
+
+  /** Chaque ligne devient un sous-ticket : il faut pouvoir modifier ce ticket et en créer. */
+  router.post('/tickets/:id/parts/split', (req, res) => {
+    const user = currentUser(res);
+    const ticketId = idParam(req.params.id);
+    const { access } = ticketAccess(user, ticketId, 'ticket.edit');
+    requireProject(ctx, user, access.project.id, 'ticket.create');
+    res.json(splitPartsIntoTickets(ctx, actorOf(req, res), ticketId));
   });
 
   /** `ticket.edit` modifie tout ; chacun gère ses propres lignes (texte, avancement, fin) avec `ticket.update_own_part`. */

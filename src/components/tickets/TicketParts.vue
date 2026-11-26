@@ -2,6 +2,10 @@
 import { computed, nextTick, ref } from 'vue';
 import { useConfirm } from 'primevue/useconfirm';
 import Button from 'primevue/button';
+import Dialog from 'primevue/dialog';
+import Menu from 'primevue/menu';
+import type { MenuItem } from 'primevue/menuitem';
+import { splitPlan } from '@shared/partSplit';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
 import ToggleSwitch from 'primevue/toggleswitch';
@@ -13,7 +17,7 @@ import ProgressMeter from '@/components/common/ProgressMeter.vue';
 import UserAvatar from '@/components/common/UserAvatar.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
-import { notifyError } from '@/utils/notify';
+import { notify, notifyError } from '@/utils/notify';
 import { formatRelative } from '@/utils/format';
 import PartNote from './PartNote.vue';
 import ProgressSlider from './ProgressSlider.vue';
@@ -124,6 +128,49 @@ async function add(): Promise<void> {
   noteField.value?.$el.focus();
 }
 
+// --- Menu « ⋯ » : découper les lignes en sous-tickets ---
+const moreMenu = ref<InstanceType<typeof Menu> | null>(null);
+const splitOpen = ref(false);
+const splitting = ref(false);
+/** Raison pour laquelle le découpage n'est pas proposé, ou `null`. */
+const splitBlocked = computed(() => {
+  if (!props.ticket.parts.length) return t('Ajoutez d’abord des lignes d’avancement.');
+  if (props.ticket.parentId !== null) return t('Un sous-ticket ne peut pas avoir de sous-tickets (un seul niveau).');
+  if (!project.fieldOn('children')) return t('Les sous-tickets sont masqués dans ce projet.');
+  if (!project.can('ticket.create')) return t('Il faut pouvoir créer des tickets.');
+  return null;
+});
+const moreItems = computed<MenuItem[]>(() => [
+  {
+    label: t('Découper en sous-tickets…'),
+    icon: 'pi pi-sitemap',
+    disabled: splitBlocked.value !== null,
+    command: () => (splitOpen.value = true),
+  },
+]);
+/** Ce que deviendra chaque ligne, montré avant de valider. */
+const splitPreview = computed(() =>
+  [...props.ticket.parts]
+    .sort((a, b) => a.position - b.position || a.id - b.id)
+    .map((part) => ({
+      part,
+      plan: splitPlan(part, props.ticket, personName(part), (status) => !project.settings?.columns.find((column) => column.status === status)?.hidden),
+    })),
+);
+
+async function split(): Promise<void> {
+  splitting.value = true;
+  try {
+    const created = await project.splitParts(props.ticket.id);
+    splitOpen.value = false;
+    notify('success', t('Sous-tickets créés'), t('{n} ligne est devenue un sous-ticket.|{n} lignes sont devenues des sous-tickets.', { n: created.length }));
+  } catch (error) {
+    notifyError(error, t('Découpage impossible'));
+  } finally {
+    splitting.value = false;
+  }
+}
+
 // --- Réordonner : glisser la poignée d'une ligne ---
 const dragId = ref<number | null>(null);
 
@@ -150,6 +197,26 @@ function onDrop(target: PartDTO): void {
       <div class="head-side">
         <span v-if="ticket.parts.length" class="muted small">{{ $t('{done} / {total} ligne terminée|{done} / {total} lignes terminées', { n: summary.total, done: summary.done, total: summary.total }) }}</span>
         <Button v-if="canEditTicket" v-tooltip.top="$t('Ajouter une ligne')" icon="pi pi-plus" text rounded size="small" :aria-label="$t('Ajouter une ligne')" @click="startAdding" />
+        <Button
+          v-if="canEditTicket"
+          v-tooltip.top="$t('Plus d’actions')"
+          icon="pi pi-ellipsis-v"
+          text
+          rounded
+          size="small"
+          severity="secondary"
+          class="more"
+          :aria-label="$t('Plus d’actions')"
+          aria-haspopup="true"
+          @click="moreMenu?.toggle($event)"
+        />
+        <Menu ref="moreMenu" :model="moreItems" popup>
+          <template #item="{ item, props: itemProps }">
+            <a v-tooltip.left="item.disabled ? splitBlocked : undefined" v-bind="itemProps.action" class="more-item">
+              <i :class="item.icon"></i><span>{{ item.label }}</span>
+            </a>
+          </template>
+        </Menu>
       </div>
     </header>
 
@@ -221,10 +288,67 @@ function onDrop(target: PartDTO): void {
       <p class="muted small">{{ $t('Aucune ligne : l’avancement se règle à la main.') }}</p>
       <ProgressSlider :model-value="ticket.status === 'done' ? 100 : ticket.progress" :disabled="!canEditTicket" @commit="setManualProgress" />
     </div>
+    <Dialog v-model:visible="splitOpen" modal :header="$t('Découper en sous-tickets')" :style="{ width: 'min(36rem, 94vw)' }" :draggable="false">
+      <p class="split-intro">
+        {{ $t('Chaque ligne d’avancement devient un sous-ticket de « {title} », pour le suivre à part (statut, dates, commentaires…). Il reprend la personne et l’avancement de la ligne, et la catégorie, la priorité, la livraison, les composants et les dates du ticket.', { title: ticket.title }) }}
+      </p>
+      <ul class="split-list">
+        <li v-for="{ part, plan } in splitPreview" :key="part.id">
+          <span class="split-status" :style="{ '--s': project.statusMeta(plan.status).color }" :title="project.statusMeta(plan.status).label"></span>
+          <span class="split-text">
+            <strong class="truncate">{{ plan.title }}</strong>
+            <span class="muted small">{{ personName(part) ?? $t('Sans responsable') }} · {{ project.statusMeta(plan.status).label }}<template v-if="!part.done && partProgress(part) > 0"> · {{ partProgress(part) }} %</template></span>
+          </span>
+        </li>
+      </ul>
+      <p class="muted small">{{ $t('Les lignes quittent ce ticket, dont l’avancement suivra celui de ses sous-tickets.') }}</p>
+      <template #footer>
+        <Button :label="$t('Annuler')" severity="secondary" text @click="splitOpen = false" />
+        <Button :label="$t('Créer {n} sous-ticket|Créer {n} sous-tickets', { n: splitPreview.length })" icon="pi pi-sitemap" :loading="splitting" @click="split" />
+      </template>
+    </Dialog>
   </section>
 </template>
 
 <style scoped>
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.split-intro {
+  margin: 0 0 0.8rem;
+}
+.split-list {
+  list-style: none;
+  margin: 0 0 0.8rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+  max-height: min(50vh, 24rem);
+  overflow: auto;
+}
+.split-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--fb-border);
+  border-radius: 8px;
+  min-width: 0;
+}
+.split-status {
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: var(--s);
+}
+.split-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .parts {
   display: flex;
   flex-direction: column;

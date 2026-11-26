@@ -582,6 +582,14 @@ export const useProjectStore = defineStore('project', () => {
     upsertTicket((await api.addPart(ticketId, input)).ticket);
   }
 
+  /** Chaque ligne d'avancement du ticket devient un sous-ticket ; rend les sous-tickets créés. */
+  async function splitParts(ticketId: number): Promise<TicketDTO[]> {
+    const { ticket, children } = await api.splitParts(ticketId);
+    for (const child of children) upsertTicket(child);
+    upsertTicket(ticket);
+    return children;
+  }
+
   async function updatePart(ticketId: number, partId: number, patch: { note?: string; userId?: number | null; done?: boolean; progress?: number; position?: number }): Promise<void> {
     const part = requireTicket(ticketId).parts.find((entry) => entry.id === partId);
     const previous = part ? { ...part } : null;
@@ -808,7 +816,7 @@ export const useProjectStore = defineStore('project', () => {
     load, reload, leave,
     // tickets
     createTicket, updateTicket, moveTicket, deleteTicket, forgetTicket, wasDeletedLocally,
-    setWatching, addPart, updatePart, deletePart, addLink, deleteLink, linksOf, childrenOf, fieldOn,
+    setWatching, addPart, splitParts, updatePart, deletePart, addLink, deleteLink, linksOf, childrenOf, fieldOn,
     loadComments, loadHistory, loadAttachments, addAttachment, addAttachmentLink, replaceAttachmentImage, removeAttachment, addComment, editComment, removeComment,
     // configuration
     updateProjectInfo, saveCategory, deleteCategory, saveListItem, deleteListItem, saveDelivery, deleteDelivery,

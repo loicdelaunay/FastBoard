@@ -390,6 +390,10 @@ L'avancement d'un ticket qui a des sous-tickets est, par défaut, la moyenne de 
 curl -s -X PATCH $FASTBOARD/api/tickets/12 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "progressFromChildren": false }'
 ```
 
+
+`POST /tickets/{id}/parts/split` transforme d'un coup chaque ligne d'avancement du ticket en sous-ticket (personne,
+avancement, catégorie, priorité, livraison, composants et dates repris) ; le ticket suit ensuite l'avancement de ses
+sous-tickets. Il faut `ticket.edit` et `ticket.create`.
 ### Dépendances entre tickets
 
 ```bash
