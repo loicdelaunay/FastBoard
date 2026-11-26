@@ -26,6 +26,9 @@ import UserAvatar from '@/components/common/UserAvatar.vue';
 import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
 import { t } from '@/i18n';
 import { BoardSession } from '@/realtime/boardSession';
+import { offlineKey, readOffline, writeOffline } from '@/offline/cache';
+import { connection } from '@/offline/connection';
+import type { BoardElement } from '@shared/boards';
 import { useFollow } from '@/composables/useFollow';
 import { useAuthStore } from '@/stores/auth';
 import { useBoardsStore } from '@/stores/boards';
@@ -101,20 +104,58 @@ const follow = useFollow({
   },
 });
 const presence = follow.people;
-watch(
-  boardId,
-  (id) => {
-    // Ceux qui nous suivent apprennent où l'on va avant que notre présence ne quitte ce tableau.
-    follow.detach(id);
-    session.value?.close();
-    session.value = null;
-    if (id === null || !auth.user) return;
-    const next = new BoardSession(id, { id: auth.user.id, name: auth.user.name });
+/** Tableau ouvert sans serveur, et jamais vu sur cet appareil : rien à montrer. */
+const offlineMissing = ref(false);
+let keepTimer = 0;
+
+async function openSession(id: number | null): Promise<void> {
+  // Ceux qui nous suivent apprennent où l'on va avant que notre présence ne quitte ce tableau.
+  follow.detach(id);
+  session.value?.close();
+  session.value = null;
+  offlineMissing.value = false;
+  if (id === null || !auth.user) return;
+  const user = { id: auth.user.id, name: auth.user.name };
+  const key = offlineKey(user.id, `board:${id}`);
+  let kept: BoardElement[] | null = null;
+  if (connection.offline) {
+    // Serveur injoignable : les éléments gardés lors de la dernière visite, dans une session détachée (lecture seule).
+    kept = (await readOffline<BoardElement[]>(key))?.payload ?? null;
+    if (boardId.value !== id || session.value) return;
+    if (kept === null) {
+      offlineMissing.value = true;
+      return;
+    }
+  }
+  const next = new BoardSession(id, user, null, kept);
+  if (!next.detached) {
     follow.attach(next.awareness, next.doc.clientID);
-    session.value = next;
+    // Ce qu'on voit se garde sur l'appareil, pour le revoir si le serveur tombe : à la synchronisation (le contenu
+    // arrive avec elle), puis à chaque changement.
+    const keep = (): void => {
+      if (!next.synced.value) return;
+      window.clearTimeout(keepTimer);
+      keepTimer = window.setTimeout(() => void writeOffline(key, [...next.elements.values()]), 1500);
+    };
+    next.doc.on('update', keep);
+    const stop = watch(next.synced, keep);
+    next.doc.on('destroy', stop);
+  }
+  session.value = next;
+}
+
+watch(boardId, (id) => void openSession(id), { immediate: true });
+
+// Coupure : un tableau pas encore reçu s'ouvre depuis l'appareil ; au retour du serveur, la session détachée laisse
+// place à la vraie (un tableau déjà reçu garde la sienne, qui se raccorde d'elle-même).
+watch(
+  () => connection.offline,
+  (offline) => {
+    if (boardId.value === null) return;
+    if (offline ? !session.value?.synced.value : (session.value?.detached ?? offlineMissing.value)) void openSession(boardId.value);
   },
-  { immediate: true },
 );
+onBeforeUnmount(() => window.clearTimeout(keepTimer));
 
 // --- Liens et rétroliens ---
 const LINKS_KEY = 'fb.boards.links';
@@ -445,7 +486,7 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
         </div>
         <template v-if="board && session">
           <span v-if="session.savedAt.value" v-tooltip.bottom="formatDateTime(session.savedAt.value)" class="muted small saved"><i class="pi pi-check"></i> {{ $t('Enregistré') }}</span>
-          <span v-else-if="session.synced.value && !session.canWrite.value" class="muted small saved"><i class="pi pi-lock"></i> {{ $t('Lecture seule') }}</span>
+          <span v-else-if="session.synced.value && (!session.canWrite.value || connection.offline)" class="muted small saved"><i class="pi pi-lock"></i> {{ $t('Lecture seule') }}</span>
           <Button
             v-if="!isTemplate"
             v-tooltip.bottom="$t('Notes, tickets et tableaux qui citent ce tableau')"
@@ -475,16 +516,17 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
           :board-id="board.id"
           :title="boardTitle(board.path)"
           :session="session"
-          :can-edit="store.canEdit && session.canWrite.value"
+          :can-edit="store.canEdit && session.canWrite.value && !connection.offline"
           :users="users"
           :is-template="isTemplate"
           :initial-version="versionFocus"
           @close="closeTimeline"
           @forked="onForked"
         />
-        <BoardCanvas v-else :key="board.id" ref="canvas" :session="session" :focus="focus" :can-edit="store.canEdit" :users="users" :board-title="boardTitle(board.path)" :space-id="spaceId" :templates="templates" :is-template="isTemplate" history v-model:follow="follow.following.value" @open-template="openTemplate" @history="timelineOpen = true" />
+        <BoardCanvas v-else :key="board.id" ref="canvas" :session="session" :focus="focus" :can-edit="store.canEdit && !connection.offline" :users="users" :board-title="boardTitle(board.path)" :space-id="spaceId" :templates="templates" :is-template="isTemplate" history v-model:follow="follow.following.value" @open-template="openTemplate" @history="timelineOpen = true" />
         <BoardLinksPanel v-if="linksOpen && !isTemplate" :links="links" :loading="linksLoading" @close="linksOpen = false" />
       </div>
+      <div v-else-if="board && offlineMissing" class="board-missing muted"><i class="pi pi-cloud"></i> {{ $t('Hors ligne : ce tableau n’a pas été ouvert sur cet appareil avant la coupure, il n’est pas disponible.') }}</div>
 
       <section v-else class="overview">
         <div class="overview-head">
@@ -546,6 +588,15 @@ const presenceUser = (person: { id: number; name: string }) => users.value.find(
 </template>
 
 <style scoped>
+.board-missing {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 2rem;
+  text-align: center;
+}
 .space {
   display: grid;
   flex: 1;

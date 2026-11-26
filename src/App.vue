@@ -8,6 +8,7 @@ import AppSidebar from '@/components/layout/AppSidebar.vue';
 import SearchPalette from '@/components/layout/SearchPalette.vue';
 import ProfileDialog from '@/components/profile/ProfileDialog.vue';
 import MaintenanceBanner from '@/components/layout/MaintenanceBanner.vue';
+import OfflineBanner from '@/components/layout/OfflineBanner.vue';
 import HoverPreviews from '@/components/layout/HoverPreviews.vue';
 import UpdatePrompt from '@/components/layout/UpdatePrompt.vue';
 import OfflineScreen from '@/components/layout/OfflineScreen.vue';
@@ -24,6 +25,7 @@ const shell = computed(() => auth.isAuthenticated && !route.meta.bare);
 <template>
   <div class="app-root">
     <MaintenanceBanner v-if="!route.meta.bare" />
+    <OfflineBanner v-if="auth.isAuthenticated && !route.meta.bare" />
     <div class="app-body">
       <AppSidebar v-if="shell" />
       <main class="app-main">

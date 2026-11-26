@@ -1,6 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAppStore } from '@/stores/app';
 import { useAuthStore } from '@/stores/auth';
+import { connection } from '@/offline/connection';
+import { t } from '@/i18n';
+import { notify } from '@/utils/notify';
 
 export const PROJECT_VIEWS = ['analyzer', 'list', 'kanban', 'gantt', 'activity'] as const;
 export type ProjectView = (typeof PROJECT_VIEWS)[number];
@@ -135,6 +138,12 @@ router.afterEach((to) => {
   if (typeof to.meta.view === 'string' && to.meta.view !== 'settings') {
     rememberView(to.meta.view);
   }
+});
+
+// Hors ligne, un écran jamais ouvert sur cet appareil n'y est pas : on le dit, plutôt que de ne rien faire.
+// (Sans serveur, une navigation qui échoue vient d'un morceau de l'interface qui manque : module ou styles à précharger.)
+router.onError(() => {
+  if (connection.offline) notify('warn', t('Serveur injoignable : lecture seule'), t('Cet écran n’a pas encore été ouvert sur cet appareil : il s’ouvrira au retour du serveur.'));
 });
 
 export default router;

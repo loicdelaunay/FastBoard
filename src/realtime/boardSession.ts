@@ -25,10 +25,19 @@ export class BoardSession {
   /** Entrée par le lien de partage du tableau (et l'accès ouvert par son mot de passe). */
   readonly #share: { slug: string; token: string | null } | null;
 
-  constructor(boardId: number, user: { id: number; name: string }, share: { slug: string; token: string | null } | null = null) {
+  /** Serveur injoignable : les éléments gardés sur l'appareil, en lecture seule, sans salle (jamais renvoyés au serveur). */
+  readonly detached: boolean;
+
+  constructor(boardId: number, user: { id: number; name: string }, share: { slug: string; token: string | null } | null = null, kept: BoardElement[] | null = null) {
     this.boardId = boardId;
     this.#share = share;
+    this.detached = kept !== null;
     this.awareness.setLocalStateField('user', { ...user, ...presenceColor(user.id) });
+    if (kept !== null) {
+      this.doc.transact(() => kept.forEach((element) => this.elements.set(element.id, element)), REMOTE);
+      this.synced.value = true;
+      return;
+    }
     this.doc.on('update', this.#onLocalUpdate);
     this.awareness.on('update', this.#onAwarenessUpdate);
     this.#stops.push(realtime.on('board', this.#onMessage), realtime.on('open', this.#join));
@@ -38,7 +47,7 @@ export class BoardSession {
   close(): void {
     this.#stops.forEach((stop) => stop());
     removeAwarenessStates(this.awareness, [this.doc.clientID], 'local');
-    realtime.sendBoard({ t: 'board.leave', boardId: this.boardId });
+    if (!this.detached) realtime.sendBoard({ t: 'board.leave', boardId: this.boardId });
     this.awareness.destroy();
     this.doc.destroy();
   }

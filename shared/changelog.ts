@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.29.0';
+export const APP_VERSION = '2.30.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.30.0',
+    date: '2026-11-26',
+    changes: [
+      { category: 'Nouveauté', text: 'Lecture seule hors ligne : si le serveur ne répond plus, l’application continue avec ce qu’elle a gardé sur l’appareil (projets, tickets, notes et tableaux déjà ouverts, leurs images). Un bandeau le signale, toute modification est bloquée, et tout reprend seul dès que le serveur répond.' },
+      { category: 'Sécurité', text: 'Les données gardées pour la lecture hors ligne appartiennent au compte connecté et s’effacent à la déconnexion ; l’administration, l’assistant IA et les jetons ne sont jamais gardés.' },
+    ],
+  },
   {
     version: '2.29.0',
     date: '2026-11-26',

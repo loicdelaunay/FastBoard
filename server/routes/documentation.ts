@@ -327,7 +327,9 @@ export function documentationRouter(ctx: AppContext): Router {
     const mime = data ? sniffImageMime(data.subarray(0, 16)) : null;
     if (!data || !mime) throw notFound('Image introuvable.');
     res.setHeader('Content-Type', mime);
-    res.setHeader('Cache-Control', 'private, max-age=300');
+    // Avec sa version dans l'adresse (`?v=`, qui change quand l'image est remplacée), elle ne change jamais : le
+    // navigateur la garde, et la montre encore si le serveur ne répond plus (lecture hors ligne).
+    res.setHeader('Cache-Control', typeof req.query.v === 'string' && req.query.v ? 'private, max-age=31536000, immutable' : 'private, max-age=300');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     res.send(data);

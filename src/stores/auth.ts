@@ -4,6 +4,7 @@ import type { MeDTO } from '@shared/types';
 import { api } from '@/api';
 import { ApiError, setCurrentUserId } from '@/api/http';
 import { realtime } from '@/realtime/socket';
+import { clearOffline, offlineKey, writeOffline } from '@/offline/cache';
 import type { Locale } from '@shared/locales';
 import { currentLocale, rememberLocale } from '@/i18n';
 import type { AppearanceDTO } from '@shared/themes';
@@ -55,7 +56,12 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function login(email: string, password: string): Promise<void> {
-    setUser((await api.login(email, password)).user);
+    const next = (await api.login(email, password)).user;
+    // Ce qu'un autre compte avait gardé sur cet appareil pour la lecture hors ligne ne doit pas lui rester.
+    await clearOffline();
+    // Le compte est gardé tout de suite (comme le ferait `/me`) : rechargée sans serveur, l'application le retrouve.
+    void writeOffline(offlineKey(0, 'api:/me'), { user: next, token: null });
+    setUser(next);
     realtime.connect();
     announceAccountChange();
   }
@@ -72,6 +78,8 @@ export const useAuthStore = defineStore('auth', () => {
   function expire(): void {
     realtime.disconnect();
     setUser(null);
+    // Les données gardées pour la lecture hors ligne partent avec la session.
+    void clearOffline();
     announceAccountChange();
   }
 

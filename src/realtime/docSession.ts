@@ -37,10 +37,18 @@ export class DocSession {
   /** Fichier supprimé ou accès retiré pendant l'édition. */
   readonly closed = ref<'deleted' | 'revoked' | 'moved' | null>(null);
   readonly #stops: Array<() => void> = [];
+  /** Serveur injoignable : le texte gardé sur l'appareil, en lecture seule, sans salle (jamais renvoyé au serveur). */
+  readonly detached: boolean;
 
-  constructor(nodeId: number, user: Pick<DocPresence, 'id' | 'name'>) {
+  constructor(nodeId: number, user: Pick<DocPresence, 'id' | 'name'>, kept: string | null = null) {
     this.nodeId = nodeId;
+    this.detached = kept !== null;
     this.awareness.setLocalStateField('user', { ...user, ...presenceColor(user.id) });
+    if (kept !== null) {
+      this.text.insert(0, kept);
+      this.synced.value = true;
+      return;
+    }
     this.doc.on('update', this.#onLocalUpdate);
     this.awareness.on('update', this.#onAwarenessUpdate);
     this.#stops.push(realtime.on('doc', this.#onMessage), realtime.on('open', this.#join));
@@ -51,7 +59,7 @@ export class DocSession {
   close(): void {
     this.#stops.forEach((stop) => stop());
     removeAwarenessStates(this.awareness, [this.doc.clientID], 'local');
-    realtime.sendDoc({ t: 'doc.leave', nodeId: this.nodeId });
+    if (!this.detached) realtime.sendDoc({ t: 'doc.leave', nodeId: this.nodeId });
     this.awareness.destroy();
     this.doc.destroy();
   }

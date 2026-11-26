@@ -53,6 +53,8 @@ import { formatDateTime, formatRelative } from '@/utils/format';
 import { notify, notifyError } from '@/utils/notify';
 import { openLightbox } from '@/utils/lightbox';
 import { docImageUrl, replaceDocImage } from '@/utils/replaceImage';
+import { offlineKey, readOffline, writeOffline } from '@/offline/cache';
+import { connection } from '@/offline/connection';
 
 import { currentLocale, t } from '@/i18n';
 /**
@@ -171,7 +173,8 @@ const follow = useFollow({
 });
 const presence = follow.people;
 const synced = computed(() => session.value?.synced.value ?? false);
-const canWrite = computed(() => store.canEdit && (session.value?.canWrite.value ?? false));
+// Serveur injoignable : lecture seule, quoi qu'il arrive (rien ne serait enregistré).
+const canWrite = computed(() => store.canEdit && !connection.offline && (session.value?.canWrite.value ?? false));
 const savedAt = computed(() => session.value?.savedAt.value ?? null);
 const closed = computed(() => session.value?.closed.value ?? null);
 const obsidian = computed(() => store.space?.obsidian ?? true);
@@ -680,21 +683,60 @@ function closeSession(next: number | null = null): void {
   activeHeading.value = 0;
 }
 
-function openSession(nodeId: number): void {
+/** Note ouverte sans serveur, et jamais lue sur cet appareil : rien à montrer. */
+const offlineMissing = ref(false);
+const openedNoteId = (): number | null => (isText(selected.value) ? selected.value!.id : null);
+
+async function openSession(nodeId: number): Promise<void> {
   closeSession(nodeId);
+  offlineMissing.value = false;
   if (!auth.user) return;
-  const next = new DocSession(nodeId, { id: auth.user.id, name: auth.user.name });
+  const user = { id: auth.user.id, name: auth.user.name };
+  let kept: string | null = null;
+  if (connection.offline) {
+    // Serveur injoignable : le texte gardé lors de la dernière lecture, dans une session détachée (lecture seule).
+    kept = (await readOffline<string>(offlineKey(user.id, `doc:${nodeId}`)))?.payload ?? null;
+    if (openedNoteId() !== nodeId || session.value) return;
+    if (kept === null) {
+      offlineMissing.value = true;
+      return;
+    }
+  }
+  const next = new DocSession(nodeId, user, kept);
   next.text.observe(() => (content.value = next.text.toString()));
-  follow.attach(next.awareness, next.doc.clientID);
+  content.value = next.text.toString();
+  if (!next.detached) follow.attach(next.awareness, next.doc.clientID);
   session.value = next;
   shareLine();
 }
 
 watch(
-  () => (isText(selected.value) ? selected.value!.id : null),
-  (nodeId) => (nodeId === null ? closeSession(selected.value?.id ?? null) : openSession(nodeId)),
+  openedNoteId,
+  (nodeId) => (nodeId === null ? closeSession(selected.value?.id ?? null) : void openSession(nodeId)),
   { immediate: true },
 );
+
+// Coupure : une note pas encore reçue s'ouvre depuis l'appareil ; au retour du serveur, la session détachée laisse
+// place à la vraie (une note déjà reçue garde la sienne, qui se raccorde d'elle-même).
+watch(
+  () => connection.offline,
+  (offline) => {
+    const nodeId = openedNoteId();
+    if (nodeId === null) return;
+    if (offline ? !synced.value : (session.value?.detached ?? offlineMissing.value)) void openSession(nodeId);
+  },
+);
+
+// Ce qu'on lit se garde sur l'appareil, pour le relire si le serveur tombe.
+let keepTimer = 0;
+watch([content, synced], () => {
+  const current = session.value;
+  if (!current || current.detached || !synced.value || !auth.user) return;
+  const key = offlineKey(auth.user.id, `doc:${current.nodeId}`);
+  window.clearTimeout(keepTimer);
+  keepTimer = window.setTimeout(() => void writeOffline(key, current.text.toString()), 1500);
+});
+onBeforeUnmount(() => window.clearTimeout(keepTimer));
 
 // Espace quitté ou droits retirés : plus rien à afficher.
 watch(
@@ -1465,7 +1507,8 @@ const recent = computed(() =>
             </span>
             <Button v-if="store.canEdit" :label="$t('Nouvelle note')" icon="pi pi-file-plus" size="small" text @click="askCreate('markdown', '', selected.id)" />
           </div>
-          <div v-if="!synced" class="waiting muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
+          <div v-if="offlineMissing" class="waiting muted"><i class="pi pi-cloud"></i> {{ $t('Hors ligne : cette note n’a pas été ouverte sur cet appareil avant la coupure, elle n’est pas disponible.') }}</div>
+          <div v-else-if="!synced" class="waiting muted"><i class="pi pi-spin pi-spinner"></i> {{ $t('Chargement…') }}</div>
           <!-- Une version de l'historique : en lecture seule ; pour écrire, une copie ou la dernière version. -->
           <div v-else-if="versionView" class="note-body version-body">
             <div class="version-banner" role="status">

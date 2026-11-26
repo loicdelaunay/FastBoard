@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import Button from 'primevue/button';
 import { api } from '@/api';
+import { connection } from '@/offline/connection';
 
 /** Lien direct vers un tableau (mention, lien copié) : on retrouve son espace, puis on l'ouvre. */
 const route = useRoute();
@@ -27,7 +28,12 @@ onMounted(async () => {
 
 <template>
   <div class="page state">
-    <template v-if="failed">
+    <template v-if="failed && connection.offline">
+      <i class="pi pi-cloud icon"></i>
+      <h2>{{ $t('Serveur injoignable : lecture seule') }}</h2>
+      <p class="muted">{{ $t('Hors ligne : ce tableau n’a pas été ouvert sur cet appareil avant la coupure, il n’est pas disponible.') }}</p>
+    </template>
+    <template v-else-if="failed">
       <i class="pi pi-lock icon"></i>
       <h2>{{ $t('Tableau introuvable') }}</h2>
       <p class="muted">{{ $t('Il a peut-être été supprimé, ou vous n’y avez pas accès.') }}</p>

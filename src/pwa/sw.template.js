@@ -3,10 +3,16 @@
  *
  * - Pages : le réseau d'abord (jamais une interface périmée), la dernière page reçue sans réseau.
  * - Ressources versionnées (/assets/…) : gardées, elles ne changent jamais sous un même nom.
- * - Données (/api/…), temps réel (/ws) : jamais en cache, elles passent toujours par le réseau.
+ * - Écrans chargés à la demande (/assets/…) : gardés dès leur première ouverture ; sans serveur, ceux déjà visités
+ *   s'ouvrent encore (les autres n'auraient pas non plus leurs données).
+ * - Données (/api/…), temps réel (/ws) : le réseau. L'interface garde elle-même les données pour la lecture hors
+ *   ligne ; seules les images de l'API sont gardées ici (le réseau d'abord, la copie gardée s'il ne répond pas).
  */
 const VERSION = '__VERSION__';
 const CACHE = `fastboard-${VERSION}`;
+/** Images gardées pour la lecture hors ligne : hors du nom versionné, elles survivent aux mises à jour. */
+const IMAGES = 'fb-offline-images';
+const IMAGES_MAX = 400;
 /** De quoi ouvrir l'application sans réseau : la page, son script, ses styles, ses icônes. */
 const SHELL = __SHELL__;
 
@@ -63,13 +69,42 @@ async function stored(request) {
   return response;
 }
 
+/** Image de l'API (note, tableau, aperçu, avatar…) : le réseau d'abord ; la copie gardée s'il ne répond pas. */
+async function image(request) {
+  const cache = await caches.open(IMAGES);
+  try {
+    const response = await fetch(request);
+    if (response.ok && (response.headers.get('content-type') || '').startsWith('image/')) {
+      await cache.put(request, response.clone());
+      const keys = await cache.keys();
+      // Les plus anciennes partent au-delà de la limite (l'ordre des clés est celui des ajouts).
+      for (const old of keys.slice(0, Math.max(0, keys.length - IMAGES_MAX))) await cache.delete(old);
+    }
+    return response;
+  } catch (error) {
+    const kept = await cache.match(request);
+    if (kept) return kept;
+    throw error;
+  }
+}
+
+// Déconnexion : les images gardées pour la lecture hors ligne partent avec la session.
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'fastboard:clear-offline') event.waitUntil(caches.delete(IMAGES));
+});
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  const api = url.pathname === '/api' || url.pathname.startsWith('/api/');
+  if (api && request.destination === 'image') {
+    event.respondWith(image(request));
+    return;
+  }
   // Données, fichiers privés, temps réel, ce service worker : toujours le réseau.
-  if (url.pathname === '/api' || url.pathname.startsWith('/api/') || url.pathname === '/ws' || url.pathname === '/sw.js') return;
+  if (api || url.pathname === '/ws' || url.pathname === '/sw.js') return;
   if (request.mode === 'navigate') {
     event.respondWith(page(event));
     return;

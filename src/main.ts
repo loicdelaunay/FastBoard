@@ -18,10 +18,12 @@ import { useAuthStore } from './stores/auth';
 import { applyFonts, applyReading, applyTheme, cachedFonts, cachedReading, cachedThemeId } from './theme/themeManager';
 import { notify } from './utils/notify';
 import { setupPwa } from './pwa/install';
+import { watchConnection } from './offline/connection';
 import './styles/global.css';
 
 // Application installable : invite d'installation et service worker (l'invite peut arriver très tôt).
 setupPwa();
+watchConnection();
 
 const app = createApp(App);
 const pinia = createPinia();

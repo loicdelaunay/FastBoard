@@ -1,4 +1,7 @@
 import { CLIENT_ID_HEADER, USER_ID_HEADER } from '@shared/constants';
+import { offlineCacheable, serverUnreachable } from '@shared/offline';
+import { offlineKey, readOffline, writeOffline } from '@/offline/cache';
+import { markOffline, markOnline, noteCached } from '@/offline/connection';
 
 import { t } from '@/i18n';
 import { translateServerMessage } from '@/i18n/server';
@@ -65,7 +68,27 @@ export function httpHeaders(): Record<string, string> {
   return headers;
 }
 
+/** Clé de la réponse gardée pour la lecture hors ligne, ou `null` (écriture, réponse à ne pas garder, visiteur sans compte). */
+function offlineCacheKey(method: string, path: string, options: RequestOptions): string | null {
+  if (method !== 'GET' || options.headers) return null;
+  // Le compte connecté et les informations du site (modules activés) se lisent au démarrage, avant de savoir qui l'on
+  // est : ils ont leur place à part (effacée à la déconnexion).
+  if (path === '/me' || path === '/app') return offlineKey(0, `api:${path}`);
+  return currentUserId !== null && offlineCacheable(path) ? offlineKey(currentUserId, `api:${path}`) : null;
+}
+
+/** Le serveur ne répond pas : une lecture reçoit ce qui a été gardé sur l'appareil, une écriture est refusée (lecture seule). */
+async function fromOffline<T>(method: string, key: string | null): Promise<T> {
+  markOffline();
+  if (method !== 'GET') throw new ApiError(0, t('Serveur injoignable : lecture seule. La modification n’a pas été enregistrée.'), 'network');
+  const kept = key ? await readOffline<T>(key) : null;
+  if (!kept) throw new ApiError(0, t('Impossible de joindre le serveur. Vérifiez votre connexion.'), 'network');
+  noteCached(kept.at);
+  return kept.payload;
+}
+
 export async function http<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+  const cacheKey = offlineCacheKey(method, path, options);
   const headers: Record<string, string> = { [CLIENT_ID_HEADER]: clientId, ...options.headers };
   if (currentUserId !== null) {
     headers[USER_ID_HEADER] = String(currentUserId);
@@ -83,7 +106,7 @@ export async function http<T>(method: string, path: string, options: RequestOpti
   try {
     response = await fetch(`/api${path}`, { method, headers, body, credentials: 'same-origin' });
   } catch {
-    throw new ApiError(0, t('Impossible de joindre le serveur. Vérifiez votre connexion.'), 'network');
+    return fromOffline<T>(method, cacheKey);
   }
 
   const text = await response.text();
@@ -96,8 +119,10 @@ export async function http<T>(method: string, path: string, options: RequestOpti
     }
   }
 
+  const error = (payload as { error?: { message?: string; code?: string; details?: unknown } } | null)?.error;
+  if (serverUnreachable(response.status, Boolean(error))) return fromOffline<T>(method, cacheKey);
+  markOnline();
   if (!response.ok) {
-    const error = (payload as { error?: { message?: string; code?: string; details?: unknown } } | null)?.error;
     if (response.status === 401 && error?.code === 'session_changed') {
       sessionChangedHandler?.();
     } else if (response.status === 401 && !options.silent401) {
@@ -105,6 +130,7 @@ export async function http<T>(method: string, path: string, options: RequestOpti
     }
     throw new ApiError(response.status, error?.message ? translateServerMessage(error.message) : t('Erreur {status}', { status: response.status }), error?.code, error?.details);
   }
+  if (cacheKey) void writeOffline(cacheKey, payload);
   return payload as T;
 }
 

@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '@/api';
+import { connection } from '@/offline/connection';
 
 /** Lien vers un fichier (mention, notification) : retrouve son espace, puis ouvre le fichier. */
 const route = useRoute();
@@ -28,7 +29,12 @@ onMounted(async () => {
 <template>
   <div class="page">
     <div class="empty card">
-      <template v-if="failed">
+      <template v-if="failed && connection.offline">
+        <i class="pi pi-cloud icon"></i>
+        <h3>{{ $t('Serveur injoignable : lecture seule') }}</h3>
+        <p class="muted">{{ $t('Hors ligne : cette note n’a pas été ouverte sur cet appareil avant la coupure, elle n’est pas disponible.') }}</p>
+      </template>
+      <template v-else-if="failed">
         <i class="pi pi-lock icon"></i>
         <h3>{{ $t('Fichier inaccessible') }}</h3>
         <p class="muted">{{ $t('Il a peut-être été supprimé, ou vous n’avez pas accès à son espace.') }}</p>

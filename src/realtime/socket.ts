@@ -115,6 +115,11 @@ class RealtimeClient {
     this.#send(message);
   }
 
+  /** Le serveur répond de nouveau après une coupure : les écrans rechargent ce qu'ils montraient depuis l'appareil. */
+  resync(): void {
+    this.#handlers.resync.forEach((handler) => handler());
+  }
+
   /** Envoie un message de tableau blanc (même règle que `sendDoc`). */
   sendBoard(message: Extract<ClientMessage, { t: `board${string}` }>): void {
     this.#send(message);
