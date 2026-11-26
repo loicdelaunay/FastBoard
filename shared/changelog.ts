@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.30.0';
+export const APP_VERSION = '2.31.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,13 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.31.0',
+    date: '2026-11-26',
+    changes: [
+      { category: 'Nouveauté', text: 'Tableaux blancs : magnétisme et repères d’alignement, comme dans Whimsical. En déplaçant ou en redimensionnant, les bords et les centres s’alignent sur ceux des éléments voisins, et un élément se cale à égale distance de ses voisins ; des traits de guidage et l’écart le montrent. L’aimant de la barre d’outils l’active ou le coupe (choix retenu), et Alt s’en passe le temps d’un geste.' },
+    ],
+  },
   {
     version: '2.30.0',
     date: '2026-11-26',

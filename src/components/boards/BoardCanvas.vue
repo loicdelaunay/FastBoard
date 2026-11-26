@@ -6,6 +6,7 @@ import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import type { MenuItem } from 'primevue/menuitem';
 import FollowPill from '@/components/common/FollowPill.vue';
+import { SNAP_LIMITS, snapMove, snapResize, type SnapGuide } from '@shared/boardSnap';
 import { anchor, anchorOf, attachAt, boundsOf, connectorGeometry, connectorStroke, crossingsOf, lineLength, shiftSegment, waypointRank, intersects, mindLink, mindRoot, shapePath, sideToward, textBox, type ConnectorGeometry, type Point, type Rect } from '@shared/boardGeometry';
 import { exportMermaid, mermaidToElements } from '@shared/boardMermaid';
 import { drawioImageData, drawioImageName, looksLikeDrawio, type DrawioImage } from '@shared/boardDrawio';
@@ -122,6 +123,31 @@ const mockupKind = ref<MockupKind>('button');
 const stickyColor = ref<BoardColor>('yellow');
 const penColor = ref<BoardColor>('default');
 const editable = computed(() => props.canEdit && props.session.canWrite.value);
+
+/**
+ * Magnétisme et repères d'alignement (barre d'outils) : en déplaçant ou en redimensionnant, les éléments s'alignent sur
+ * leurs voisins ou se calent à écart égal, avec des traits de guidage, sinon sur la grille. Coupé, tout bouge librement ;
+ * Alt fait de même le temps d'un geste. Le choix est retenu sur cet appareil.
+ */
+const SNAP_KEY = 'fb.boards.snap';
+const snapping = ref((() => {
+  try {
+    return localStorage.getItem(SNAP_KEY) !== '0';
+  } catch {
+    return true;
+  }
+})());
+watch(snapping, (value) => {
+  try {
+    localStorage.setItem(SNAP_KEY, value ? '1' : '0');
+  } catch {
+    // Stockage indisponible : le choix vaut pour cette page.
+  }
+});
+/** Traits de guidage du geste en cours. */
+const guides = ref<SnapGuide[]>([]);
+const gapText = (guide: SnapGuide): string => String(Math.round(Math.hypot(guide.x2 - guide.x1, guide.y2 - guide.y1)));
+const gapWidth = (guide: SnapGuide): number => gapText(guide).length * 7 + 12;
 
 watch(mode, (value) => {
   tool.value = 'select';
@@ -668,8 +694,8 @@ function place(element: BoardElement, edit = true): void {
 
 type Gesture =
   | { kind: 'pan'; startX: number; startY: number; viewX: number; viewY: number }
-  | { kind: 'move'; start: Point; originals: Map<string, Point>; free: Map<string, ConnectorElement>; moved: boolean; mindRoots: Set<string>; mindNodes: string[] }
-  | { kind: 'resize'; id: string; handle: string; start: Point; original: Rect }
+  | { kind: 'move'; start: Point; originals: Map<string, Point>; free: Map<string, ConnectorElement>; moved: boolean; mindRoots: Set<string>; mindNodes: string[]; box: Rect | null; targets: Rect[] }
+  | { kind: 'resize'; id: string; handle: string; start: Point; original: Rect; targets: Rect[] }
   | { kind: 'marquee'; start: Point; base: Set<string> }
   | { kind: 'connect'; from: { id: string | null; side: Side | null; point: Point } }
   | { kind: 'end'; id: string; which: 'from' | 'to' }
@@ -815,7 +841,38 @@ function startMove(world: Point): void {
   for (const element of elements.value) {
     if (element.type === 'connector' && element.waypoints?.length && !free.has(element.id) && element.from.id && element.to.id && originals.has(element.from.id) && originals.has(element.to.id)) free.set(element.id, element);
   }
-  gesture = { kind: 'move', start: world, originals, free, moved: false, mindRoots, mindNodes: movers.map((node) => node.id) };
+  // Ce qui bouge, en un seul cadre : c'est lui qui s'aligne sur les voisins (sauf une branche de carte mentale, rangée seule).
+  let box: Rect | null = null;
+  if (!movers.length) {
+    for (const id of originals.keys()) {
+      const element = index.value.get(id);
+      if (!element || !isPlaced(element)) continue;
+      box = box ? unionRect(box, element) : { x: element.x, y: element.y, w: element.w, h: element.h };
+    }
+  }
+  gesture = { kind: 'move', start: world, originals, free, moved: false, mindRoots, mindNodes: movers.map((node) => node.id), box, targets: box ? snapTargets(new Set(originals.keys())) : [] };
+}
+
+const unionRect = (a: Rect, b: Rect): Rect => {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+};
+
+/** Repères du magnétisme : les éléments posés à l'écran (élargi), sauf ce qui bouge, les liens et les traits à main levée. */
+function snapTargets(exclude: ReadonlySet<string>): Rect[] {
+  const margin = SNAP_LIMITS.viewportMargin;
+  const left = -view.x / view.zoom;
+  const top = -view.y / view.zoom;
+  const width = size.width / view.zoom;
+  const height = size.height / view.zoom;
+  const area = { x: left - width * margin, y: top - height * margin, w: width * (1 + 2 * margin), h: height * (1 + 2 * margin) };
+  const targets: Rect[] = [];
+  for (const element of elements.value) {
+    if (!isPlaced(element) || element.type === 'path' || exclude.has(element.id) || !intersects(area, element)) continue;
+    targets.push({ x: element.x, y: element.y, w: element.w, h: element.h });
+  }
+  return targets;
 }
 
 function onPointerDown(event: PointerEvent): void {
@@ -841,7 +898,7 @@ function startGesture(event: PointerEvent): void {
   const handle = target.closest<SVGElement>('[data-handle]');
   if (handle && single.value && isPlaced(single.value) && editable.value) {
     model.stopCapturing();
-    gesture = { kind: 'resize', id: single.value.id, handle: handle.dataset.handle!, start: world, original: { x: single.value.x, y: single.value.y, w: single.value.w, h: single.value.h } };
+    gesture = { kind: 'resize', id: single.value.id, handle: handle.dataset.handle!, start: world, original: { x: single.value.x, y: single.value.y, w: single.value.w, h: single.value.h }, targets: snapTargets(new Set([single.value.id])) };
     return;
   }
   const waypointHandle = target.closest<SVGElement>('[data-wp]');
@@ -999,11 +1056,19 @@ function onPointerMove(event: PointerEvent): void {
       break;
     case 'move': {
       const current = gesture;
-      const free = !event.altKey;
-      const dx = snap(world.x - current.start.x, free);
-      const dy = snap(world.y - current.start.y, free);
+      const active = snapping.value && !event.altKey;
+      let dx = snap(world.x - current.start.x, active);
+      let dy = snap(world.y - current.start.y, active);
       if (!current.moved && Math.hypot(world.x - current.start.x, world.y - current.start.y) * view.zoom < 3) return;
       current.moved = true;
+      // Alignement sur les voisins, ou écart égal, avec ses traits ; sinon la grille (ou rien, magnétisme coupé).
+      if (active && current.box) {
+        const snapped = snapMove(current.box, world.x - current.start.x, world.y - current.start.y, current.targets, { threshold: SNAP_LIMITS.thresholdPx / view.zoom, grid: GRID });
+        ({ dx, dy } = snapped);
+        guides.value = snapped.guides;
+      } else if (guides.value.length) {
+        guides.value = [];
+      }
       if (current.mindNodes.length) {
         const target = mindDropTarget(current, event, dx, dy);
         dropTarget.value = target;
@@ -1056,7 +1121,16 @@ function onPointerMove(event: PointerEvent): void {
         if (handle.includes('n')) y -= min - h;
         h = min;
       }
-      throttle(() => model.update(current.id, { x: snap(x, !event.altKey), y: snap(y, !event.altKey), w: snap(w, !event.altKey), h: snap(h, !event.altKey) }));
+      const active = snapping.value && !event.altKey;
+      // Sans garder les proportions, les bords tirés s'alignent sur les voisins (sinon la grille) ; Maj garde la grille seule.
+      if (active && !event.shiftKey) {
+        const snapped = snapResize({ x, y, w, h }, handle, current.targets, { threshold: SNAP_LIMITS.thresholdPx / view.zoom, grid: GRID, min });
+        guides.value = snapped.guides;
+        throttle(() => model.update(current.id, snapped.rect));
+        break;
+      }
+      if (guides.value.length) guides.value = [];
+      throttle(() => model.update(current.id, { x: snap(x, active), y: snap(y, active), w: snap(w, active), h: snap(h, active) }));
       break;
     }
     case 'marquee': {
@@ -1091,14 +1165,14 @@ function onPointerMove(event: PointerEvent): void {
       const current = gesture;
       const connector = index.value.get(current.id) as ConnectorElement | undefined;
       if (!connector?.waypoints?.[current.index]) break;
-      const free = !event.altKey;
+      const free = snapping.value && !event.altKey;
       const points = connector.waypoints.map((point, position) => (position === current.index ? { x: snap(world.x, free), y: snap(world.y, free) } : point));
       throttle(() => model.update(current.id, { waypoints: points }));
       break;
     }
     case 'segment': {
       const current = gesture;
-      const offset = snap(current.horizontal ? world.y - current.start.y : world.x - current.start.x, !event.altKey);
+      const offset = snap(current.horizontal ? world.y - current.start.y : world.x - current.start.x, snapping.value && !event.altKey);
       throttle(() => model.update(current.id, { waypoints: shiftSegment(current.geometry, current.index, offset) }));
       break;
     }
@@ -1139,6 +1213,7 @@ function onPointerUp(event: PointerEvent): void {
   gesture = null;
   busy.value = false;
   attachMark.value = null;
+  guides.value = [];
   if (root.value?.hasPointerCapture(event.pointerId)) root.value.releasePointerCapture(event.pointerId);
   if (frame) {
     cancelAnimationFrame(frame);
@@ -3016,6 +3091,24 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
         <polyline v-if="drawing" class="draft-path" :class="{ highlighter: tool === 'highlighter' }" :points="drawing.map((point) => `${point.x},${point.y}`).join(' ')" :stroke-width="tool === 'highlighter' ? 16 : 3" />
         <rect v-if="marquee" class="marquee" :x="marquee.x" :y="marquee.y" :width="marquee.w" :height="marquee.h" />
 
+        <!-- Traits de guidage du magnétisme : alignements, et écarts égaux (avec leurs butées) -->
+        <g v-if="guides.length" class="snap-guides" aria-hidden="true">
+          <template v-for="(guide, position) in guides" :key="position">
+            <line :class="guide.kind" :x1="guide.x1" :y1="guide.y1" :x2="guide.x2" :y2="guide.y2" />
+            <template v-if="guide.kind === 'gap'">
+              <line v-if="guide.y1 === guide.y2" class="gap" :x1="guide.x1" :y1="guide.y1 - 5 / view.zoom" :x2="guide.x1" :y2="guide.y1 + 5 / view.zoom" />
+              <line v-if="guide.y1 === guide.y2" class="gap" :x1="guide.x2" :y1="guide.y2 - 5 / view.zoom" :x2="guide.x2" :y2="guide.y2 + 5 / view.zoom" />
+              <line v-if="guide.x1 === guide.x2" class="gap" :x1="guide.x1 - 5 / view.zoom" :y1="guide.y1" :x2="guide.x1 + 5 / view.zoom" :y2="guide.y1" />
+              <line v-if="guide.x1 === guide.x2" class="gap" :x1="guide.x2 - 5 / view.zoom" :y1="guide.y2" :x2="guide.x2 + 5 / view.zoom" :y2="guide.y2" />
+              <!-- L'écart, en pastille au milieu : les deux (ou trois) valent la même chose -->
+              <g :transform="`translate(${(guide.x1 + guide.x2) / 2} ${(guide.y1 + guide.y2) / 2}) scale(${1 / view.zoom})`">
+                <rect class="gap-label" :x="-gapWidth(guide) / 2" y="-9" :width="gapWidth(guide)" height="18" rx="9" />
+                <text class="gap-text" text-anchor="middle" dominant-baseline="central">{{ gapText(guide) }}</text>
+              </g>
+            </template>
+          </template>
+        </g>
+
         <!-- Sélection -->
         <template v-if="selectionBounds && !editing">
           <rect class="selection-box" :x="selectionBounds.x - 4 / view.zoom" :y="selectionBounds.y - 4 / view.zoom" :width="selectionBounds.w + 8 / view.zoom" :height="selectionBounds.h + 8 / view.zoom" :stroke-width="1.5 / view.zoom" />
@@ -3107,7 +3200,7 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
       <div ref="editBox" class="edit-text" contenteditable="plaintext-only" spellcheck="true" @keydown="onEditKey" @blur="commitEdit" @pointerdown.stop></div>
     </div>
 
-    <BoardToolbar v-model:mode="mode" v-model:tool="tool" v-model:shape="shapeKind" v-model:mockup="mockupKind" v-model:sticky-color="stickyColor" v-model:pen-color="penColor" class="board-ui" :editable="editable" @import="openImport" @fast="pickerOpen = true" @quick="(tab) => openQuick(null, tab)" @pick="addQuick" />
+    <BoardToolbar v-model:mode="mode" v-model:tool="tool" v-model:snapping="snapping" v-model:shape="shapeKind" v-model:mockup="mockupKind" v-model:sticky-color="stickyColor" v-model:pen-color="penColor" class="board-ui" :editable="editable" @import="openImport" @fast="pickerOpen = true" @quick="(tab) => openQuick(null, tab)" @pick="addQuick" />
 
     <BoardSelectionBar
       v-if="toolbarScreen && selected.length && !busy"
@@ -3660,6 +3753,24 @@ polygon.block-fill {
   z-index: 7;
   width: max-content;
   transform: translateX(-50%);
+}
+.snap-guides line {
+  stroke: #f43f5e;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.snap-guides line.gap {
+  stroke: #ec4899;
+}
+.snap-guides .gap-label {
+  fill: #ec4899;
+}
+.snap-guides .gap-text {
+  fill: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  pointer-events: none;
 }
 .marquee {
   fill: color-mix(in srgb, var(--board-select) 10%, transparent);

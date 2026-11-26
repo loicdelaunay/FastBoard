@@ -14,6 +14,8 @@ const shape = defineModel<ShapeKind>('shape', { required: true });
 const mockup = defineModel<MockupKind>('mockup', { required: true });
 const stickyColor = defineModel<BoardColor>('stickyColor', { required: true });
 const penColor = defineModel<BoardColor>('penColor', { required: true });
+/** Magnétisme et repères d'alignement entre éléments (et grille). */
+const snapping = defineModel<boolean>('snapping', { required: true });
 
 const tools = computed(() => MODE_TOOLS[mode.value].filter((entry) => props.editable || !entry.edit));
 const modes = computed(() => (props.editable ? MODES : []));
@@ -72,6 +74,22 @@ const tip = (label: string, key?: string): string => (key ? `${t(label)} (${key.
       <button v-if="mode === 'diagram' || mode === 'mind'" v-tooltip.right="$t('Importer du Mermaid…')" type="button" class="tool" :aria-label="$t('Importer du Mermaid…')" @click="emit('import')">
         <i class="pi pi-file-import"></i>
       </button>
+      <button
+        v-tooltip.right="snapping ? $t('Magnétisme et repères d’alignement : activés (Alt pour s’en passer le temps d’un geste)') : $t('Magnétisme et repères d’alignement : désactivés')"
+        type="button"
+        class="tool toggle"
+        :class="{ on: snapping }"
+        :aria-pressed="snapping"
+        :aria-label="$t('Magnétisme et repères d’alignement')"
+        @click="snapping = !snapping"
+      >
+        <!-- Aimant (Lucide) -->
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m12 15 4 4" />
+          <path d="M2.352 10.648a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l6.029-6.029a1 1 0 1 1 3 3l-6.029 6.029a1.205 1.205 0 0 0 0 1.704l2.296 2.296a1.205 1.205 0 0 0 1.704 0l6.365-6.367A1 1 0 0 0 8.716 4.282z" />
+          <path d="m5 8 4 4" />
+        </svg>
+      </button>
     </div>
   </div>
 </template>
@@ -127,6 +145,14 @@ const tip = (label: string, key?: string): string => (key ? `${t(label)} (${key.
 .tool.active {
   background: var(--fb-accent);
   color: #fff;
+}
+/* Interrupteur : allumé, il garde la teinte de l'accent sans se confondre avec l'outil choisi. */
+.tool.toggle {
+  color: var(--fb-muted);
+}
+.tool.toggle.on {
+  background: var(--fb-accent-soft);
+  color: var(--fb-accent);
 }
 .tool-wrap {
   position: relative;
