@@ -22,6 +22,7 @@ import ThemePicker from './ThemePicker.vue';
 import FontSettings from './FontSettings.vue';
 import NotificationSettings from './NotificationSettings.vue';
 import ReadingSettings from './ReadingSettings.vue';
+import PreferenceSettings from './PreferenceSettings.vue';
 
 import { t } from '@/i18n';
 const auth = useAuthStore();
@@ -133,6 +134,7 @@ async function changePassword(): Promise<void> {
       <TabList>
         <Tab value="profile"><i class="pi pi-user"></i> {{ $t('Profil') }}</Tab>
         <Tab value="appearance"><i class="pi pi-palette"></i> {{ $t('Apparence') }}</Tab>
+        <Tab value="preferences"><i class="pi pi-sliders-h"></i> {{ $t('Préférences') }}</Tab>
         <Tab value="notifications"><i class="pi pi-bell"></i> {{ $t('Notifications') }}</Tab>
         <Tab value="security"><i class="pi pi-lock"></i> {{ $t('Sécurité') }}</Tab>
         <Tab value="tokens"><i class="pi pi-key"></i> {{ $t('Jetons d\'API') }}</Tab>
@@ -189,6 +191,10 @@ async function changePassword(): Promise<void> {
           <ReadingSettings />
           <FontSettings />
           <ThemePicker @select="chooseTheme" />
+        </TabPanel>
+
+        <TabPanel value="preferences">
+          <PreferenceSettings />
         </TabPanel>
 
         <TabPanel value="notifications">

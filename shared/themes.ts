@@ -148,6 +148,8 @@ export interface AppearanceDTO {
   customThemes: CustomThemeDef[];
   fonts: FontSettings;
   reading: ReadingWidth;
+  /** Correcteur orthographique du navigateur dans les zones d'écriture (notes, tickets, commentaires…) ; activé par défaut. */
+  spellcheck: boolean;
 }
 
 export const APPEARANCE_LIMITS = { themes: 20, labelMax: 40, fontMax: 200, sizeMin: 12, sizeMax: 20, docSizeMin: 12, docSizeMax: 26 };
@@ -234,6 +236,7 @@ export function normalizeAppearance(raw: unknown): AppearanceDTO {
     customThemes,
     fonts: { body: fontOf(fontsSource, 'body'), heading: fontOf(fontsSource, 'heading'), mono: fontOf(fontsSource, 'mono'), size, doc: fontOf(fontsSource, 'doc'), docSize },
     reading,
+    spellcheck: source.spellcheck !== false,
   };
 }
 

@@ -76,6 +76,7 @@ import { markdownLines, parseNoteSearch, runNoteSearch, type ParsedSearch, type 
 import { highlightColors } from './editor/highlightColors';
 
 import { t } from '@/i18n';
+import { spellcheck } from '@/theme/themeManager';
 /**
  * Éditeur Markdown partagé : le texte vit dans le document Yjs de la session, avec les curseurs des autres personnes.
  * `live` : mode « Lecture et écriture », où chaque bloc s'affiche rendu jusqu'à ce qu'on y place le curseur.
@@ -109,6 +110,10 @@ const picker = ref<HTMLInputElement | null>(null);
 let view: EditorView | null = null;
 const editable = new Compartment();
 const editableState = (readonly: boolean) => [EditorState.readOnly.of(readonly), EditorView.editable.of(!readonly)];
+/** Correcteur orthographique du navigateur (préférence du compte) : CodeMirror le coupe d'office, on le rallume. */
+const spelling = new Compartment();
+const spellingState = (enabled: boolean) => EditorView.contentAttributes.of({ spellcheck: enabled ? 'true' : 'false', autocorrect: enabled ? 'on' : 'off' });
+watch(spellcheck, (enabled) => view?.dispatch({ effects: spelling.reconfigure(spellingState(enabled)) }));
 
 const router = useRouter();
 const app = useAppStore();
@@ -976,6 +981,7 @@ onMounted(() => {
         // Les blocs ```python, ```sql… sont colorés selon leur langage (grammaire chargée à la demande).
         markdown({ base: markdownLanguage, codeLanguages: (info) => codeLanguage(info) }),
         EditorView.lineWrapping,
+        spelling.of(spellingState(spellcheck.value)),
         placeholder(t('Écrivez en Markdown… @ pour mentionner, / pour insérer un élément.')),
         autocompletion({ override: [mentions, wikiLinks, slashCommands(handlers), highlightColors(() => props.obsidian)], addToOptions: [{ render: completionIcon, position: 20 }] }),
         // Recherche (Ctrl F) : résultats surlignés, et révélés dans le rendu « Lecture et écriture ».

@@ -94,6 +94,7 @@ export const profileSchema = z.object({
         docSize: z.union([z.literal(0), z.number().int().min(APPEARANCE_LIMITS.docSizeMin).max(APPEARANCE_LIMITS.docSizeMax)]).default(0).describe('Taille du texte des notes en pixels (0 : comme l’interface).'),
       }),
       reading: z.enum(READING_WIDTHS).default('screen').describe('Largeur du texte des notes : `screen` centré sur l’écran, `column` centré dans sa colonne, `full` sans marges.'),
+      spellcheck: z.boolean().default(true).describe('Correcteur orthographique du navigateur dans les zones d’écriture (notes, tickets, commentaires).'),
     })
     .optional()
     .describe('Thèmes personnalisés (couleurs, style) et polices de l’interface (remplace l’ensemble).'),

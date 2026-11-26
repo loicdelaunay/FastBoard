@@ -181,7 +181,8 @@ class TableEditor {
           } catch {
             cell.contentEditable = 'true';
           }
-          cell.spellcheck = true;
+          // Comme le reste de la page : la préférence du compte, posée sur le document.
+          cell.spellcheck = document.documentElement.spellcheck;
           td.append(cell);
           tr.append(td);
         }

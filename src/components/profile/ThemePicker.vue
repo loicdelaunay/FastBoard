@@ -47,7 +47,7 @@ function edit(theme: CustomThemeDef): void {
 }
 
 function appearance(themes: CustomThemeDef[]): AppearanceDTO {
-  return { ...(auth.user?.appearance ?? { fonts: { ...DEFAULT_FONTS }, reading: 'screen' }), customThemes: themes };
+  return { ...(auth.user?.appearance ?? { fonts: { ...DEFAULT_FONTS }, reading: 'screen', spellcheck: true }), customThemes: themes };
 }
 
 async function save(theme: CustomThemeDef): Promise<void> {
@@ -272,7 +272,7 @@ function swatchStyle(theme: ThemeDef): Record<string, string> {
         <p class="muted small">{{ $t('Choisissez le fichier .fastboard-theme.json qu’on vous a envoyé, ou collez son contenu.') }}</p>
         <input ref="fileInput" type="file" accept=".json,application/json" hidden @change="readFile" />
         <Button :label="$t('Choisir un fichier…')" icon="pi pi-folder-open" severity="secondary" outlined size="small" @click="fileInput?.click()" />
-        <Textarea v-model="importText" rows="7" fluid class="import-text" :placeholder="$t('Contenu du thème (JSON)')" :aria-label="$t('Contenu du thème (JSON)')" />
+        <Textarea v-model="importText" rows="7" fluid class="import-text" spellcheck="false" :placeholder="$t('Contenu du thème (JSON)')" :aria-label="$t('Contenu du thème (JSON)')" />
         <small v-if="importError" class="error">{{ importError }}</small>
       </div>
       <template #footer>

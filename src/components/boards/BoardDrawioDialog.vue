@@ -98,7 +98,7 @@ function run(): void {
       <input ref="fileInput" type="file" accept=".drawio,.xml,.dio,application/xml,text/xml" hidden @change="pickFile" />
       <Select v-if="pages.length > 1" v-model="page" :options="pageOptions" option-label="label" option-value="value" size="small" :aria-label="$t('Page')" />
     </div>
-    <Textarea v-model="draft" rows="10" class="code" :placeholder="'<mxfile>…</mxfile>'" :aria-label="$t('XML draw.io')" fluid />
+    <Textarea v-model="draft" rows="10" class="code" spellcheck="false" :placeholder="'<mxfile>…</mxfile>'" :aria-label="$t('XML draw.io')" fluid />
     <p v-if="error" class="error small">{{ error }}</p>
     <p v-else-if="summary" class="muted small">{{ summary }}</p>
     <template #footer>

@@ -8,7 +8,7 @@ import { clearOffline, offlineKey, writeOffline } from '@/offline/cache';
 import type { Locale } from '@shared/locales';
 import { currentLocale, rememberLocale } from '@/i18n';
 import type { AppearanceDTO } from '@shared/themes';
-import { applyFonts, applyReading, applyTheme, customThemes } from '@/theme/themeManager';
+import { applyFonts, applyReading, applySpellcheck, applyTheme, customThemes } from '@/theme/themeManager';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<MeDTO | null>(null);
@@ -34,6 +34,7 @@ export const useAuthStore = defineStore('auth', () => {
       applyFonts(next.appearance.fonts);
       applyTheme(next.theme);
       applyReading(next.appearance.reading);
+      applySpellcheck(next.appearance.spellcheck);
       // La langue du compte l'emporte : on la mémorise et on recharge, les textes étant lus au chargement.
       if (next.locale && next.locale !== currentLocale()) {
         rememberLocale(next.locale);
@@ -97,6 +98,7 @@ export const useAuthStore = defineStore('auth', () => {
       customThemes.value = patch.appearance.customThemes;
       applyFonts(patch.appearance.fonts);
       applyReading(patch.appearance.reading);
+      applySpellcheck(patch.appearance.spellcheck);
     }
     if (patch.theme) {
       applyTheme(patch.theme);
@@ -110,6 +112,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (previous.appearance) {
         applyFonts(previous.appearance.fonts);
         applyReading(previous.appearance.reading);
+        applySpellcheck(previous.appearance.spellcheck);
       }
       applyTheme(previous.theme);
       throw error;

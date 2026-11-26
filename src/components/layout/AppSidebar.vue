@@ -65,6 +65,7 @@ const accountItems = computed<MenuItem[]>(() => [
   { label: t('Mon profil'), icon: 'pi pi-user', command: () => ui.openProfile('profile') },
   { label: t('Mon activité'), icon: 'pi pi-chart-bar', command: () => auth.user && void router.push({ name: 'user', params: { id: auth.user.id } }) },
   { label: t('Apparence et thème'), icon: 'pi pi-palette', command: () => ui.openProfile('appearance') },
+  { label: t('Préférences'), icon: 'pi pi-sliders-h', command: () => ui.openProfile('preferences') },
   { label: t('Sécurité'), icon: 'pi pi-lock', command: () => ui.openProfile('security') },
   { label: t('Jetons d\'API'), icon: 'pi pi-key', command: () => ui.openProfile('tokens') },
   { separator: true },

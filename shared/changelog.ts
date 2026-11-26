@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.33.0';
+export const APP_VERSION = '2.34.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,11 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.34.0',
+    date: '2026-11-26',
+    changes: [{ category: 'Nouveauté', text: 'Correcteur orthographique du navigateur dans les zones d’écriture (notes, tickets, commentaires, tableaux blancs), multilingue selon les langues choisies dans le navigateur ; il se coupe dans Mon compte → Préférences.' }],
+  },
   {
     version: '2.33.0',
     date: '2026-11-26',

@@ -278,6 +278,16 @@ export function cachedReading(): ReadingWidth {
 
 export const readingWidth = ref<ReadingWidth>('screen');
 
+/**
+ * Correcteur orthographique du navigateur (préférence du compte) : posé sur la page, il vaut pour toutes les zones
+ * d'écriture qui ne le règlent pas elles-mêmes ; l'éditeur des notes et le tableau blanc le suivent aussi.
+ */
+export const spellcheck = ref(true);
+export function applySpellcheck(enabled: boolean): void {
+  spellcheck.value = enabled;
+  document.documentElement.spellcheck = enabled;
+}
+
 /** `screen` : texte centré sur l'écran ; `column` : dans sa colonne ; `full` : toute la largeur, sans marges. */
 export function applyReading(value: ReadingWidth, persist = true): void {
   readingWidth.value = value;

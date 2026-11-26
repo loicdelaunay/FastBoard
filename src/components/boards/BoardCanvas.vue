@@ -7,6 +7,7 @@ import InputText from 'primevue/inputtext';
 import type { MenuItem } from 'primevue/menuitem';
 import FollowPill from '@/components/common/FollowPill.vue';
 import { SNAP_LIMITS, snapMove, snapResize, type SnapGuide } from '@shared/boardSnap';
+import { spellcheck } from '@/theme/themeManager';
 import { anchor, anchorOf, attachAt, boundsOf, contains as rectContains, connectorGeometry, connectorStroke, crossingsOf, lineLength, shiftSegment, waypointRank, intersects, mindLink, mindRoot, shapePath, sideToward, textBox, type ConnectorGeometry, type Point, type Rect } from '@shared/boardGeometry';
 import { exportMermaid, mermaidToElements } from '@shared/boardMermaid';
 import { drawioImageData, drawioImageName, looksLikeDrawio, type DrawioImage } from '@shared/boardDrawio';
@@ -3222,7 +3223,7 @@ defineExpose({ fit, openImport, openDrawio, openExportImage });
     </svg>
 
     <div v-if="editStyle" class="edit-overlay" :class="editClass" :style="editStyle">
-      <div ref="editBox" class="edit-text" contenteditable="plaintext-only" spellcheck="true" @keydown="onEditKey" @blur="commitEdit" @pointerdown.stop></div>
+      <div ref="editBox" class="edit-text" contenteditable="plaintext-only" :spellcheck="spellcheck" @keydown="onEditKey" @blur="commitEdit" @pointerdown.stop></div>
     </div>
 
     <BoardToolbar v-model:mode="mode" v-model:tool="tool" v-model:snapping="snapping" v-model:shape="shapeKind" v-model:mockup="mockupKind" v-model:sticky-color="stickyColor" v-model:pen-color="penColor" class="board-ui" :editable="editable" @import="openImport" @fast="pickerOpen = true" @quick="(tab) => openQuick(null, tab)" @pick="addQuick" />

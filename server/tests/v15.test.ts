@@ -114,7 +114,7 @@ describe('version 1.5', () => {
 
     it('enregistre des thèmes et des polices personnalisés sur le compte', async () => {
       const me = (await owner.get('/api/me')).body.user;
-      assert.deepEqual(me.appearance, { customThemes: [], fonts: { body: '', heading: '', mono: '', size: 15, doc: '', docSize: 0 }, reading: 'screen' });
+      assert.deepEqual(me.appearance, { customThemes: [], fonts: { body: '', heading: '', mono: '', size: 15, doc: '', docSize: 0 }, reading: 'screen', spellcheck: true });
       assert.equal((await owner.patch('/api/me', { theme: 'custom-abc123' })).status, 400, 'thème personnalisé inexistant');
 
       const saved = await owner.patch('/api/me', { appearance: { customThemes: [theme], fonts }, theme: theme.id });
