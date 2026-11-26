@@ -246,6 +246,7 @@ export function deleteProject(ctx: AppContext, projectId: number): void {
   const files = storagesOfProject(ctx.db, projectId);
   ctx.db.run('DELETE FROM projects WHERE id = ?', projectId);
   dropSnapshots(ctx, 'project', projectId);
+  ctx.db.run("DELETE FROM space_favorites WHERE kind = 'project' AND space_id = ?", projectId);
   removeStoredFiles(ctx, files);
   ctx.logger.info('project', `Projet supprimé : ${name}`, { projectId, files: files.length });
   ctx.hub.closeProject(projectId);

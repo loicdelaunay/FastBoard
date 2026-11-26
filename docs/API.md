@@ -322,6 +322,18 @@ Déplacer vers un autre espace : `POST /boards/nodes/move` avec `{ "nodeIds": [7
 
 Partager un tableau au-delà des membres de son espace (propriétaire de l'espace) : `PUT /boards/nodes/{id}/share` avec `audience` (`users` : toute personne connectée ; `people` : les personnes de `people` ; `public` : tout le monde, même sans compte), `role` (`reader` ou `editor`) et un `password` facultatif (absent : inchangé ; `null` : retiré). La réponse donne le `slug` de l'adresse `/t/{slug}` ; `GET` lit le partage et `DELETE` le retire (ceux qui sont entrés par l'adresse sortent aussitôt). Côté visiteur, `GET /board-shares/{slug}` décrit le tableau partagé ; s'il est protégé (`401`, code `board_password`), `POST /board-shares/{slug}/unlock` avec le `password` rend un jeton valable 7 jours, à renvoyer dans l'en-tête `X-Board-Share`. `GET /board-shares/{slug}/preview` en donne l'image.
 
+### Accueil et espaces favoris
+
+```bash
+# Tout l'accueil en un appel : récemment modifié, assigné, favoris, documents favoris, notifications importantes
+curl -s "$FASTBOARD/api/me/home" -H "Authorization: Bearer $TOKEN"
+# Mettre un espace (docs, boards) ou un projet (project) en favori, ou l'en retirer (DELETE)
+curl -s -X PUT "$FASTBOARD/api/me/favorites/project/3" -H "Authorization: Bearer $TOKEN"
+```
+
+`assigned` donne les tickets ouverts dont une part de la personne n'est pas finie, par échéance : une bonne liste de
+travail pour un agent qui agit au nom de quelqu'un.
+
 ### Étiquettes d'espace (état figé d'un espace ou d'un projet)
 
 Une étiquette d'espace fige tout le contenu d'un espace de documentation (`docs`), d'un espace de tableaux blancs

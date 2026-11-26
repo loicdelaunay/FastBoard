@@ -14,6 +14,7 @@ import { RAG_FORMATS, RAG_LIMITS } from '../../shared/rag.ts';
 import { VERSION_TAG_LIMITS } from '../../shared/versionTags.ts';
 import { SNAPSHOT_KINDS, SNAPSHOT_LIMITS } from '../../shared/snapshots.ts';
 import { NOTIFICATION_CATEGORIES } from '../../shared/notificationCategories.ts';
+import { FAVORITE_KINDS } from '../../shared/home.ts';
 import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
@@ -671,6 +672,10 @@ export const versionTagSchema = z.object({
 });
 export const versionTagUpdateSchema = z.object({ name: tagName.nullable().describe('Nouveau nom ; `null` retire l’étiquette (la version suit alors la durée de conservation de l’historique).') });
 export const tagSearchSchema = z.object({ q: z.string().trim().max(100).default('').describe('Mots à trouver dans le nom de l’étiquette ou celui de l’élément.') });
+
+// --- Accueil : espaces favoris ------------------------------------------------------------------------------------------
+
+export const favoriteKindSchema = z.enum(FAVORITE_KINDS as [string, ...string[]]);
 
 // --- Étiquettes d'espace (documentation, tableaux blancs, projets) ------------------------------------------------------
 

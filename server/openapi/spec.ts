@@ -564,6 +564,20 @@ const OPERATIONS: Operation[] = [
     ok: obj({ group: ref('Group') }),
   },
 
+  // --- Accueil et espaces favoris -------------------------------------------------------------------------------------
+  {
+    method: 'get',
+    path: '/me/home',
+    tag: 'Accueil',
+    summary: 'Mon accueil',
+    description:
+      'En un appel : `recent` (notes, tableaux et tickets que vous avez modifiés récemment), `assigned` (tickets ouverts dont votre part n’est pas finie, en retard d’abord), `favorites` (espaces et projets favoris), `bookmarks` (documents favoris) et `notifications` (mentions et assignations non lues).',
+    ok: obj({ home: ref('Home') }),
+  },
+  { method: 'get', path: '/me/favorites', tag: 'Accueil', summary: 'Mes espaces favoris', description: 'Espaces de documentation, de tableaux blancs et projets, par nom.', ok: obj({ favorites: arr(ref('FavoriteSpace')) }) },
+  { method: 'put', path: '/me/favorites/{kind}/{id}', tag: 'Accueil', summary: 'Mettre un espace en favori', description: 'Il faut voir l’espace (ou le projet).', params: { kind: 'Type d’espace : `docs`, `boards` ou `project`.', id: 'Identifiant de l’espace (ou du projet).' }, stringParams: ['kind'], ok: obj({ favorites: arr(ref('FavoriteSpace')) }) },
+  { method: 'delete', path: '/me/favorites/{kind}/{id}', tag: 'Accueil', summary: 'Retirer un espace des favoris', params: { kind: 'Type d’espace : `docs`, `boards` ou `project`.', id: 'Identifiant de l’espace (ou du projet).' }, stringParams: ['kind'], ok: obj({ favorites: arr(ref('FavoriteSpace')) }) },
+
   // --- Étiquettes d'espace ---------------------------------------------------------------------------------------------
   { method: 'get', path: '/snapshots', tag: 'Étiquettes d’espace', summary: 'Étiquettes d’un espace ou d’un projet', description: 'Les plus récentes d’abord. Membres de l’espace (ou du projet).', query: S.snapshotListSchema, ok: obj({ snapshots: arr(ref('SpaceSnapshot')) }) },
   {
@@ -1560,6 +1574,7 @@ export function buildOpenApiDocument(): Schema {
       { name: 'Activité' },
       { name: 'Membres' },
       { name: 'Groupes', description: 'Groupes de personnes, à ajouter d’un coup aux projets et aux espaces.' },
+      { name: 'Accueil', description: 'Ce que la personne a modifié récemment, ce qui lui est assigné, ses favoris et ses notifications importantes.' },
       { name: 'Étiquettes d’espace', description: 'L’état complet d’un espace de documentation, d’un espace de tableaux blancs ou d’un projet, figé sous un nom : il ne change plus, se consulte, se télécharge et redonne un espace.' },
       { name: 'Recherche' },
       { name: 'Notifications' },

@@ -86,11 +86,11 @@ const accountItems = computed<MenuItem[]>(() => [
 <template>
   <aside class="app-sidebar" :class="{ collapsed }" :aria-label="$t('Navigation principale')">
     <div class="brand">
-      <router-link to="/" class="brand-link" :aria-label="`${app.name} — ${$t('Projets')}`">
+      <router-link :to="{ name: 'home' }" class="brand-link" :aria-label="`${app.name} — ${$t('Accueil')}`">
         <img :src="app.logoUrl" alt="" width="28" height="28" class="logo" />
       </router-link>
       <div class="brand-text">
-        <router-link to="/" class="brand-name truncate" tabindex="-1">{{ app.name }}</router-link>
+        <router-link :to="{ name: 'home' }" class="brand-name truncate" tabindex="-1">{{ app.name }}</router-link>
         <button type="button" class="version-chip" :aria-label="$t('Version {version} : voir les nouveautés', { version: APP_VERSION })" @click="changelogOpen = true">v{{ APP_VERSION }}</button>
       </div>
       <button v-tooltip.right="collapsed ? $t('Déplier la barre') : $t('Replier la barre')" type="button" class="collapse" :aria-label="collapsed ? $t('Déplier la barre') : $t('Replier la barre')" :aria-expanded="!collapsed" @click="toggleCollapsed">
@@ -105,6 +105,9 @@ const accountItems = computed<MenuItem[]>(() => [
     </button>
 
     <nav class="nav">
+      <router-link v-tooltip.right="collapsed ? $t('Accueil') : undefined" :to="{ name: 'home' }" class="item" active-class="active">
+        <i class="pi pi-home module-icon home"></i><span class="label">{{ $t('Accueil') }}</span>
+      </router-link>
       <router-link v-tooltip.right="collapsed ? $t('Projets') : undefined" to="/" class="item" :class="{ active: onProjects }">
         <i class="pi pi-th-large module-icon projects"></i><span class="label">{{ $t('Projets') }}</span>
       </router-link>
@@ -309,6 +312,9 @@ const accountItems = computed<MenuItem[]>(() => [
 }
 .item .module-icon.groups {
   color: #14b8a6;
+}
+.item .module-icon.home {
+  color: #ec4899;
 }
 .nav {
   display: flex;

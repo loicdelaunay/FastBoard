@@ -57,7 +57,7 @@ async function submit(): Promise<void> {
   try {
     await auth.login(email.value.trim(), password.value);
     rememberEmail();
-    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/') ? route.query.redirect : '/';
+    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/') ? route.query.redirect : '/accueil';
     await router.replace(redirect);
   } catch (cause) {
     error.value = errorMessage(cause);

@@ -14,6 +14,9 @@ import BoardSpaceDialog from '@/components/boards/BoardSpaceDialog.vue';
 import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
 import OfflinePinBadge from '@/components/common/OfflinePinBadge.vue';
 import SpaceSnapshotsDialog from '@/components/common/SpaceSnapshotsDialog.vue';
+import FavoriteStar from '@/components/common/FavoriteStar.vue';
+import { connection } from '@/offline/connection';
+import { useFavoritesStore } from '@/stores/favorites';
 import { pinnedMenuItems } from '@/composables/usePinnedMenu';
 import { t } from '@/i18n';
 import { useAuthStore } from '@/stores/auth';
@@ -35,7 +38,9 @@ const snapshotsOpen = ref(false);
 const target = ref<BoardSpaceDTO | null>(null);
 const menu = ref<InstanceType<typeof ContextMenu> | null>(null);
 
-const visible = computed(() => store.spaces.filter((space) => matchesQuery(search.value, [space.name, space.description])));
+const favorites = useFavoritesStore();
+// Espaces favoris en tête.
+const visible = computed(() => favorites.favoritesFirst('boards', store.spaces.filter((space) => matchesQuery(search.value, [space.name, space.description]))));
 
 onMounted(() => void store.fetchSpaces().catch((error) => notifyError(error)));
 
@@ -48,6 +53,12 @@ const menuItems = computed<MenuItem[]>(() => {
   if (!space) return [];
   return [
     { label: t('Ouvrir'), icon: 'pi pi-folder-open', command: () => open(space) },
+    {
+      label: favorites.isFavorite('boards', space.id) ? t('Retirer des favoris') : t('Ajouter aux favoris'),
+      icon: favorites.isFavorite('boards', space.id) ? 'pi pi-star-fill' : 'pi pi-star',
+      disabled: connection.offline,
+      command: () => void favorites.toggle('boards', space.id).catch((error) => notifyError(error)),
+    },
     ...(space.role === 'owner' ? [{ label: t('Modifier l’espace'), icon: 'pi pi-pencil', command: () => (settingsOpen.value = true) }] : []),
     { separator: true },
     { label: t('Étiquettes de l’espace…'), icon: 'pi pi-tag', command: () => (snapshotsOpen.value = true) },
@@ -107,6 +118,7 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
           <i class="pi pi-objects-column icon"></i>
           <strong class="truncate" :title="space.name">{{ space.name }}</strong>
           <OfflinePinBadge kind="boards" :id="space.id" />
+          <FavoriteStar kind="boards" :id="space.id" />
           <SpaceRoleIcon :role="space.role" :admin-access="space.adminAccess" />
         </div>
         <p class="muted small description">{{ space.description || $t('Aucune description.') }}</p>

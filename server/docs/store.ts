@@ -282,6 +282,7 @@ export function deleteSpace(ctx: AppContext, user: AuthUser, spaceId: number): v
   ctx.docRooms.closeSpace(spaceId);
   ctx.db.run('DELETE FROM doc_spaces WHERE id = ?', spaceId);
   dropSnapshots(ctx, 'docs', spaceId);
+  ctx.db.run("DELETE FROM space_favorites WHERE kind = 'docs' AND space_id = ?", spaceId);
   fs.rmSync(spaceDir(ctx, spaceId), { recursive: true, force: true });
   ctx.logger.info('docs', 'Espace de documentation supprimé', { spaceId }, user.id);
 }

@@ -14,6 +14,9 @@ import DocSpaceDialog from '@/components/docs/DocSpaceDialog.vue';
 import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
 import OfflinePinBadge from '@/components/common/OfflinePinBadge.vue';
 import SpaceSnapshotsDialog from '@/components/common/SpaceSnapshotsDialog.vue';
+import FavoriteStar from '@/components/common/FavoriteStar.vue';
+import { connection } from '@/offline/connection';
+import { useFavoritesStore } from '@/stores/favorites';
 import { pinnedMenuItems } from '@/composables/usePinnedMenu';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
@@ -30,7 +33,9 @@ const router = useRouter();
 
 const search = ref('');
 const createOpen = ref(false);
-const visible = computed(() => store.spaces.filter((space) => matchesQuery(search.value, [space.name, space.description])));
+const spaceFavorites = useFavoritesStore();
+// Espaces favoris en tête.
+const visible = computed(() => spaceFavorites.favoritesFirst('docs', store.spaces.filter((space) => matchesQuery(search.value, [space.name, space.description]))));
 const favorites = computed(() => store.bookmarks.filter((entry) => matchesQuery(search.value, [entry.path, entry.spaceName])));
 
 onMounted(() => {
@@ -61,6 +66,12 @@ const menuItems = computed<MenuItem[]>(() => {
   const owner = space.role === 'owner';
   return [
     { label: t('Ouvrir'), icon: 'pi pi-folder-open', command: () => open(space) },
+    {
+      label: spaceFavorites.isFavorite('docs', space.id) ? t('Retirer des favoris') : t('Ajouter aux favoris'),
+      icon: spaceFavorites.isFavorite('docs', space.id) ? 'pi pi-star-fill' : 'pi pi-star',
+      disabled: connection.offline,
+      command: () => void spaceFavorites.toggle('docs', space.id).catch((error) => notifyError(error)),
+    },
     ...(owner
       ? [
           { separator: true },
@@ -127,6 +138,7 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
             <strong class="truncate" :title="space.name">{{ space.name }}</strong>
             <i v-if="space.site" v-tooltip.top="SITE_LABELS[space.site.visibility]" class="pi pi-globe site" :class="space.site.visibility" :aria-label="SITE_LABELS[space.site.visibility]"></i>
             <OfflinePinBadge kind="docs" :id="space.id" />
+            <FavoriteStar kind="docs" :id="space.id" />
             <SpaceRoleIcon :role="space.role" :admin-access="space.adminAccess" />
           </div>
           <p class="muted small description">{{ space.description || $t('Aucune description.') }}</p>

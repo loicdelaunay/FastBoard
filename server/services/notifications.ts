@@ -321,6 +321,11 @@ export function listNotifications(
   return { notifications: page.map(toDTO), ...totals(db, userId), nextBefore: rows.length > query.limit ? (page.at(-1)?.id ?? null) : null };
 }
 
+/** Notifications importantes : mentions et assignations non lues, les plus récentes (Accueil). */
+export function importantNotifications(db: Db, userId: number, limit: number): NotificationDTO[] {
+  return db.all<NotificationRow>(`${SELECT} WHERE n.user_id = ? AND n.read_at IS NULL AND n.type IN ('mention', 'assigned') ORDER BY n.id DESC LIMIT ?`, userId, limit).map(toDTO);
+}
+
 /** Filtre d'une action groupée : des notifications précises, ou celles d'une catégorie (toutes sans rien). */
 interface Selection {
   ids?: number[] | null;

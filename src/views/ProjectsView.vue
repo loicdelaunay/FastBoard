@@ -13,6 +13,8 @@ import ProjectCard from '@/components/projects/ProjectCard.vue';
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue';
 import { pinnedMenuItems } from '@/composables/usePinnedMenu';
 import SpaceSnapshotsDialog from '@/components/common/SpaceSnapshotsDialog.vue';
+import { connection } from '@/offline/connection';
+import { useFavoritesStore } from '@/stores/favorites';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { notifyError } from '@/utils/notify';
@@ -31,8 +33,13 @@ onMounted(() => {
   store.fetch().catch((error) => notifyError(error, t('Chargement des projets impossible')));
 });
 
+const favorites = useFavoritesStore();
+// Projets favoris en tête.
 const visibleProjects = computed(() =>
-  store.projects.filter((project) => (showArchived.value || !project.archived) && matchesQuery(search.value, [project.name, project.key, project.description])),
+  favorites.favoritesFirst(
+    'project',
+    store.projects.filter((project) => (showArchived.value || !project.archived) && matchesQuery(search.value, [project.name, project.key, project.description])),
+  ),
 );
 const menu = ref<InstanceType<typeof ContextMenu> | null>(null);
 const menuProject = ref<ProjectSummaryDTO | null>(null);
@@ -52,6 +59,12 @@ const menuItems = computed<MenuItem[]>(() => {
     { label: `${target.key} — ${target.name}`, disabled: true, class: 'menu-title' },
     { separator: true },
     { label: t('Ouvrir'), icon: 'pi pi-external-link', command: () => void router.push(`/p/${target.id}`) },
+    {
+      label: favorites.isFavorite('project', target.id) ? t('Retirer des favoris') : t('Ajouter aux favoris'),
+      icon: favorites.isFavorite('project', target.id) ? 'pi pi-star-fill' : 'pi pi-star',
+      disabled: connection.offline,
+      command: () => void favorites.toggle('project', target.id).catch((error) => notifyError(error)),
+    },
     { label: t('Exporter en CSV (tickets)'), icon: 'pi pi-file-excel', command: () => download('csv') },
     { label: t('Exporter en JSON (projet complet)'), icon: 'pi pi-file', command: () => download('json') },
     { separator: true },

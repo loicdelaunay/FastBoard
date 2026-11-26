@@ -6,6 +6,7 @@ import type { NotificationLevel } from './constants.ts';
 import type { DocNodeDTO } from './docs.ts';
 import type { DocCommentDTO } from './docComments.ts';
 import type { SnapshotKind } from './snapshots.ts';
+import type { FavoriteSpaceDTO } from './home.ts';
 import type { NotificationCategory, NotificationCounts } from './notificationCategories.ts';
 import type {
   ActivityCommentDTO,
@@ -115,6 +116,8 @@ export type ServerMessage =
   | { t: 'board.saved'; boardId: number; at: string }
   /** `changed` : les droits ont changé, se raccorder ; `moved` : tableau déplacé vers un autre espace (`spaceId`). */
   | { t: 'board.closed'; boardId: number; reason: 'deleted' | 'revoked' | 'changed' | 'moved'; spaceId?: number }
+  /** Espaces favoris de la personne changés (depuis un autre onglet ou par l'API). */
+  | { t: 'favorites.changed'; favorites: FavoriteSpaceDTO[] }
   /** Étiquettes d'un espace (ou d'un projet) posées ou retirées : leur liste se relit. */
   | { t: 'snapshots.changed'; kind: SnapshotKind; spaceId: number }
   | { t: 'pong' }

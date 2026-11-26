@@ -962,6 +962,20 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE INDEX IF NOT EXISTS idx_space_snapshot_files_ref ON space_snapshot_files (ref);
     `);
   },
+  // 35 — Espaces favoris de chacun (documentation, tableaux blancs, projets), pour l'Accueil et les listes. Pas de clé
+  // étrangère vers l'espace (trois tables possibles) : sa suppression retire ses favoris.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS space_favorites (
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind       TEXT NOT NULL CHECK (kind IN ('docs', 'boards', 'project')),
+        space_id   INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, kind, space_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_space_favorites_space ON space_favorites (kind, space_id);
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

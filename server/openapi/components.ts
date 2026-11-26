@@ -172,6 +172,24 @@ export const componentSchemas: Record<string, Schema> = {
     updatedAt: dateTime(),
     canManage: bool('Vous pouvez renommer le groupe et changer ses membres.'),
   }),
+  FavoriteSpace: obj({
+    kind: str('', { enum: ['docs', 'boards', 'project'] }),
+    id: int(),
+    name: str(),
+    description: str(),
+    key: nullable(str('Clé du projet.')),
+    createdAt: dateTime('Mis en favori le.'),
+  }),
+  Home: obj({
+    recent: arr(obj({ kind: str('', { enum: ['note', 'board', 'ticket'] }), id: int(), title: str(), spaceId: int('Espace ou projet.'), spaceName: str(), key: nullable(str('Clé du ticket.')), at: dateTime() })),
+    assigned: arr(
+      obj({ id: int(), projectId: int(), projectKey: str(), projectName: str(), key: str(), title: str(), status: str(), startDate: nullable(date()), endDate: nullable(date()), progress: int('Avancement de votre part (0–100).') }),
+    ),
+    favorites: arr(ref('FavoriteSpace')),
+    bookmarks: arr(obj({ nodeId: int(), spaceId: int(), spaceName: str(), path: str(), kind: str('', { enum: ['markdown', 'image'] }), createdAt: dateTime() })),
+    notifications: arr(ref('Notification')),
+    unread: int(),
+  }),
   SpaceSnapshot: obj({
     id: int(),
     kind: str('`docs`, `boards` ou `project`.', { enum: ['docs', 'boards', 'project'] }),

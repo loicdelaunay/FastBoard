@@ -52,6 +52,7 @@ import { translateServerMessage } from '@/i18n/server';
 import { compressImage, imageAs } from '@/utils/image';
 import type { SnapshotContent, SnapshotKind, SpaceSnapshotDTO } from '@shared/snapshots';
 import type { NotificationCategory, NotificationCounts } from '@shared/notificationCategories';
+import type { FavoriteKind, FavoriteSpaceDTO, HomeDTO } from '@shared/home';
 export interface TicketInput {
   title?: string;
   description?: string;
@@ -421,6 +422,10 @@ export const api = {
   boardTagVersion: (nodeId: number, name: string, versionId?: number | null) => http<{ version: BoardVersionDTO }>('POST', `/boards/nodes/${nodeId}/tags`, { body: versionId ? { name, versionId } : { name } }),
   boardSetVersionTag: (nodeId: number, versionId: number, name: string | null) => http<{ version: BoardVersionDTO }>('PUT', `/boards/nodes/${nodeId}/versions/${versionId}/tag`, { body: { name } }),
   boardTags: (q: string) => http<{ tags: VersionTagHitDTO[] }>('GET', `/boards/tags?q=${encodeURIComponent(q)}`),
+  // Accueil et espaces favoris
+  home: () => http<{ home: HomeDTO }>('GET', '/me/home'),
+  favorites: () => http<{ favorites: FavoriteSpaceDTO[] }>('GET', '/me/favorites'),
+  setFavorite: (kind: FavoriteKind, spaceId: number, on: boolean) => http<{ favorites: FavoriteSpaceDTO[] }>(on ? 'PUT' : 'DELETE', `/me/favorites/${kind}/${spaceId}`),
   // Étiquettes d'espace (documentation, tableaux blancs, projets)
   spaceSnapshots: (kind: SnapshotKind, spaceId: number) => http<{ snapshots: SpaceSnapshotDTO[] }>('GET', `/snapshots?kind=${kind}&spaceId=${spaceId}`),
   createSpaceSnapshot: (kind: SnapshotKind, spaceId: number, name: string, description: string) => http<{ snapshot: SpaceSnapshotDTO }>('POST', '/snapshots', { body: { kind, spaceId, name, description } }),

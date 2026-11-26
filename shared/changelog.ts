@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.37.0';
+export const APP_VERSION = '2.38.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,17 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.38.0',
+    date: '2026-11-26',
+    changes: [
+      {
+        category: 'Nouveauté',
+        text: 'Accueil, premier onglet de la barre latérale et page d’arrivée : vos espaces favoris, ce qui vous est assigné (en retard d’abord), vos notifications importantes, ce que vous avez modifié récemment et vos documents favoris.',
+      },
+      { category: 'Nouveauté', text: 'Espaces favoris : l’étoile d’une carte (ou son clic droit) met un espace de documentation, un espace de tableaux blancs ou un projet en favori ; les favoris passent en tête des listes et sur l’Accueil.' },
+    ],
+  },
   {
     version: '2.37.0',
     date: '2026-11-26',

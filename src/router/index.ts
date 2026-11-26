@@ -37,6 +37,7 @@ const router = createRouter({
     // Site web d'un espace de documentation : sans la navigation, et sans compte s'il est public.
     { path: '/t/:slug', name: 'board-share', component: () => import('@/views/boards/BoardShareView.vue'), meta: { public: true, bare: true } },
     { path: '/wiki/:slug/:nodeId(\\d+)?', name: 'wiki', component: () => import('@/views/WikiView.vue'), meta: { public: true, bare: true } },
+    { path: '/accueil', name: 'home', component: () => import('@/views/HomeView.vue') },
     { path: '/', name: 'projects', component: () => import('@/views/ProjectsView.vue') },
     { path: '/documentation', name: 'docs', component: () => import('@/views/docs/DocSpacesView.vue'), meta: { docs: true } },
     { path: '/documentation/f/:nodeId(\\d+)', name: 'doc-file', component: () => import('@/views/docs/DocFileRedirect.vue'), meta: { docs: true } },
@@ -114,12 +115,12 @@ const router = createRouter({
 router.beforeEach((to) => {
   const auth = useAuthStore();
   if (to.meta.public) {
-    return auth.isAuthenticated && to.name === 'login' ? { path: '/' } : true;
+    return auth.isAuthenticated && to.name === 'login' ? { name: 'home' } : true;
   }
   if (!auth.isAuthenticated) {
     // Sans réseau, la session n'a pas pu être vérifiée : l'écran « Hors ligne » s'affiche à la place de la connexion.
     if (auth.offline) return true;
-    return { name: 'login', query: to.fullPath !== '/' ? { redirect: to.fullPath } : {} };
+    return { name: 'login', query: to.fullPath !== '/' && to.fullPath !== '/accueil' ? { redirect: to.fullPath } : {} };
   }
   if (to.meta.admin && !auth.canAdmin) {
     return { path: '/' };

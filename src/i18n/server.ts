@@ -5,6 +5,8 @@ import { currentLocale } from './index';
  * puis modèles à variables (noms, nombres), puis messages de validation (« champ : message »).
  */
 const EXACT: Record<string, string> = {
+  // 2.38 — Accueil, espaces favoris
+  "Type d’espace inconnu : docs, boards ou project.": "Unknown space type: docs, boards or project.",
   // 2.36 — Étiquettes d'espace
   "Une étiquette de cet espace porte déjà ce nom.": "A tag of this space already has this name.",
   "Étiquette introuvable.": "Tag not found.",

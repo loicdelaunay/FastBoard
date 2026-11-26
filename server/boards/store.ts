@@ -176,6 +176,7 @@ export function deleteBoardSpace(ctx: AppContext, user: AuthUser, spaceId: numbe
   removeSpaceAssets(ctx, spaceId);
   ctx.db.run('DELETE FROM board_spaces WHERE id = ?', spaceId);
   dropSnapshots(ctx, 'boards', spaceId);
+  ctx.db.run("DELETE FROM space_favorites WHERE kind = 'boards' AND space_id = ?", spaceId);
   ctx.logger.info('boards', 'Espace de tableaux supprimé', { spaceId }, user.id);
 }
 

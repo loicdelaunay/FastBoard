@@ -126,8 +126,10 @@ const unreadHere = computed(() => (store.category ? store.counts[store.category]
 }
 .day-title {
   margin: 0 0 0.3rem 0.4rem;
-  text-transform: capitalize;
   font-weight: 600;
+}
+.day-title::first-letter {
+  text-transform: uppercase;
 }
 .list {
   margin: 0;
