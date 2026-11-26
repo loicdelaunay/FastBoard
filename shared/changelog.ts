@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.38.0';
+export const APP_VERSION = '2.39.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,15 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.39.0',
+    date: '2026-11-26',
+    changes: [
+      { category: 'Nouveauté', text: 'Description d’un ticket : une image collée ou glissée dans le texte est jointe au ticket et s’affiche à l’endroit du curseur (un autre fichier devient un lien).' },
+      { category: 'Nouveauté', text: 'Bouton « Image » dans la barre de la description : choisir une image déjà jointe au ticket, ou en importer une, et la placer n’importe où dans le texte.' },
+      { category: 'Amélioration', text: 'Un clic sur une image d’une description ou d’un commentaire l’agrandit.' },
+    ],
+  },
   {
     version: '2.38.0',
     date: '2026-11-26',

@@ -1,16 +1,25 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
+import { attachmentMarkdown } from '@shared/attachmentMarkdown';
 import MarkdownEditor from '@/components/common/MarkdownEditor.vue';
 import MarkdownView from '@/components/common/MarkdownView.vue';
+import type { MarkdownImageSupport } from '@/components/common/markdownImages';
+import { claimFiles, droppedFiles, hasFiles } from '@/composables/useFileDrop';
+import { t } from '@/i18n';
+import { useProjectStore } from '@/stores/project';
+import { attachmentUrl, isImageAttachment } from '@/utils/files';
+import { notifyError } from '@/utils/notify';
 
 /**
  * Description d'un ticket en Markdown : affichage mis en forme, édition au clic avec barre d'outils, et mode plein
- * écran (éditeur et aperçu côte à côte) depuis le bouton en haut à droite.
+ * écran (éditeur et aperçu côte à côte) depuis le bouton en haut à droite. Une image collée, glissée ou choisie
+ * (« Image ») est jointe au ticket et s'affiche à l'endroit voulu du texte.
  */
 const props = defineProps<{ ticketId: number; value: string; editable: boolean }>();
 const emit = defineEmits<{ save: [value: string] }>();
+const project = useProjectStore();
 
 const draft = ref(props.value);
 const editing = ref(false);
@@ -27,15 +36,20 @@ watch(() => props.ticketId, () => {
 });
 
 function startEdit(event?: MouseEvent): void {
-  // Un clic sur un lien, une mention ou une case à cocher garde son effet au lieu de passer en édition.
-  if (!props.editable || (event?.target as HTMLElement | null)?.closest('a, button, input, .md-mermaid')) return;
+  // Un clic sur un lien, une mention, une case à cocher ou une image (agrandie) garde son effet au lieu de passer en édition.
+  if (!props.editable || (event?.target as HTMLElement | null)?.closest('a, button, input, img, .md-mermaid')) return;
   editing.value = true;
   void nextTick(() => editor.value?.focus());
 }
 
+/** Enregistre le texte, sauf pendant un envoi d'image : il le sera une fois les repères remplacés. */
+function saveDraft(): void {
+  if (pending.value === 0 && draft.value !== props.value) emit('save', draft.value);
+}
+
 function commit(): void {
   editing.value = false;
-  if (draft.value !== props.value) emit('save', draft.value);
+  saveDraft();
 }
 
 function cancel(): void {
@@ -51,7 +65,56 @@ function openFullscreen(): void {
 
 function closeFullscreen(): void {
   fullscreen.value = false;
-  if (draft.value !== props.value) emit('save', draft.value);
+  saveDraft();
+}
+
+// --- Images : jointes au ticket, affichées dans le texte -------------------------------------------------------------
+
+const canAttach = computed(() => props.editable && project.can('attachment.create') && !project.archived && project.fieldOn('attachments'));
+const pending = ref(0);
+
+/** Remplace un repère « Envoi… » par le Markdown final (ou le retire). */
+function settle(token: string, markdown: string): void {
+  draft.value = markdown ? draft.value.replace(token, markdown) : draft.value.replace(`${token}\n`, '').replace(token, '');
+  pending.value -= 1;
+  // Le champ a été quitté pendant l'envoi : le texte s'enregistre maintenant, avec l'image.
+  if (!editing.value && !fullscreen.value) saveDraft();
+}
+
+const images = computed<MarkdownImageSupport | undefined>(() =>
+  canAttach.value
+    ? {
+        emptyText: t('Aucune image jointe à ce ticket : importez-en une.'),
+        choices: () =>
+          (project.attachments[props.ticketId] ?? [])
+            .filter((attachment) => attachment.kind === 'file' && isImageAttachment(attachment))
+            .map((attachment) => ({ key: String(attachment.id), name: attachment.name, thumb: attachmentUrl(attachment, true), markdown: attachmentMarkdown(attachment, true) })),
+        upload: (file, token) => {
+          pending.value += 1;
+          project
+            .addAttachment(props.ticketId, file)
+            .then((attachment) => settle(token, attachmentMarkdown(attachment, attachment.kind === 'file' && isImageAttachment(attachment))))
+            .catch((error) => {
+              settle(token, '');
+              notifyError(error, t('Envoi impossible'));
+            });
+        },
+      }
+    : undefined,
+);
+
+/** Fichiers lâchés sur la description affichée : elle passe en édition, et ils s'ajoutent à la fin. */
+function onViewDragOver(event: DragEvent): void {
+  if (!images.value || !hasFiles(event)) return;
+  event.preventDefault();
+}
+function onViewDrop(event: DragEvent): void {
+  if (!images.value || !hasFiles(event)) return;
+  event.preventDefault();
+  claimFiles(event);
+  const files = droppedFiles(event);
+  editing.value = true;
+  void nextTick(() => editor.value?.insertFiles(files, 'end'));
 }
 </script>
 
@@ -67,6 +130,7 @@ function closeFullscreen(): void {
         :id="`ticket-description-${ticketId}`"
         ref="editor"
         v-model="draft"
+        :images="images"
         rows="6"
         auto-resize
         maxlength="20000"
@@ -74,7 +138,7 @@ function closeFullscreen(): void {
         @blur="commit"
         @escape="cancel"
       />
-      <small class="muted hint">{{ $t('Markdown : **gras**, _italique_, listes, tableaux, `code`, $formule$, blocs ```mermaid. Échap annule, cliquer ailleurs enregistre.') }}</small>
+      <small class="muted hint">{{ $t('Markdown : **gras**, _italique_, listes, tableaux, `code`, $formule$, blocs ```mermaid. Échap annule, cliquer ailleurs enregistre.') }}<template v-if="images"> {{ $t('Collez ou glissez une image pour l’insérer au curseur.') }}</template></small>
     </template>
     <div
       v-else
@@ -83,8 +147,11 @@ function closeFullscreen(): void {
       :tabindex="editable ? 0 : -1"
       :role="editable ? 'button' : undefined"
       :aria-label="editable ? $t('Modifier la description') : undefined"
+      :data-image-drop="images ? '' : undefined"
       @click="startEdit"
       @keydown.enter.self.prevent="startEdit()"
+      @dragover="onViewDragOver"
+      @drop="onViewDrop"
     >
       <MarkdownView v-if="draft.trim()" :text="draft" />
       <span v-else class="muted">{{ editable ? $t('Ajouter une description… (Markdown, @ pour mentionner une personne ou un ticket)') : $t('Aucune description.') }}</span>
@@ -100,7 +167,7 @@ function closeFullscreen(): void {
       @hide="closeFullscreen"
     >
       <div class="split" :class="{ single: !editable }">
-        <MarkdownEditor v-if="editable" ref="bigEditor" v-model="draft" maxlength="20000" class="big-editor" :placeholder="$t('Markdown, @ pour mentionner')" @escape="fullscreen = false" />
+        <MarkdownEditor v-if="editable" ref="bigEditor" v-model="draft" :images="images" maxlength="20000" class="big-editor" :placeholder="$t('Markdown, @ pour mentionner')" @escape="fullscreen = false" />
         <div class="preview">
           <MarkdownView v-if="draft.trim()" :text="draft" />
           <p v-else class="muted">{{ $t('Aucune description.') }}</p>

@@ -11,7 +11,8 @@ import Tabs from 'primevue/tabs';
 import type { TicketDTO } from '@shared/types';
 import type { TicketInput } from '@/api';
 import UserAvatar from '@/components/common/UserAvatar.vue';
-import { useFileDrop } from '@/composables/useFileDrop';
+import { filesClaimed, useFileDrop } from '@/composables/useFileDrop';
+import { pastedFileName } from '@shared/attachmentMarkdown';
 import { useTicketActions } from '@/composables/useTicketActions';
 import { useAuthStore } from '@/stores/auth';
 import { useNotificationsStore } from '@/stores/notifications';
@@ -48,22 +49,26 @@ const canAttach = computed(() => project.can('attachment.create') && !project.ar
 // Déposer des fichiers n'importe où dans le ticket les joint ; coller une capture d'écran aussi.
 const { dragging } = useFileDrop(root, (files) => attachments.value?.addFiles(files), () => canAttach.value);
 
+/** Le fichier survole la description : le message dit qu'il y sera inséré. */
+const overDescription = ref(false);
+function onDragOverDetail(event: DragEvent): void {
+  overDescription.value = Boolean((event.target as HTMLElement | null)?.closest?.('[data-image-drop]'));
+}
+
 function onPaste(event: ClipboardEvent): void {
   const files = Array.from(event.clipboardData?.files ?? []);
-  if (!canAttach.value || files.length === 0) {
+  // Collée dans la description, l'image y est déjà jointe et insérée.
+  if (!canAttach.value || files.length === 0 || filesClaimed(event)) {
     return;
   }
   event.preventDefault();
   const now = new Date();
-  const pad = (value: number): string => String(value).padStart(2, '0');
-  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   // Les captures collées s'appellent toutes « image.png » : on les date pour les distinguer.
   attachments.value?.addFiles(
-    files.map((file, index) =>
-      /^image\.(png|jpe?g|gif|webp)$/i.test(file.name)
-        ? new File([file], `capture-${stamp}${files.length > 1 ? `-${index + 1}` : ''}.${file.name.split('.').pop()}`, { type: file.type })
-        : file,
-    ),
+    files.map((file, index) => {
+      const name = pastedFileName(file.name, now, index, files.length);
+      return name === file.name ? file : new File([file], name, { type: file.type });
+    }),
   );
 }
 
@@ -150,8 +155,10 @@ function askDelete(): void {
 </script>
 
 <template>
-  <div ref="root" class="detail" @paste="onPaste">
-    <div v-if="dragging" class="drop-overlay" aria-hidden="true"><i class="pi pi-cloud-upload"></i>{{ $t('Déposez vos fichiers pour les joindre à ce ticket') }}</div>
+  <div ref="root" class="detail" @paste="onPaste" @dragover="onDragOverDetail">
+    <div v-if="dragging" class="drop-overlay" aria-hidden="true">
+      <i class="pi pi-cloud-upload"></i>{{ overDescription ? $t('Déposez vos images pour les insérer dans la description (et les joindre)') : $t('Déposez vos fichiers pour les joindre à ce ticket') }}
+    </div>
     <p v-if="parent" class="parent-link">
       <i class="pi pi-sitemap"></i>
       <span>{{ $t('Sous-ticket de') }}</span>

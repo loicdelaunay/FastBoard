@@ -1,10 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
+import { pastedFileName } from '@shared/attachmentMarkdown';
 import MentionTextarea from '@/components/common/MentionTextarea.vue';
+import { claimFiles, droppedFiles, hasFiles } from '@/composables/useFileDrop';
+import MarkdownImageDialog from './MarkdownImageDialog.vue';
+import type { MarkdownImageSupport } from './markdownImages';
 
 import { t } from '@/i18n';
-/** Éditeur Markdown : barre d'outils (gras, titres, listes, liens, tableau, code, formule, diagramme) et mentions @. */
+/**
+ * Éditeur Markdown : barre d'outils (gras, titres, listes, liens, tableau, code, formule, diagramme) et mentions @.
+ * Avec `images`, il accepte aussi les images : bouton « Image », coller une capture, glisser-déposer un fichier.
+ */
 defineOptions({ inheritAttrs: false });
+const props = defineProps<{ images?: MarkdownImageSupport }>();
 const model = defineModel<string>({ required: true });
 const emit = defineEmits<{ blur: [event: FocusEvent]; focus: [event: FocusEvent]; escape: [] }>();
 
@@ -64,6 +72,80 @@ function block(text: string, selectFrom = 0, selectLength = 0): void {
   });
 }
 
+// --- Images : choisies, collées, glissées --------------------------------------------------------------------------------
+
+const imageOpen = ref(false);
+/** Sélection au moment d'ouvrir « Insérer une image » (le champ perd le focus pendant ce temps). */
+let saved: { start: number; end: number } | null = null;
+let sequence = 0;
+
+/** Pose `text` sur ses propres lignes, à la sélection (`at`), à la fin (`'end'`) ou au curseur. */
+function insertBlock(text: string, at: { start: number; end: number } | 'end' | null = null): void {
+  const el = area();
+  const start = at === 'end' ? model.value.length : at ? at.start : (el?.selectionStart ?? model.value.length);
+  const end = at === 'end' ? model.value.length : at ? at.end : (el?.selectionEnd ?? start);
+  const before = model.value.slice(0, start);
+  const after = model.value.slice(end);
+  const lead = before && !before.endsWith('\n') ? '\n' : '';
+  const trail = after.startsWith('\n') ? '' : '\n';
+  model.value = before + lead + text + trail + after;
+  const caret = start + lead.length + text.length + trail.length;
+  void nextTick(() => {
+    el?.focus();
+    el?.setSelectionRange(caret, caret);
+  });
+}
+
+/** Envoie des fichiers : un repère « Envoi… » apparaît tout de suite à leur place, remplacé par l'image une fois jointe. */
+function insertFiles(files: File[], at: { start: number; end: number } | 'end' | null = null): void {
+  const support = props.images;
+  if (!support || !files.length) return;
+  const now = new Date();
+  const named = files.map((file, index) => {
+    const name = pastedFileName(file.name, now, index, files.length);
+    return name === file.name ? file : new File([file], name, { type: file.type });
+  });
+  const tokens = named.map((file) => `![${t('Envoi de {name}…', { name: file.name.replace(/[[\]\\]/g, '') })}](envoi:${Date.now().toString(36)}${(sequence += 1)})`);
+  insertBlock(tokens.join('\n'), at);
+  named.forEach((file, index) => support.upload(file, tokens[index]!));
+}
+
+function openImages(): void {
+  const el = area();
+  saved = el ? { start: el.selectionStart, end: el.selectionEnd } : null;
+  imageOpen.value = true;
+}
+// Fenêtre refermée sans choix : on reprend la saisie là où elle en était.
+watch(imageOpen, (open) => {
+  if (!open) void nextTick(() => area()?.focus());
+});
+
+function onPaste(event: ClipboardEvent): void {
+  const files = Array.from(event.clipboardData?.files ?? []);
+  if (!props.images || !files.length) return;
+  event.preventDefault();
+  claimFiles(event);
+  insertFiles(files);
+}
+
+const dropping = ref(false);
+function onDragOver(event: DragEvent): void {
+  if (!props.images || !hasFiles(event)) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  dropping.value = true;
+}
+function onDragLeave(event: DragEvent): void {
+  if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node | null)) dropping.value = false;
+}
+function onDrop(event: DragEvent): void {
+  dropping.value = false;
+  if (!props.images || !hasFiles(event)) return;
+  event.preventDefault();
+  claimFiles(event);
+  insertFiles(droppedFiles(event));
+}
+
 const actions = computed<Action[]>(() => [
   { icon: 'fb-glyph-bold', label: t('Gras'), shortcut: 'Ctrl+B', run: () => wrap('**', '**', t('texte')) },
   { icon: 'fb-glyph-italic', label: t('Italique'), shortcut: 'Ctrl+I', run: () => wrap('_', '_', t('texte')) },
@@ -83,6 +165,7 @@ const actions = computed<Action[]>(() => [
   { icon: 'pi pi-calculator', label: t('Formule (LaTeX)'), run: () => wrap('$', '$', 'E = mc^2') },
   { icon: 'pi pi-sitemap', label: t('Diagramme Mermaid'), run: () => block('```mermaid\nflowchart LR\n  A[Début] --> B{Choix}\n  B -->|Oui| C[Fin]\n```', 11, 0) },
   { icon: 'pi pi-at', label: t('Mentionner'), run: () => wrap('@', '', '') },
+  ...(props.images ? (['sep', { icon: 'pi pi-image', label: t('Image'), run: openImages }] as Action[]) : []),
 ]);
 
 function onKeydown(event: KeyboardEvent): void {
@@ -100,15 +183,16 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function onBlur(event: FocusEvent): void {
-  if (usingToolbar.value) return;
+  // La fenêtre « Insérer une image » prend le focus : ce n'est pas une sortie du champ.
+  if (usingToolbar.value || imageOpen.value) return;
   emit('blur', event);
 }
 
-defineExpose({ focus: () => editor.value?.focus() });
+defineExpose({ focus: () => editor.value?.focus(), insertFiles });
 </script>
 
 <template>
-  <div class="md-editor">
+  <div class="md-editor" :class="{ dropping }" :data-image-drop="images ? '' : undefined" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop">
     <div class="toolbar" role="toolbar" :aria-label="$t('Mise en forme')" @mousedown="usingToolbar = true" @mouseup="usingToolbar = false" @mouseleave="usingToolbar = false">
       <template v-for="(action, index) in actions" :key="index">
         <span v-if="action === 'sep'" class="sep" aria-hidden="true"></span>
@@ -126,7 +210,15 @@ defineExpose({ focus: () => editor.value?.focus() });
       </template>
       <span class="hint muted">{{ $t('Markdown') }}</span>
     </div>
-    <MentionTextarea ref="editor" v-model="model" v-bind="$attrs" class="area" @keydown="onKeydown" @focus="emit('focus', $event)" @blur="onBlur" />
+    <MentionTextarea ref="editor" v-model="model" v-bind="$attrs" class="area" @keydown="onKeydown" @focus="emit('focus', $event)" @blur="onBlur" @paste="onPaste" />
+    <MarkdownImageDialog
+      v-if="images"
+      v-model:visible="imageOpen"
+      :choices="imageOpen ? images.choices() : []"
+      :empty-text="images.emptyText"
+      @pick="(markdown) => insertBlock(markdown, saved)"
+      @upload="(files) => insertFiles(files, saved)"
+    />
   </div>
 </template>
 
@@ -140,6 +232,10 @@ defineExpose({ focus: () => editor.value?.focus() });
 }
 .md-editor:focus-within {
   border-color: var(--fb-accent);
+}
+.md-editor.dropping {
+  border-color: var(--fb-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fb-accent) 25%, transparent);
 }
 .toolbar {
   display: flex;

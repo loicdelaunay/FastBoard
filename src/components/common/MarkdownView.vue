@@ -8,6 +8,7 @@ import { mountBoardEmbeds } from '@/utils/boardEmbed';
 import { highlightCodeBlocks } from '@/utils/codeHighlight';
 import { renderMarkdown, renderMermaid, type MentionResolver } from '@/utils/markdown';
 import { ticketKey } from '@/utils/tickets';
+import { zoomImageOnClick } from '@/utils/lightbox';
 
 /** Affichage d'un texte Markdown (mentions, formules, diagrammes Mermaid), assaini. */
 const props = defineProps<{
@@ -54,6 +55,11 @@ watch(html, drawDiagrams);
 
 /** Les mentions naviguent dans l'application au lieu de recharger la page. */
 function onClick(event: MouseEvent): void {
+  // Une image (jointe à la description d'un ticket…) s'agrandit.
+  if (zoomImageOnClick(event)) {
+    event.stopPropagation();
+    return;
+  }
   const target = (event.target as HTMLElement).closest<HTMLElement>('a.md-mention');
   if (!target) return;
   event.preventDefault();

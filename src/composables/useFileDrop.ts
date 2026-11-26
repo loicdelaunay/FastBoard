@@ -2,12 +2,24 @@ import { onBeforeUnmount, onMounted, ref, type Ref } from 'vue';
 import { notify } from '@/utils/notify';
 
 import { t } from '@/i18n';
-function hasFiles(event: DragEvent): boolean {
+const claimed = new WeakSet<Event>();
+
+/**
+ * Un champ à l'intérieur d'une zone de dépôt (la description d'un ticket) prend lui-même les fichiers lâchés ou collés :
+ * la zone englobante ne les traite pas une seconde fois.
+ */
+export function claimFiles(event: Event): void {
+  claimed.add(event);
+}
+
+export const filesClaimed = (event: Event): boolean => claimed.has(event);
+
+export function hasFiles(event: DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes('Files');
 }
 
 /** Fichiers déposés, sans les dossiers (qui ne peuvent pas être envoyés tels quels). */
-function droppedFiles(event: DragEvent): File[] {
+export function droppedFiles(event: DragEvent): File[] {
   const transfer = event.dataTransfer;
   if (!transfer) {
     return [];
@@ -64,7 +76,7 @@ export function useFileDrop(target: Ref<HTMLElement | null>, onFiles: (files: Fi
     event.preventDefault();
     depth = 0;
     dragging.value = false;
-    if (!enabled()) return;
+    if (!enabled() || claimed.has(event)) return;
     const files = droppedFiles(event);
     if (files.length > 0) onFiles(files);
   }
