@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { foldKeyOf, hiddenByFolds } from '@shared/docFolds';
+import { headingKey } from '@shared/docLinks';
 import ContextMenu from 'primevue/contextmenu';
 import type { MenuItem } from 'primevue/menuitem';
 import type { DocCommentDTO, DocQuote } from '@shared/docComments';
@@ -12,6 +14,7 @@ import { useDocLinks } from '@/composables/useDocLinks';
 import { openLightbox, zoomImageOnClick } from '@/utils/lightbox';
 import { docImageIdOf, docImageUrl, replaceDocImage } from '@/utils/replaceImage';
 import { copyText, docResolver, finishDocHtml, hydrateEmbeds, pendingAnchor, prepareDocText, scrollToHeading, selectionQuote } from '@/utils/docRender';
+import { foldsVersion, noteFoldId, readFolds, writeFolds } from '@/utils/docFolds';
 
 import { t } from '@/i18n';
 /** Rendu d'une note : Markdown, Mermaid, images de l'espace, liens entre notes, notes intégrées, mentions et passages commentés. */
@@ -90,6 +93,7 @@ watch(
     await nextTick();
     if (!root.value) return;
     loaded.clear();
+    applyFolds();
     void hydrateEmbeds(root.value, context.value, load);
     const anchor = pendingAnchor.value;
     if (anchor?.path === props.notePath) {
@@ -99,6 +103,82 @@ watch(
   },
   { immediate: true },
 );
+
+// --- Titres repliés, comme dans Obsidian : la flèche à gauche d'un titre cache sa section ---
+
+const foldId = computed(() => noteFoldId(props.nodes[0]?.spaceId ?? 0, props.notePath));
+const article = (): HTMLElement | null => root.value?.querySelector<HTMLElement>('.markdown') ?? null;
+const headingDepth = (element: Element): number | null => {
+  const match = /^H([1-6])$/.exec(element.tagName);
+  return match ? Number(match[1]) : null;
+};
+
+/** Pose les flèches des titres et cache les sections repliées (à refaire après chaque rendu). */
+function applyFolds(): void {
+  const container = article();
+  if (!container) return;
+  const folded = readFolds(foldId.value);
+  const seen = new Map<string, number>();
+  const children = [...container.children] as HTMLElement[];
+  const blocks = children.map((element) => {
+    const depth = headingDepth(element);
+    if (depth === null) return { depth: null };
+    const key = foldKeyOf(depth, element.dataset.heading ?? headingKey(element.textContent ?? ''), seen);
+    element.dataset.fold = key;
+    let button = element.querySelector<HTMLButtonElement>(':scope > .md-fold');
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'md-fold';
+      button.tabIndex = -1;
+      button.innerHTML = '<i class="pi pi-chevron-down" aria-hidden="true"></i>';
+      element.prepend(button);
+    }
+    const isFolded = folded.has(key);
+    element.classList.toggle('md-folded', isFolded);
+    button.setAttribute('aria-expanded', String(!isFolded));
+    button.setAttribute('aria-label', isFolded ? t('Déplier la section') : t('Replier la section'));
+    button.title = isFolded ? t('Déplier la section') : t('Replier la section');
+    return { depth, key };
+  });
+  hiddenByFolds(blocks, folded).forEach((hidden, index) => children[index]!.classList.toggle('md-fold-hidden', hidden));
+}
+
+function toggleFold(heading: HTMLElement): void {
+  const key = heading.dataset.fold;
+  if (!key) return;
+  const folded = readFolds(foldId.value);
+  if (folded.has(key)) folded.delete(key);
+  else folded.add(key);
+  writeFolds(foldId.value, folded);
+}
+
+/** Un lien ou le sommaire mène dans une section repliée : les titres repliés qui la cachent se déplient. */
+function revealFolded(target: HTMLElement): void {
+  const container = article();
+  if (!container || !target.classList.contains('md-fold-hidden')) return;
+  const folded = readFolds(foldId.value);
+  let level = headingDepth(target) ?? 7;
+  for (let element = target.previousElementSibling; element && level > 1; element = element.previousElementSibling) {
+    const depth = headingDepth(element);
+    if (depth === null || depth >= level) continue;
+    level = depth;
+    folded.delete((element as HTMLElement).dataset.fold ?? '');
+  }
+  writeFolds(foldId.value, folded);
+  applyFolds();
+}
+
+watch([foldsVersion, foldId], () => applyFolds());
+// Le rendu change aussi sans changement du texte (commentaires, notes intégrées) : les flèches se reposent.
+let observer: MutationObserver | null = null;
+onMounted(() => {
+  const container = article();
+  if (!container) return;
+  observer = new MutationObserver(() => applyFolds());
+  observer.observe(container, { childList: true });
+});
+onBeforeUnmount(() => observer?.disconnect());
 
 const languagePicker = ref<InstanceType<typeof CodeLanguagePicker> | null>(null);
 
@@ -116,6 +196,12 @@ function pickCodeLanguage(event: MouseEvent, chip: HTMLElement): void {
 
 function onClick(event: MouseEvent): void {
   const element = event.target as HTMLElement;
+  const fold = element.closest<HTMLElement>('.md-fold');
+  if (fold?.parentElement) {
+    event.preventDefault();
+    toggleFold(fold.parentElement);
+    return;
+  }
   const chip = element.closest<HTMLElement>('.md-code-lang');
   if (chip && props.writable && !chip.closest('.md-embed')) {
     pickCodeLanguage(event, chip);
@@ -159,7 +245,7 @@ function onContextMenu(event: MouseEvent): void {
 </script>
 
 <template>
-  <div ref="root" class="doc-preview" :class="{ 'code-lang-editable': writable }" @click="onClick" @contextmenu="onContextMenu">
+  <div ref="root" class="doc-preview" :class="{ 'code-lang-editable': writable }" @click="onClick" @contextmenu="onContextMenu" @fb-reveal="revealFolded($event.target as HTMLElement)">
     <MarkdownView :text="shown" :resolver="resolver" :obsidian="obsidian" :prepare="prepare" :finish="finish" :open-ticket-with="openTicket" />
     <ContextMenu ref="menu" :model="menuItems" />
     <CodeLanguagePicker v-if="writable" ref="languagePicker" />
@@ -180,6 +266,60 @@ function onContextMenu(event: MouseEvent): void {
 </style>
 
 <style>
+/* Titres repliables (comme Obsidian) : la flèche apparaît au survol du titre, à sa gauche ; elle reste visible, tournée,
+   quand la section est repliée. */
+.doc-preview .markdown > :is(h1, h2, h3, h4, h5, h6) {
+  position: relative;
+}
+.doc-preview .md-fold {
+  position: absolute;
+  top: 50%;
+  left: -1.55rem;
+  display: grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  margin-top: -0.65rem;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fb-muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, transform 0.12s;
+}
+.doc-preview .md-fold i {
+  font-size: inherit;
+  transition: transform 0.15s;
+}
+.doc-preview .markdown > :is(h1, h2, h3, h4, h5, h6):hover > .md-fold,
+.doc-preview .md-fold:focus-visible,
+.doc-preview .md-folded > .md-fold {
+  opacity: 1;
+}
+.doc-preview .md-fold:hover {
+  background: var(--fb-panel-alt);
+  color: var(--fb-text);
+}
+.doc-preview .md-folded > .md-fold i {
+  transform: rotate(-90deg);
+}
+.doc-preview .md-fold-hidden {
+  display: none !important;
+}
+/* Avec les numéros de ligne, la flèche, plus petite, se glisse entre le numéro et le titre. */
+.doc-preview .md-numbered .md-fold {
+  left: -0.8rem;
+  width: 0.8rem;
+  font-size: 0.58rem;
+}
+@media (hover: none) {
+  .doc-preview .md-fold {
+    opacity: 0.45;
+  }
+}
 .doc-preview a.broken,
 .cm-live-block a.broken,
 .wiki-page a.broken {

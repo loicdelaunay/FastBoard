@@ -4,9 +4,9 @@ import { useRouter } from 'vue-router';
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, pickedCompletion, startCompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSection } from '@codemirror/autocomplete';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { bracketMatching, indentOnInput, syntaxHighlighting } from '@codemirror/language';
+import { bracketMatching, foldedRanges, indentOnInput, syntaxHighlighting, unfoldEffect } from '@codemirror/language';
 import { highlightSelectionMatches } from '@codemirror/search';
-import { Compartment, EditorState } from '@codemirror/state';
+import { Compartment, EditorState, type StateEffect } from '@codemirror/state';
 import { drawSelection, dropCursor, EditorView, GutterMarker, highlightActiveLine, keymap, lineNumbers, lineNumberWidgetMarker, placeholder, type Command } from '@codemirror/view';
 import ContextMenu from 'primevue/contextmenu';
 import type { MenuItem } from 'primevue/menuitem';
@@ -64,6 +64,8 @@ const numbersOf = (on: boolean) =>
       ]
     : [];
 import { docComments, setDocComments } from './editor/comments';
+import { headingFolds, restoreHeadingFolds } from './editor/folding';
+import { foldsVersion, noteFoldId, readFolds, writeFolds } from '@/utils/docFolds';
 import { docHighlight, docLiveHighlight } from './editor/highlight';
 import { editImageSource, liveInline } from './editor/liveInline';
 import { livePreview, refreshLive, textBeforePoint } from './editor/live';
@@ -754,7 +756,12 @@ function reveal(comment: DocCommentDTO): void {
 function scrollToLine(line: number): void {
   if (!view) return;
   const position = view.state.doc.line(Math.min(line, view.state.doc.lines)).from;
-  view.dispatch({ effects: EditorView.scrollIntoView(position, { y: 'start', yMargin: 12 }) });
+  // Une ligne dans une section repliée : les titres qui la cachent se déplient d'abord.
+  const unfold: StateEffect<{ from: number; to: number }>[] = [];
+  foldedRanges(view.state).between(position, position, (from, to) => {
+    if (from < position && position <= to) unfold.push(unfoldEffect.of({ from, to }));
+  });
+  view.dispatch({ effects: [...unfold, EditorView.scrollIntoView(position, { y: 'start', yMargin: 12 })] });
 }
 
 /**
@@ -957,6 +964,16 @@ function reportCursor(): void {
 
 const FONT_MONO = 'ui-monospace, SFMono-Regular, Consolas, monospace';
 
+const foldId = (): string => noteFoldId(props.spaceId, props.notePath);
+// Titres repliés retenus : appliqués une fois le texte arrivé, puis quand une autre vue de la note les change.
+watch(
+  () => props.session.synced.value,
+  (synced) => {
+    if (synced && view) restoreHeadingFolds(view, readFolds(foldId()));
+  },
+);
+watch(foldsVersion, () => view && restoreHeadingFolds(view, readFolds(foldId())));
+
 onMounted(() => {
   if (!host.value) return;
   const { text, awareness } = props.session;
@@ -967,6 +984,8 @@ onMounted(() => {
       extensions: [
         ...(props.live ? [live.extension, inline] : [highlightActiveLine()]),
         numbering.of(numbersOf(props.lineNumbers)),
+        // Titres repliables, comme dans Obsidian (retenus avec ceux de la lecture).
+        headingFolds({ load: () => readFolds(foldId()), save: (keys) => writeFolds(foldId(), keys) }, props.live),
         docComments,
         citedLines,
         drawSelection(),
@@ -1294,6 +1313,7 @@ onMounted(() => {
     }),
   });
   view.scrollDOM.addEventListener('scroll', onScroll, { passive: true });
+  if (props.session.synced.value) restoreHeadingFolds(view, readFolds(foldId()));
   requestAnimationFrame(takePendingAnchor);
   if (props.comments.length) view.dispatch({ effects: [setDocComments.of(props.comments), ...(props.live ? [refreshLive.of()] : [])] });
   // En lecture et écriture, un curseur posé d'office ouvrirait le premier bloc.

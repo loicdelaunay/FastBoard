@@ -300,7 +300,12 @@ function goToHeading(index: number): void {
   activeHeading.value = index;
   followAfter = Date.now() + 900;
   if (live.value) editor.value?.scrollToLine(heading.line);
-  else renderedHeading(index)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  else {
+    const target = renderedHeading(index);
+    // Dans une section repliée : l'aperçu déplie d'abord ce qui la cache.
+    if (target?.classList.contains('md-fold-hidden')) target.dispatchEvent(new CustomEvent('fb-reveal', { bubbles: true }));
+    target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
 }
 
 function onPreviewScroll(): void {

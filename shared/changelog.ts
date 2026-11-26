@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.40.0';
+export const APP_VERSION = '2.41.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,17 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.41.0',
+    date: '2026-11-26',
+    changes: [
+      {
+        category: 'Nouveauté',
+        text: 'Documentation : les titres se replient comme dans Obsidian, à tous les niveaux (# à ######). La flèche à gauche d’un titre cache sa section jusqu’au titre suivant de même niveau ou plus haut, en Lecture, en Écriture et en Lecture et écriture.',
+      },
+      { category: 'Amélioration', text: 'Les titres repliés d’une note sont retenus sur l’appareil et communs aux trois modes ; un lien ou le sommaire qui mène dans une section repliée la déplie.' },
+    ],
+  },
   {
     version: '2.40.0',
     date: '2026-11-26',

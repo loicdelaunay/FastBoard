@@ -30,6 +30,8 @@ export function scrollToHeading(root: ParentNode, heading: string): boolean {
   const headings = [...root.querySelectorAll<HTMLElement>('[data-heading]')];
   const ids = headings.map((element) => (element.dataset.ids ? element.dataset.ids.split(' ') : undefined));
   const target = headings[findHeading(headings.map((element) => element.dataset.heading ?? ''), heading, ids)];
+  // Dans une section repliée : l'aperçu déplie d'abord ce qui la cache.
+  if (target?.classList.contains('md-fold-hidden')) target.dispatchEvent(new CustomEvent('fb-reveal', { bubbles: true }));
   target?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   return Boolean(target);
 }
