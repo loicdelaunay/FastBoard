@@ -11,7 +11,12 @@ interface Entry {
   key: string;
   at: string;
   payload: unknown;
+  /** Espace gardé hors ligne à qui appartient l'entrée (`docs:12`, `project:3`) : le ménage ne la touche pas. */
+  pin?: string;
 }
+
+/** Préfixe des caches d'images des espaces gardés hors ligne (un par espace : `fb-pinned-docs-12`). */
+export const PINNED_CACHE_PREFIX = 'fb-pinned-';
 
 const DB_NAME = 'fastboard-offline';
 const STORE = 'entries';
@@ -62,29 +67,67 @@ export async function readOffline<T>(key: string): Promise<{ payload: T; at: str
   return entry ? { payload: entry.payload as T, at: entry.at } : null;
 }
 
-/** Garde (ou remplace) une entrée ; de temps en temps, les plus anciennes partent au-delà de la limite. */
-export async function writeOffline(key: string, payload: unknown): Promise<void> {
+/**
+ * Garde (ou remplace) une entrée ; `pin` la rattache à un espace gardé hors ligne. Une entrée déjà rattachée le reste
+ * quand la navigation la met à jour. De temps en temps, les plus anciennes non rattachées partent au-delà de la limite.
+ */
+export async function writeOffline(key: string, payload: unknown, pin?: string): Promise<void> {
   try {
     if (JSON.stringify(payload).length > OFFLINE_LIMITS.payloadChars) return;
   } catch {
     return;
   }
-  await run('readwrite', (store) => store.put({ key, at: new Date().toISOString(), payload } satisfies Entry));
+  await run('readwrite', (store) => {
+    const existing = store.get(key);
+    existing.onsuccess = () => {
+      const kept = pin ?? (existing.result as Entry | undefined)?.pin;
+      store.put({ key, at: new Date().toISOString(), payload, ...(kept ? { pin: kept } : {}) } satisfies Entry);
+    };
+  });
   writes += 1;
   if (writes % 50 === 0) await prune();
 }
 
 async function prune(): Promise<void> {
-  const count = (await run<number>('readonly', (store) => store.count())) ?? 0;
-  let extra = count - OFFLINE_LIMITS.entries;
+  // Seules les entrées de la navigation comptent : celles des espaces gardés hors ligne restent.
+  let loose = 0;
+  await run('readonly', (store) => {
+    const cursor = store.openCursor();
+    cursor.onsuccess = () => {
+      const current = cursor.result;
+      if (!current) return;
+      if (!(current.value as Entry).pin) loose += 1;
+      current.continue();
+    };
+  });
+  let extra = loose - OFFLINE_LIMITS.entries;
   if (extra <= 0) return;
   await run('readwrite', (store) => {
     const cursor = store.index('at').openCursor();
     cursor.onsuccess = () => {
       const current = cursor.result;
       if (!current || extra <= 0) return;
-      current.delete();
-      extra -= 1;
+      if (!(current.value as Entry).pin) {
+        current.delete();
+        extra -= 1;
+      }
+      current.continue();
+    };
+  });
+}
+
+/** Détache les entrées d'un espace qui n'est plus gardé hors ligne (elles redeviennent un cache ordinaire). */
+export async function unpinOffline(pin: string): Promise<void> {
+  await run('readwrite', (store) => {
+    const cursor = store.openCursor();
+    cursor.onsuccess = () => {
+      const current = cursor.result;
+      if (!current) return;
+      const entry = current.value as Entry;
+      if (entry.pin === pin) {
+        const { pin: _dropped, ...rest } = entry;
+        current.update(rest);
+      }
       current.continue();
     };
   });
@@ -97,5 +140,16 @@ export async function clearOffline(): Promise<void> {
     navigator.serviceWorker?.controller?.postMessage({ type: 'fastboard:clear-offline' });
   } catch {
     // Pas de service worker : rien d'autre à effacer.
+  }
+  // Les espaces gardés hors ligne (leur liste sur cet appareil, leurs images) partent aussi.
+  try {
+    for (const key of Object.keys(localStorage)) if (key.startsWith('fb.offline.pinned.')) localStorage.removeItem(key);
+  } catch {
+    // Stockage indisponible : rien à effacer.
+  }
+  try {
+    if (typeof caches !== 'undefined') for (const name of await caches.keys()) if (name.startsWith(PINNED_CACHE_PREFIX)) await caches.delete(name);
+  } catch {
+    // Pas de cache (connexion non sécurisée) : rien à effacer.
   }
 }

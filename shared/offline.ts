@@ -12,7 +12,12 @@ export const OFFLINE_LIMITS = {
   probeMs: 5000,
   /** Délai au-delà duquel la sonde le considère injoignable. */
   probeTimeoutMs: 4000,
+  /** Espace gardé hors ligne : un fichier joint plus lourd n'est pas copié (les images le sont toujours). */
+  pinnedFileBytes: 50 * 1024 * 1024,
 } as const;
+
+/** Fichier joint d'un ticket (téléchargement ou affichage) : copié avec un projet gardé hors ligne et servi sans serveur. */
+export const isPinnableFile = (pathname: string): boolean => /^\/api\/attachments\/\d+\/download$/.test(pathname);
 
 /**
  * Réponse de l'API à garder pour la lecture hors ligne : les lectures de l'application, pas l'administration, la

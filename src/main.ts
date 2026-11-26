@@ -19,6 +19,7 @@ import { applyFonts, applyReading, applyTheme, cachedFonts, cachedReading, cache
 import { notify } from './utils/notify';
 import { setupPwa } from './pwa/install';
 import { watchConnection } from './offline/connection';
+import { startPinnedSync } from './offline/pinned';
 import './styles/global.css';
 
 // Application installable : invite d'installation et service worker (l'invite peut arriver très tôt).
@@ -65,5 +66,7 @@ onSessionChanged(() => {
 });
 
 await Promise.all([auth.init(), useAppStore().load()]);
+// Espaces gardés hors ligne : leur copie s'actualise toutes les heures.
+startPinnedSync();
 app.use(router);
 app.mount('#app');

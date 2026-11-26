@@ -12,6 +12,8 @@ import type { BoardSpaceDTO } from '@shared/boards';
 import { api } from '@/api';
 import BoardSpaceDialog from '@/components/boards/BoardSpaceDialog.vue';
 import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
+import OfflinePinBadge from '@/components/common/OfflinePinBadge.vue';
+import { pinnedMenuItems } from '@/composables/usePinnedMenu';
 import { t } from '@/i18n';
 import { useAuthStore } from '@/stores/auth';
 import { useBoardsStore } from '@/stores/boards';
@@ -44,13 +46,10 @@ const menuItems = computed<MenuItem[]>(() => {
   if (!space) return [];
   return [
     { label: t('Ouvrir'), icon: 'pi pi-folder-open', command: () => open(space) },
-    ...(space.role === 'owner'
-      ? [
-          { label: t('Modifier l’espace'), icon: 'pi pi-pencil', command: () => (settingsOpen.value = true) },
-          { separator: true },
-          { label: t('Supprimer l’espace'), icon: 'pi pi-trash', class: 'menu-danger', command: () => remove(space) },
-        ]
-      : []),
+    ...(space.role === 'owner' ? [{ label: t('Modifier l’espace'), icon: 'pi pi-pencil', command: () => (settingsOpen.value = true) }] : []),
+    { separator: true },
+    ...pinnedMenuItems('boards', space.id, space.name),
+    ...(space.role === 'owner' ? [{ separator: true }, { label: t('Supprimer l’espace'), icon: 'pi pi-trash', class: 'menu-danger', command: () => remove(space) }] : []),
   ];
 });
 
@@ -104,6 +103,7 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
         <div class="top">
           <i class="pi pi-objects-column icon"></i>
           <strong class="truncate" :title="space.name">{{ space.name }}</strong>
+          <OfflinePinBadge kind="boards" :id="space.id" />
           <SpaceRoleIcon :role="space.role" :admin-access="space.adminAccess" />
         </div>
         <p class="muted small description">{{ space.description || $t('Aucune description.') }}</p>

@@ -77,6 +77,11 @@ function offlineCacheKey(method: string, path: string, options: RequestOptions):
   return currentUserId !== null && offlineCacheable(path) ? offlineKey(currentUserId, `api:${path}`) : null;
 }
 
+/** Clé sous laquelle la réponse à `GET /api{path}` est gardée pour la lecture hors ligne (`null` : elle ne l'est pas). */
+export function offlineApiKey(path: string): string | null {
+  return offlineCacheKey('GET', path, {});
+}
+
 /** Le serveur ne répond pas : une lecture reçoit ce qui a été gardé sur l'appareil, une écriture est refusée (lecture seule). */
 async function fromOffline<T>(method: string, key: string | null): Promise<T> {
   markOffline();

@@ -12,6 +12,8 @@ import DocImportDialog from '@/components/docs/DocImportDialog.vue';
 import DocSiteDialog from '@/components/docs/DocSiteDialog.vue';
 import DocSpaceDialog from '@/components/docs/DocSpaceDialog.vue';
 import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
+import OfflinePinBadge from '@/components/common/OfflinePinBadge.vue';
+import { pinnedMenuItems } from '@/composables/usePinnedMenu';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
 import { downloadFrom } from '@/utils/files';
@@ -69,6 +71,8 @@ const menuItems = computed<MenuItem[]>(() => {
     { separator: true },
     { label: t('Exporter l’espace en ZIP'), icon: 'pi pi-download', command: () => downloadFrom(`/api/documentation/spaces/${space.id}/export`) },
     ...(docRoleAtLeast(space.role, 'editor') ? [{ label: t('Importer un .md ou un ZIP'), icon: 'pi pi-upload', command: () => (importOpen.value = true) }] : []),
+    { separator: true },
+    ...pinnedMenuItems('docs', space.id, space.name),
   ];
 });
 
@@ -119,6 +123,7 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
             <i class="pi pi-book icon"></i>
             <strong class="truncate" :title="space.name">{{ space.name }}</strong>
             <i v-if="space.site" v-tooltip.top="SITE_LABELS[space.site.visibility]" class="pi pi-globe site" :class="space.site.visibility" :aria-label="SITE_LABELS[space.site.visibility]"></i>
+            <OfflinePinBadge kind="docs" :id="space.id" />
             <SpaceRoleIcon :role="space.role" :admin-access="space.adminAccess" />
           </div>
           <p class="muted small description">{{ space.description || $t('Aucune description.') }}</p>

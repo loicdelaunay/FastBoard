@@ -11,6 +11,7 @@ import ToggleSwitch from 'primevue/toggleswitch';
 import type { ProjectSummaryDTO } from '@shared/types';
 import ProjectCard from '@/components/projects/ProjectCard.vue';
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue';
+import { pinnedMenuItems } from '@/composables/usePinnedMenu';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { notifyError } from '@/utils/notify';
@@ -51,6 +52,8 @@ const menuItems = computed<MenuItem[]>(() => {
     { label: t('Ouvrir'), icon: 'pi pi-external-link', command: () => void router.push(`/p/${target.id}`) },
     { label: t('Exporter en CSV (tickets)'), icon: 'pi pi-file-excel', command: () => download('csv') },
     { label: t('Exporter en JSON (projet complet)'), icon: 'pi pi-file', command: () => download('json') },
+    { separator: true },
+    ...pinnedMenuItems('project', target.id, `${target.key} — ${target.name}`),
   ];
 });
 

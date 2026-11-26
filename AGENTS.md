@@ -105,8 +105,12 @@ reprend seule à son retour (voir le README). Les pièces :
   session reliée au serveur : il serait renvoyé au retour et dupliqué si le serveur a redémarré.
 - **Erreurs du serveur** : FastBoard ne répond jamais 502, 503 ni 504 sans son message d'erreur JSON (`HttpError`) ;
   sans lui, l'interface croit à une panne et passe hors ligne.
-- **Confidentialité** : tout ce qui est gardé sur l'appareil appartient au compte et s'efface à la déconnexion
-  (`clearOffline`, appelée par `auth.expire` et `auth.login`). Une nouvelle donnée locale suit la même règle.
+- **Confidentialité** : tout ce qui est gardé sur l'appareil appartient au compte (clés par compte) et s'efface à la
+  déconnexion voulue et à la connexion d'un autre compte (`clearOffline`, appelée par `auth.logout` et `auth.login`) ;
+  une session expirée le garde pour la même personne. Une nouvelle donnée locale suit la même règle.
+- **Espaces gardés hors ligne** (`src/offline/pinned.ts`) : leurs entrées portent un `pin` qui les exempte du ménage, et
+  leurs images ont un cache par espace (`fb-pinned-…`). Un nouvel écran d'espace qui lit d'autres routes doit les
+  ajouter à la synchronisation de son espace.
 - **Vérification** quand vous touchez à ces parties :
   1. `npm run build`, puis servez `dist` : `FASTBOARD_DB=<copie> PORT=3300 node server/index.ts`, et ouvrez
      `http://localhost:3300`.

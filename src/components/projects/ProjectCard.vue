@@ -4,6 +4,7 @@ import type { ProjectSummaryDTO } from '@shared/types';
 import ProgressMeter from '@/components/common/ProgressMeter.vue';
 import { formatDateShort } from '@shared/dates';
 import UserAvatarGroup from '@/components/common/UserAvatarGroup.vue';
+import OfflinePinBadge from '@/components/common/OfflinePinBadge.vue';
 
 defineProps<{ project: ProjectSummaryDTO }>();
 /** Icône des rôles de projet du système ; un rôle personnalisé prend une carte d'identité. */
@@ -15,6 +16,7 @@ const emit = defineEmits<{ menu: [event: MouseEvent, project: ProjectSummaryDTO]
   <router-link :to="{ path: `/p/${project.id}` }" class="project-card card module-card module-projects" :class="{ archived: project.archived }" @contextmenu.prevent="emit('menu', $event, project)">
     <div class="top">
       <span class="key">{{ project.key }}</span>
+      <OfflinePinBadge kind="project" :id="project.id" class="pin" />
       <Tag v-if="project.archived" :value="$t('Archivé')" severity="secondary" />
       <!-- Rôle en icône, son nom au survol ; sans rôle, le projet n'est visible que par les droits d'administration. -->
       <span v-else-if="project.myRoleName" v-tooltip.top="$t(project.myRoleName)" class="role" role="img" :aria-label="$t(project.myRoleName)" tabindex="0"><i :class="ROLE_ICONS[project.myRoleKey ?? ''] ?? 'pi pi-id-card'"></i></span>
@@ -89,6 +91,9 @@ const emit = defineEmits<{ menu: [event: MouseEvent, project: ProjectSummaryDTO]
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+.top .pin {
+  margin-left: auto;
 }
 .key {
   padding: 0.1rem 0.5rem;

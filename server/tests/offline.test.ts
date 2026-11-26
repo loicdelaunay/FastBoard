@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
-import { offlineCacheable, serverUnreachable } from '../../shared/offline.ts';
+import { readFileSync } from 'node:fs';
+import { isPinnableFile, offlineCacheable, serverUnreachable } from '../../shared/offline.ts';
 import { bootServer, TestClient } from './helpers.ts';
 
 type Booted = Awaited<ReturnType<typeof bootServer>>;
@@ -11,6 +12,16 @@ describe('lecture seule hors ligne', () => {
       assert.equal(offlineCacheable(path), true, path);
     for (const path of ['/admin/ai', '/admin', '/auth/providers', '/ai/conversations', '/backups', '/tokens', '/me/tokens', '/documentation/spaces/2/export', '/search?q=abc', '/documentation/search?q=x', '/documentation/tags?q=v1', '/users?q=al'])
       assert.equal(offlineCacheable(path), false, path);
+  });
+
+  it('un espace gardé hors ligne : ses lectures se gardent, ses fichiers joints sont servis par le service worker', () => {
+    // Ce que lit la copie d'un espace gardé (src/offline/pinned.ts) doit pouvoir se garder.
+    for (const path of ['/me', '/users', '/projects', '/documentation/spaces', '/boards/spaces', '/documentation/spaces/2', '/documentation/nodes/5', '/documentation/nodes/5/comments', '/boards/spaces/3', '/boards/nodes/8', '/projects/4', '/tickets/9/comments', '/tickets/9/history', '/tickets/9/attachments'])
+      assert.equal(offlineCacheable(path), true, path);
+    assert.equal(isPinnableFile('/api/attachments/12/download'), true);
+    for (const path of ['/api/attachments/12', '/api/attachments/x/download', '/api/documentation/version-files/3', '/attachments/12/download']) assert.equal(isPinnableFile(path), false, path);
+    // Le service worker (JavaScript à part) reprend le même motif.
+    assert.ok(readFileSync(new URL('../../src/pwa/sw.template.js', import.meta.url), 'utf8').includes('/^\\/api\\/attachments\\/\\d+\\/download$/'));
   });
 
   it('reconnaît un serveur absent : réseau coupé, ou 502 / 503 / 504 d’un intermédiaire sans message de FastBoard', () => {

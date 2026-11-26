@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.34.0';
+export const APP_VERSION = '2.35.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,18 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.35.0',
+    date: '2026-11-26',
+    changes: [
+      {
+        category: 'Nouveauté',
+        text: 'Clic droit sur un espace de documentation, un espace de tableaux blancs ou un projet : « Garder hors ligne » en copie tout le contenu sur l’appareil (notes, tableaux, tickets avec commentaires, historique et pièces jointes, images), actualisé toutes les heures, pour le consulter quand le serveur ne répond plus.',
+      },
+      { category: 'Amélioration', text: 'Une pastille sur la carte d’un espace gardé hors ligne indique l’heure de sa dernière copie, son avancement ou un échec.' },
+      { category: 'Sécurité', text: 'Les copies hors ligne s’effacent à la déconnexion et à la connexion d’un autre compte ; une session expirée les garde pour la même personne.' },
+    ],
+  },
   {
     version: '2.34.0',
     date: '2026-11-26',

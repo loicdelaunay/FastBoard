@@ -82,7 +82,19 @@ async function image(request) {
     }
     return response;
   } catch (error) {
-    const kept = await cache.match(request);
+    // Gardée par la navigation, ou par un espace gardé hors ligne (cache `fb-pinned-…`, rempli par la page).
+    const kept = (await cache.match(request)) || (await caches.match(request));
+    if (kept) return kept;
+    throw error;
+  }
+}
+
+/** Fichier joint d'un ticket : le réseau ; sans serveur, la copie d'un projet gardé hors ligne (cache `fb-pinned-…`). */
+async function pinnedFile(request) {
+  try {
+    return await fetch(request);
+  } catch (error) {
+    const kept = await caches.match(request);
     if (kept) return kept;
     throw error;
   }
@@ -101,6 +113,11 @@ self.addEventListener('fetch', (event) => {
   const api = url.pathname === '/api' || url.pathname.startsWith('/api/');
   if (api && request.destination === 'image') {
     event.respondWith(image(request));
+    return;
+  }
+  // Même motif que `isPinnableFile` (shared/offline.ts).
+  if (api && /^\/api\/attachments\/\d+\/download$/.test(url.pathname)) {
+    event.respondWith(pinnedFile(request));
     return;
   }
   // Données, fichiers privés, temps réel, ce service worker : toujours le réseau.
