@@ -1,5 +1,6 @@
 import type { RouteLocationRaw } from 'vue-router';
 import type { NotificationLevel } from '@shared/constants';
+import type { NotificationCategory } from '@shared/notificationCategories';
 import type { NotificationDTO } from '@shared/types';
 import { describeActivity } from '@/utils/activitySummary';
 
@@ -42,5 +43,22 @@ export function notificationLevelOptions(): NotificationLevelOption[] {
     { value: 'participating', label: t('Ma participation'), hint: t('Les tickets que vous suivez (créés, assignés, commentés, où l’on vous mentionne ou suivis avec « Suivre »), vos assignations et les mentions.'), icon: 'pi pi-bell' },
     { value: 'mentions', label: t('Mentions et assignations'), hint: t('Quand on vous mentionne avec @, ou qu’on vous assigne un ticket.'), icon: 'pi pi-at' },
     { value: 'none', label: t('Aucune'), hint: t('Aucune notification pour ce projet, mentions comprises.'), icon: 'pi pi-bell-slash' },
+  ];
+}
+
+export interface NotificationCategoryOption {
+  value: NotificationCategory | null;
+  label: string;
+  icon: string;
+}
+
+/** Filtres des notifications par catégorie (`null` : toutes). */
+export function notificationCategoryOptions(): NotificationCategoryOption[] {
+  return [
+    { value: null, label: t('Toutes'), icon: 'pi pi-inbox' },
+    { value: 'mention', label: t('Mentions'), icon: 'pi pi-at' },
+    { value: 'assigned', label: t('Assignations'), icon: 'pi pi-user-plus' },
+    { value: 'comment', label: t('Commentaires'), icon: 'pi pi-comments' },
+    { value: 'change', label: t('Changements'), icon: 'pi pi-sync' },
   ];
 }

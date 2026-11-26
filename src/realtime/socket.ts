@@ -3,6 +3,7 @@ import type { ClientMessage, PresenceUser, ProjectEvent, ServerMessage } from '@
 import type { NotificationLevel } from '@shared/constants';
 import type { AppInfoDTO, NotificationDTO } from '@shared/types';
 import type { SnapshotKind } from '@shared/snapshots';
+import type { NotificationCategory, NotificationCounts } from '@shared/notificationCategories';
 
 /** Messages de la documentation, traités par les écrans qui les attendent. */
 export type DocServerMessage = Extract<ServerMessage, { t: `doc${string}` }>;
@@ -33,8 +34,10 @@ interface Handlers {
   /** Connexion ouverte, la première comme les suivantes : ce qui a été envoyé avant est perdu. */
   open: Array<() => void>;
   app: Array<(info: AppInfoDTO) => void>;
-  notification: Array<(notification: NotificationDTO, unread: number) => void>;
-  notificationsRead: Array<(unread: number) => void>;
+  notification: Array<(notification: NotificationDTO, unread: number, counts: NotificationCounts) => void>;
+  /** Notifications lues ailleurs : celles de `ids`, d'une catégorie, ou toutes (les deux `null`). */
+  notificationsRead: Array<(unread: number, counts: NotificationCounts, ids: number[] | null, category: NotificationCategory | null) => void>;
+  notificationsRemoved: Array<(ids: number[], unread: number, counts: NotificationCounts) => void>;
   /** Niveau de notification d'un projet changé (autre onglet, API). */
   notificationSettings: Array<(projectId: number, level: NotificationLevel) => void>;
   doc: Array<(message: DocServerMessage) => void>;
@@ -59,7 +62,7 @@ class RealtimeClient {
   #hasConnectedOnce = false;
   /** Visiteur sans compte d'un tableau partagé : connexion limitée aux tableaux. */
   #guest = false;
-  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], spacesRefresh: [], groupsChanged: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], notificationSettings: [], doc: [], board: [], snapshots: [] };
+  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], spacesRefresh: [], groupsChanged: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], notificationsRemoved: [], notificationSettings: [], doc: [], board: [], snapshots: [] };
 
   on<K extends keyof Handlers>(type: K, handler: Handlers[K][number]): () => void {
     (this.#handlers[type] as Array<typeof handler>).push(handler);
@@ -197,10 +200,13 @@ class RealtimeClient {
         this.#handlers.app.forEach((handler) => handler(message.app));
         break;
       case 'notification':
-        this.#handlers.notification.forEach((handler) => handler(message.notification, message.unread));
+        this.#handlers.notification.forEach((handler) => handler(message.notification, message.unread, message.counts));
         break;
       case 'notifications.read':
-        this.#handlers.notificationsRead.forEach((handler) => handler(message.unread));
+        this.#handlers.notificationsRead.forEach((handler) => handler(message.unread, message.counts, message.ids, message.category));
+        break;
+      case 'notifications.removed':
+        this.#handlers.notificationsRemoved.forEach((handler) => handler(message.ids, message.unread, message.counts));
         break;
       case 'notifications.settings':
         this.#handlers.notificationSettings.forEach((handler) => handler(message.projectId, message.level));

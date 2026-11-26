@@ -550,6 +550,11 @@ export const componentSchemas: Record<string, Schema> = {
     docs: bool('La documentation est activée sur le site.'),
     boards: bool('Les tableaux blancs sont activés sur le site.'),
   }),
+  NotificationCounts: obj(
+    { mention: obj({ total: int(), unread: int() }), assigned: obj({ total: int(), unread: int() }), comment: obj({ total: int(), unread: int() }), change: obj({ total: int(), unread: int() }) },
+    [],
+    'Par catégorie : `mention` (mentions), `assigned` (assignations), `comment` (commentaires des tickets suivis), `change` (changements des tickets suivis).',
+  ),
   Notification: obj({
     id: int(),
     type: str('', { enum: ['activity', 'mention', 'assigned'] }),

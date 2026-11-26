@@ -176,7 +176,13 @@ Il faut `ticket.edit` dans le projet d'origine et `ticket.create` dans le projet
 curl -s -X POST $FASTBOARD/api/tickets/12/watch -H "Authorization: Bearer $TOKEN"        # DELETE pour ne plus suivre
 curl -s "$FASTBOARD/api/me/notifications?unread=true" -H "Authorization: Bearer $TOKEN"
 curl -s -X POST $FASTBOARD/api/me/notifications/read -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
+# Par catégorie (mention, assigned, comment, change) ; effacer les lues, ou toutes
+curl -s "$FASTBOARD/api/me/notifications?category=mention" -H "Authorization: Bearer $TOKEN"
+curl -s -X DELETE "$FASTBOARD/api/me/notifications?read=true" -H "Authorization: Bearer $TOKEN"
 ```
+
+Chaque réponse donne `counts` : par catégorie, le nombre de notifications et de non lues. `DELETE /me/notifications/{id}`
+efface une notification ; `DELETE /me/notifications` les efface toutes (ou celles de `category`, ou seulement les lues).
 
 Le créateur, les assignés, les commentateurs et les personnes mentionnées suivent automatiquement un ticket ; une mention `@[Nom](user:12)` notifie la personne.
 

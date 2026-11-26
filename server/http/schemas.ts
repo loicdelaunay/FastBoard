@@ -13,6 +13,7 @@ import { LDAP_LIMITS, LDAP_PROFILES, LDAP_SECURITY, LDAP_USER_TOKEN } from '../.
 import { RAG_FORMATS, RAG_LIMITS } from '../../shared/rag.ts';
 import { VERSION_TAG_LIMITS } from '../../shared/versionTags.ts';
 import { SNAPSHOT_KINDS, SNAPSHOT_LIMITS } from '../../shared/snapshots.ts';
+import { NOTIFICATION_CATEGORIES } from '../../shared/notificationCategories.ts';
 import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
@@ -781,13 +782,22 @@ export const activityCommentSchema = z.object({
   body: z.string().trim().min(1, 'Le commentaire est vide.').max(2_000).describe('Texte ; mentions : `@[Nom](user:ID)` (la personne est notifiée).'),
 });
 
+const notificationCategory = z
+  .enum(NOTIFICATION_CATEGORIES)
+  .describe('`mention` : on vous mentionne ; `assigned` : on vous assigne un ticket ; `comment` : commentaire sur un ticket suivi ; `change` : changement d’un ticket suivi.');
 export const notificationQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
   before: z.coerce.number().int().positive().optional().describe('Curseur : notifications plus anciennes que cet identifiant.'),
   unread: z.enum(['true', 'false']).transform((value) => value === 'true').optional().describe('`true` : seulement les non lues.'),
+  category: notificationCategory.optional(),
 });
 export const markReadSchema = z.object({
-  ids: z.array(id).max(500).optional().describe('Notifications à marquer comme lues ; absent = toutes.'),
+  ids: z.array(id).max(500).optional().describe('Notifications à marquer comme lues ; absent = toutes (de la catégorie, si elle est donnée).'),
+  category: notificationCategory.optional(),
+});
+export const notificationDeleteSchema = z.object({
+  category: notificationCategory.optional().describe('Seulement cette catégorie.'),
+  read: z.enum(['true', 'false']).transform((value) => value === 'true').optional().describe('`true` : seulement les notifications déjà lues.'),
 });
 export const notificationSettingSchema = z.object({
   level: z

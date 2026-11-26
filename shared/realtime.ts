@@ -6,6 +6,7 @@ import type { NotificationLevel } from './constants.ts';
 import type { DocNodeDTO } from './docs.ts';
 import type { DocCommentDTO } from './docComments.ts';
 import type { SnapshotKind } from './snapshots.ts';
+import type { NotificationCategory, NotificationCounts } from './notificationCategories.ts';
 import type {
   ActivityCommentDTO,
   ActivityDTO,
@@ -78,9 +79,11 @@ export type ServerMessage =
   /** Nom, logo ou message de maintenance de l'application modifiés. */
   | { t: 'app'; app: AppInfoDTO }
   /** Nouvelle notification pour l'utilisateur connecté. */
-  | { t: 'notification'; notification: NotificationDTO; unread: number }
+  | { t: 'notification'; notification: NotificationDTO; unread: number; counts: NotificationCounts }
   /** Notifications lues (depuis un autre onglet). */
-  | { t: 'notifications.read'; unread: number }
+  | { t: 'notifications.read'; unread: number; counts: NotificationCounts; ids: number[] | null; category: NotificationCategory | null }
+  /** Notifications effacées (depuis un autre onglet ou par l'API). */
+  | { t: 'notifications.removed'; ids: number[]; unread: number; counts: NotificationCounts }
   /** Niveau de notification d'un projet modifié (depuis un autre onglet ou par l'API). */
   | { t: 'notifications.settings'; projectId: number; level: NotificationLevel }
   /** Arborescence d'un espace de documentation modifiée. */

@@ -51,6 +51,7 @@ import { t } from '@/i18n';
 import { translateServerMessage } from '@/i18n/server';
 import { compressImage, imageAs } from '@/utils/image';
 import type { SnapshotContent, SnapshotKind, SpaceSnapshotDTO } from '@shared/snapshots';
+import type { NotificationCategory, NotificationCounts } from '@shared/notificationCategories';
 export interface TicketInput {
   title?: string;
   description?: string;
@@ -250,9 +251,19 @@ export const api = {
     http<{ user: MeDTO }>('PUT', '/me/avatar', { rawBody: blob, contentType: blob.type || 'image/webp' }),
   removeAvatar: () => http<{ user: MeDTO }>('DELETE', '/me/avatar'),
   directory: () => http<{ users: UserSummaryDTO[] }>('GET', '/users'),
-  notifications: (before?: number) =>
-    http<{ notifications: NotificationDTO[]; unread: number; nextBefore: number | null }>('GET', `/me/notifications?limit=30${before ? `&before=${before}` : ''}`),
-  markNotificationsRead: (ids?: number[]) => http<{ unread: number }>('POST', '/me/notifications/read', { body: ids ? { ids } : {} }),
+  notifications: (options: { before?: number; category?: NotificationCategory | null; unread?: boolean; limit?: number } = {}) =>
+    http<{ notifications: NotificationDTO[]; unread: number; counts: NotificationCounts; nextBefore: number | null }>(
+      'GET',
+      `/me/notifications?limit=${options.limit ?? 30}${options.before ? `&before=${options.before}` : ''}${options.category ? `&category=${options.category}` : ''}${options.unread ? '&unread=true' : ''}`,
+    ),
+  markNotificationsRead: (selection: { ids?: number[]; category?: NotificationCategory | null } = {}) =>
+    http<{ unread: number; counts: NotificationCounts }>('POST', '/me/notifications/read', { body: { ...(selection.ids ? { ids: selection.ids } : {}), ...(selection.category ? { category: selection.category } : {}) } }),
+  /** Efface des notifications : celles d'une catégorie, seulement les lues, ou toutes. */
+  deleteNotifications: (selection: { category?: NotificationCategory | null; readOnly?: boolean } = {}) => {
+    const query = [selection.category ? `category=${selection.category}` : '', selection.readOnly ? 'read=true' : ''].filter(Boolean).join('&');
+    return http<{ removed: number; unread: number; counts: NotificationCounts }>('DELETE', `/me/notifications${query ? `?${query}` : ''}`);
+  },
+  deleteNotification: (id: number) => http<{ removed: number; unread: number; counts: NotificationCounts }>('DELETE', `/me/notifications/${id}`),
   watchTicket: (ticketId: number, watch: boolean) => http<{ ticket: TicketDTO }>(watch ? 'POST' : 'DELETE', `/tickets/${ticketId}/watch`),
   notificationSettings: () => http<{ settings: NotificationSettingDTO[]; defaultLevel: NotificationLevel }>('GET', '/me/notification-settings'),
   setNotificationLevel: (projectId: number, level: NotificationLevel) =>

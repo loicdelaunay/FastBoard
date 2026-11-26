@@ -11,11 +11,11 @@ import { nowIso } from '../db/database.ts';
 import { serializeSessionCookie } from '../http/cookies.ts';
 import { badRequest, HttpError, notFound, unauthorized } from '../http/errors.ts';
 import { currentUser, sessionOnly, sessionToken } from '../http/middleware.ts';
-import { createTokenSchema, loginSchema, markReadSchema, notificationQuerySchema, notificationSettingSchema, passwordSchema, profileSchema, revealTokenSchema, sharedThemeSchema, searchQuerySchema, updateTokenSchema } from '../http/schemas.ts';
+import { createTokenSchema, loginSchema, markReadSchema, notificationDeleteSchema, notificationQuerySchema, notificationSettingSchema, passwordSchema, profileSchema, revealTokenSchema, sharedThemeSchema, searchQuerySchema, updateTokenSchema } from '../http/schemas.ts';
 import { globalSearch, userSummary } from '../services/search.ts';
 import { APP_ICON_SIZES, appIcon, appInfo, getBranding, type AppIconName } from '../services/appSettings.ts';
 import { manifestLanguage, webManifest } from '../services/webManifest.ts';
-import { listNotifications, listNotificationSettings, markRead, setNotificationLevel } from '../services/notifications.ts';
+import { deleteNotifications, listNotifications, listNotificationSettings, markRead, setNotificationLevel } from '../services/notifications.ts';
 import { idParam, parse } from '../http/validate.ts';
 import { getAuthUser, requireGlobal, requireProject, toMeDTO } from '../services/access.ts';
 import { clearAvatar, getAvatar, listDirectory, setAvatar, updateOwnProfile } from '../services/users.ts';
@@ -288,12 +288,21 @@ export function accountRouter(ctx: AppContext): Router {
 
   router.get('/me/notifications', (req, res) => {
     const query = parse(notificationQuerySchema, req.query);
-    res.json(listNotifications(ctx.db, currentUser(res).id, { limit: query.limit, before: query.before, unreadOnly: query.unread }));
+    res.json(listNotifications(ctx.db, currentUser(res).id, { limit: query.limit, before: query.before, unreadOnly: query.unread, category: query.category }));
   });
 
   router.post('/me/notifications/read', (req, res) => {
-    const { ids } = parse(markReadSchema, req.body);
-    res.json({ unread: markRead(ctx, currentUser(res).id, ids ?? null) });
+    const { ids, category } = parse(markReadSchema, req.body);
+    res.json(markRead(ctx, currentUser(res).id, { ids: ids ?? null, category }));
+  });
+
+  router.delete('/me/notifications', (req, res) => {
+    const { category, read } = parse(notificationDeleteSchema, req.query);
+    res.json(deleteNotifications(ctx, currentUser(res).id, { category, readOnly: read }));
+  });
+
+  router.delete('/me/notifications/:id', (req, res) => {
+    res.json(deleteNotifications(ctx, currentUser(res).id, { ids: [idParam(req.params.id)] }));
   });
 
   router.get('/me/notification-settings', (_req, res) => {

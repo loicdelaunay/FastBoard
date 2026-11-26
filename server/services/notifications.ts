@@ -1,4 +1,5 @@
 import { DEFAULT_NOTIFICATION_LEVEL, NOTIFICATION_LEVELS, type NotificationLevel } from '../../shared/constants.ts';
+import { emptyNotificationCounts, type NotificationCategory, type NotificationCounts } from '../../shared/notificationCategories.ts';
 import { hasPermission } from '../../shared/permissions.ts';
 import type { ActivityData, NotificationDTO, NotificationSettingDTO, NotificationType } from '../../shared/types.ts';
 import type { Actor, AppContext } from '../context.ts';
@@ -170,6 +171,23 @@ export function unreadCount(db: Db, userId: number): number {
   return db.get<{ n: number }>('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL', userId)?.n ?? 0;
 }
 
+/** Catégorie d'une notification, en SQL (voir `notificationCategory`). */
+const CATEGORY_SQL = "CASE WHEN n.type = 'mention' THEN 'mention' WHEN n.type = 'assigned' THEN 'assigned' WHEN json_extract(n.data, '$.activity.kind') = 'comment' THEN 'comment' ELSE 'change' END";
+
+/** Notifications de la personne par catégorie (toutes, et non lues). */
+export function notificationCounts(db: Db, userId: number): NotificationCounts {
+  const counts = emptyNotificationCounts();
+  const rows = db.all<{ category: NotificationCategory; total: number; unread: number }>(
+    `SELECT ${CATEGORY_SQL} AS category, COUNT(*) AS total, SUM(n.read_at IS NULL) AS unread FROM notifications n WHERE n.user_id = ? GROUP BY category`,
+    userId,
+  );
+  for (const row of rows) counts[row.category] = { total: row.total, unread: row.unread ?? 0 };
+  return counts;
+}
+
+/** État des notifications envoyé avec chaque changement : non lues, et compte par catégorie. */
+const totals = (db: Db, userId: number): { unread: number; counts: NotificationCounts } => ({ unread: unreadCount(db, userId), counts: notificationCounts(db, userId) });
+
 function canSee(db: Db, userId: number, projectId: number): boolean {
   const user = getAuthUser(db, userId);
   return Boolean(user?.isActive && resolveProjectAccess(db, user, projectId));
@@ -188,7 +206,7 @@ function insert(ctx: AppContext, userId: number, type: NotificationType, project
     nowIso(),
   );
   const row = ctx.db.get<NotificationRow>(`${SELECT} WHERE n.id = ?`, lastInsertRowid);
-  if (row) ctx.hub.sendToUser(userId, { t: 'notification', notification: toDTO(row), unread: unreadCount(ctx.db, userId) });
+  if (row) ctx.hub.sendToUser(userId, { t: 'notification', notification: toDTO(row), ...totals(ctx.db, userId) });
 }
 
 /** Prévient une personne qu'elle vient d'être mentionnée dans un fichier de documentation. */
@@ -202,7 +220,7 @@ export function notifyDocMention(ctx: AppContext, actor: Actor, userId: number, 
     nowIso(),
   );
   const row = ctx.db.get<NotificationRow>(`${SELECT} WHERE n.id = ?`, lastInsertRowid);
-  if (row) ctx.hub.sendToUser(userId, { t: 'notification', notification: toDTO(row), unread: unreadCount(ctx.db, userId) });
+  if (row) ctx.hub.sendToUser(userId, { t: 'notification', notification: toDTO(row), ...totals(ctx.db, userId) });
 }
 
 /**
@@ -282,7 +300,11 @@ export function notifyActivityCommentMentions(ctx: AppContext, actor: Actor, pro
 
 // --- Lecture -----------------------------------------------------------------------------------------------------------
 
-export function listNotifications(db: Db, userId: number, query: { limit: number; before?: number; unreadOnly?: boolean }): { notifications: NotificationDTO[]; unread: number; nextBefore: number | null } {
+export function listNotifications(
+  db: Db,
+  userId: number,
+  query: { limit: number; before?: number; unreadOnly?: boolean; category?: NotificationCategory },
+): { notifications: NotificationDTO[]; unread: number; counts: NotificationCounts; nextBefore: number | null } {
   const where = ['n.user_id = ?'];
   const params: SqlParam[] = [userId];
   if (query.before !== undefined) {
@@ -290,22 +312,58 @@ export function listNotifications(db: Db, userId: number, query: { limit: number
     params.push(query.before);
   }
   if (query.unreadOnly) where.push('n.read_at IS NULL');
+  if (query.category) {
+    where.push(`${CATEGORY_SQL} = ?`);
+    params.push(query.category);
+  }
   const rows = db.all<NotificationRow>(`${SELECT} WHERE ${where.join(' AND ')} ORDER BY n.id DESC LIMIT ?`, ...params, query.limit + 1);
   const page = rows.slice(0, query.limit);
-  return { notifications: page.map(toDTO), unread: unreadCount(db, userId), nextBefore: rows.length > query.limit ? (page.at(-1)?.id ?? null) : null };
+  return { notifications: page.map(toDTO), ...totals(db, userId), nextBefore: rows.length > query.limit ? (page.at(-1)?.id ?? null) : null };
 }
 
-/** Marque comme lues certaines notifications (ou toutes) ; prévient les autres onglets. */
-export function markRead(ctx: AppContext, userId: number, ids: number[] | null): number {
-  const now = nowIso();
-  if (ids === null) {
-    ctx.db.run('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL', now, userId);
-  } else if (ids.length) {
-    ctx.db.run(`UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL AND id IN (${ids.map(() => '?').join(', ')})`, now, userId, ...ids);
+/** Filtre d'une action groupée : des notifications précises, ou celles d'une catégorie (toutes sans rien). */
+interface Selection {
+  ids?: number[] | null;
+  category?: NotificationCategory;
+}
+
+function selectionWhere(userId: number, selection: Selection): { where: string; params: SqlParam[] } {
+  const where = ['n.user_id = ?'];
+  const params: SqlParam[] = [userId];
+  if (selection.ids) {
+    where.push(selection.ids.length ? `n.id IN (${selection.ids.map(() => '?').join(', ')})` : '0');
+    params.push(...selection.ids);
   }
-  const unread = unreadCount(ctx.db, userId);
-  ctx.hub.sendToUser(userId, { t: 'notifications.read', unread });
-  return unread;
+  if (selection.category) {
+    where.push(`${CATEGORY_SQL} = ?`);
+    params.push(selection.category);
+  }
+  return { where: where.join(' AND '), params };
+}
+
+/** Marque comme lues des notifications (précises, d'une catégorie, ou toutes) ; prévient les autres onglets. */
+export function markRead(ctx: AppContext, userId: number, selection: Selection = {}): { unread: number; counts: NotificationCounts } {
+  const { where, params } = selectionWhere(userId, selection);
+  ctx.db.run(`UPDATE notifications SET read_at = ? WHERE id IN (SELECT n.id FROM notifications n WHERE ${where} AND n.read_at IS NULL)`, nowIso(), ...params);
+  const state = totals(ctx.db, userId);
+  ctx.hub.sendToUser(userId, { t: 'notifications.read', ids: selection.ids ?? null, category: selection.category ?? null, ...state });
+  return state;
+}
+
+/**
+ * Efface des notifications : précises, d'une catégorie, seulement les lues (`readOnly`), ou toutes. Les autres onglets
+ * les retirent aussi ; rend leur nombre.
+ */
+export function deleteNotifications(ctx: AppContext, userId: number, selection: Selection & { readOnly?: boolean } = {}): { removed: number; unread: number; counts: NotificationCounts } {
+  const { where, params } = selectionWhere(userId, selection);
+  const ids = ctx.db.all<{ id: number }>(`SELECT n.id FROM notifications n WHERE ${where}${selection.readOnly ? ' AND n.read_at IS NOT NULL' : ''}`, ...params).map((row) => row.id);
+  for (let index = 0; index < ids.length; index += 500) {
+    const chunk = ids.slice(index, index + 500);
+    ctx.db.run(`DELETE FROM notifications WHERE user_id = ? AND id IN (${chunk.map(() => '?').join(', ')})`, userId, ...chunk);
+  }
+  const state = totals(ctx.db, userId);
+  if (ids.length) ctx.hub.sendToUser(userId, { t: 'notifications.removed', ids, ...state });
+  return { removed: ids.length, ...state };
 }
 
 /** Supprime les notifications de plus de 90 jours. */

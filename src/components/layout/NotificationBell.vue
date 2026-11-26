@@ -2,22 +2,24 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import Button from 'primevue/button';
+import Menu from 'primevue/menu';
 import Popover from 'primevue/popover';
-import type { NotificationDTO } from '@shared/types';
-import UserAvatar from '@/components/common/UserAvatar.vue';
+import NotificationFilters from '@/components/notifications/NotificationFilters.vue';
+import NotificationItem from '@/components/notifications/NotificationItem.vue';
+import { useNotificationActions } from '@/composables/useNotificationActions';
 import { useNotificationsStore } from '@/stores/notifications';
-import { useUiStore } from '@/stores/ui';
-import { formatDateTime, formatRelative } from '@/utils/format';
-import { notificationIcon as icon, notificationRoute, notificationSentence as sentence } from '@/utils/notificationText';
-import { notifyError } from '@/utils/notify';
 
-/** Cloche : notifications des tickets suivis, assignations et mentions ; `label` : avec son nom, dans la barre latérale. */
+/**
+ * Cloche : notifications des tickets suivis, assignations et mentions, triées par catégorie ; « Voir toutes les
+ * notifications » ouvre leur page. `label` : avec son nom, dans la barre latérale.
+ */
 defineProps<{ label?: string }>();
 const store = useNotificationsStore();
-const ui = useUiStore();
 const router = useRouter();
 const panel = ref<InstanceType<typeof Popover> | null>(null);
+const actionsMenu = ref<InstanceType<typeof Menu> | null>(null);
 const onlyUnread = ref(false);
+const actions = useNotificationActions({ beforeNavigate: () => panel.value?.hide() });
 
 onMounted(() => {
   store.load().catch(() => undefined);
@@ -26,24 +28,9 @@ onMounted(() => {
 const visible = computed(() => (onlyUnread.value ? store.items.filter((item) => !item.readAt) : store.items));
 const badge = computed(() => (store.unread > 99 ? '99+' : String(store.unread)));
 
-async function open(item: NotificationDTO): Promise<void> {
+function seeAll(): void {
   panel.value?.hide();
-  if (!item.readAt) void store.markRead([item.id]).catch(() => undefined);
-  const route = notificationRoute(item);
-  if (route) await router.push(route);
-}
-
-function openSettings(): void {
-  panel.value?.hide();
-  ui.openProfile('notifications');
-}
-
-async function readAll(): Promise<void> {
-  try {
-    await store.markRead();
-  } catch (error) {
-    notifyError(error);
-  }
+  void router.push({ name: 'notifications' });
 }
 </script>
 
@@ -57,40 +44,23 @@ async function readAll(): Promise<void> {
       <header class="head">
         <strong>{{ $t('Notifications') }}</strong>
         <label class="row small toggle"><input v-model="onlyUnread" type="checkbox" /> {{ $t('Non lues') }}</label>
-        <Button :label="$t('Tout marquer comme lu')" text size="small" :disabled="!store.unread" @click="readAll" />
-        <Button v-tooltip.bottom="$t('Réglages des notifications')" icon="pi pi-cog" text rounded size="small" severity="secondary" :aria-label="$t('Réglages des notifications')" @click="openSettings" />
+        <Button v-tooltip.bottom="$t('Actions')" icon="pi pi-ellipsis-v" text rounded size="small" severity="secondary" :aria-label="$t('Actions')" aria-haspopup="true" @click="actionsMenu?.toggle($event)" />
+        <Menu ref="actionsMenu" :model="actions.menu.value" popup />
       </header>
+      <NotificationFilters compact class="filters" />
       <ul v-if="visible.length" class="list">
         <li v-for="item in visible" :key="item.id">
-          <button type="button" class="item" :class="{ unread: !item.readAt, fresh: store.fresh.has(item.id) }" @click="open(item)">
-            <span class="avatar">
-              <UserAvatar :user="item.actorId ? { id: item.actorId, name: item.actorName ?? '?', avatarVersion: 0 } : undefined" size="small" />
-              <i :class="icon(item)" class="kind"></i>
-            </span>
-            <span class="body">
-              <span class="text">
-                <strong>{{ item.actorName ?? $t('Quelqu’un') }}</strong>
-                {{ sentence(item) }}
-                <span v-if="item.doc" class="key">{{ item.doc.title }}</span>
-                <span v-if="item.ticketKey" class="key">{{ item.ticketKey }}</span>
-                <span v-if="item.ticketTitle" class="muted"> « {{ item.ticketTitle }} »</span>
-              </span>
-              <q v-if="item.excerpt" class="excerpt">{{ item.excerpt }}</q>
-              <span class="muted small meta">
-                <span v-if="item.projectName">{{ item.projectName }} · </span>
-                <time :datetime="item.createdAt" :title="formatDateTime(item.createdAt)">{{ formatRelative(item.createdAt) }}</time>
-                <span v-if="item.via"> · {{ $t('via « {via} »', { via: item.via }) }}</span>
-              </span>
-            </span>
-            <i v-if="!item.readAt" class="dot" aria-hidden="true"></i>
-          </button>
+          <NotificationItem :item="item" :fresh="store.fresh.has(item.id)" @open="actions.open" @remove="actions.remove" />
         </li>
       </ul>
       <p v-else-if="store.loaded" class="empty muted">
         <i class="pi pi-bell-slash"></i>
-        {{ onlyUnread ? $t('Aucune notification non lue.') : $t('Aucune notification. Suivez un ticket ou attendez qu’on vous mentionne avec @.') }}
+        {{ onlyUnread ? $t('Aucune notification non lue.') : store.category ? $t('Aucune notification dans cette catégorie.') : $t('Aucune notification. Suivez un ticket ou attendez qu’on vous mentionne avec @.') }}
       </p>
-      <Button v-if="store.nextBefore !== null && !onlyUnread" :label="$t('Plus anciennes')" text size="small" class="more" :loading="store.loading" @click="store.loadMore" />
+      <footer class="foot">
+        <Button v-if="store.nextBefore !== null && !onlyUnread" :label="$t('Plus anciennes')" text size="small" :loading="store.loading" @click="store.loadMore" />
+        <Button :label="$t('Voir toutes les notifications')" icon="pi pi-arrow-right" icon-pos="right" text size="small" class="see-all" @click="seeAll" />
+      </footer>
     </div>
   </Popover>
 </template>
@@ -167,79 +137,14 @@ async function readAll(): Promise<void> {
   gap: 0.3rem;
   cursor: pointer;
 }
+.filters {
+  padding: 0.5rem 0 0.2rem;
+}
 .list {
   margin: 0;
   padding: 0.3rem 0;
   overflow-y: auto;
   list-style: none;
-}
-.item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  width: 100%;
-  padding: 0.5rem 0.4rem;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--fb-text);
-  font: inherit;
-  font-size: 0.85rem;
-  text-align: left;
-  cursor: pointer;
-}
-.item:hover {
-  background: var(--fb-panel-alt);
-}
-.item.unread {
-  background: color-mix(in srgb, var(--fb-accent) 7%, transparent);
-}
-.item.fresh {
-  animation: fb-flash 1.8s ease-out;
-}
-.avatar {
-  position: relative;
-  flex: none;
-}
-.kind {
-  position: absolute;
-  right: -0.3rem;
-  bottom: -0.25rem;
-  display: grid;
-  place-items: center;
-  width: 1rem;
-  height: 1rem;
-  border-radius: 50%;
-  background: var(--fb-accent);
-  color: #fff;
-  font-size: 0.55rem;
-}
-.body {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 0.15rem;
-  min-width: 0;
-}
-.text {
-  overflow-wrap: anywhere;
-}
-.key {
-  color: var(--fb-accent);
-  font-weight: 700;
-  font-size: 0.78rem;
-}
-.excerpt {
-  color: var(--fb-muted);
-  font-style: italic;
-}
-.dot {
-  flex: none;
-  width: 0.5rem;
-  height: 0.5rem;
-  margin-top: 0.35rem;
-  border-radius: 50%;
-  background: var(--fb-accent);
 }
 .empty {
   display: flex;
@@ -250,7 +155,15 @@ async function readAll(): Promise<void> {
   padding: 1.5rem 1rem;
   text-align: center;
 }
-.more {
-  align-self: center;
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid var(--fb-border);
+}
+.see-all {
+  margin-left: auto;
 }
 </style>
