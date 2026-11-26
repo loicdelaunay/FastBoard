@@ -5,6 +5,12 @@ import { currentLocale } from './index';
  * puis modèles à variables (noms, nombres), puis messages de validation (« champ : message »).
  */
 const EXACT: Record<string, string> = {
+  // 2.36 — Étiquettes d'espace
+  "Une étiquette de cet espace porte déjà ce nom.": "A tag of this space already has this name.",
+  "Étiquette introuvable.": "Tag not found.",
+  "Le contenu de cette étiquette est introuvable.": "The content of this tag cannot be found.",
+  "Une étiquette de projet se consulte et se télécharge ; elle ne redonne pas de projet.": "A project tag can be viewed and downloaded; it does not recreate a project.",
+  "Ce fichier n’est pas un texte.": "This file is not text.",
   // 2.28 — Déplacer vers un autre espace
   "Choisissez au moins un élément.": "Choose at least one item.",
   "Les éléments à déplacer doivent venir du même espace.": "The items to move must come from the same space.",
@@ -344,6 +350,7 @@ const PATTERNS: Array<[RegExp, (match: RegExpExecArray) => string]> = [
   [/^Un espace ne peut pas contenir plus de (\d+) tableaux et dossiers\.$/, (m) => `A space cannot contain more than ${m[1]} boards and folders.`],
   [/^Ce SVG dépasse (\d+) Ko\.$/, (m) => `This SVG exceeds ${m[1]} KB.`],
   [/^Un espace ne peut pas garder plus de (\d+) images\.$/, (m) => `A space cannot keep more than ${m[1]} images.`],
+  [/^Un espace ne peut pas garder plus de (\d+) étiquettes : supprimez-en une\.$/, (m) => `A space cannot keep more than ${m[1]} tags: delete one.`],
   [/^La bibliothèque ne peut pas garder plus de (\d+) icônes ajoutées\.$/, (m) => `The library cannot keep more than ${m[1]} added icons.`],
   [/^Le mot de passe doit faire au moins (\d+) caractères\.$/, (m) => `The password must be at least ${m[1]} characters long.`],
   [/^Un fichier ne peut pas dépasser (\d+) caractères\.$/, (m) => `A file cannot exceed ${m[1]} characters.`],

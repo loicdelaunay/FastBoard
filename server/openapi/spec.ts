@@ -545,6 +545,54 @@ const OPERATIONS: Operation[] = [
     ok: obj({ group: ref('Group') }),
   },
 
+  // --- Étiquettes d'espace ---------------------------------------------------------------------------------------------
+  { method: 'get', path: '/snapshots', tag: 'Étiquettes d’espace', summary: 'Étiquettes d’un espace ou d’un projet', description: 'Les plus récentes d’abord. Membres de l’espace (ou du projet).', query: S.snapshotListSchema, ok: obj({ snapshots: arr(ref('SpaceSnapshot')) }) },
+  {
+    method: 'post',
+    path: '/snapshots',
+    tag: 'Étiquettes d’espace',
+    permission: 'éditeur de l’espace, ou « Configurer le projet »',
+    summary: 'Poser une étiquette sur un espace',
+    description:
+      'Fige tout le contenu de l’espace tel qu’il est : arbre, notes et modèles, images (documentation) ; tableaux, modèles, leurs images et icônes ajoutées (tableaux blancs) ; export complet et fichiers joints (projet). Les copies sont indépendantes de l’espace : modifications, corbeille, historique purgé ou images remplacées ne les changent pas.',
+    body: S.snapshotSchema,
+    status: 201,
+    ok: obj({ snapshot: ref('SpaceSnapshot') }),
+  },
+  {
+    method: 'get',
+    path: '/snapshots/{id}',
+    tag: 'Étiquettes d’espace',
+    summary: 'Contenu d’une étiquette',
+    description: '`content` décrit ce qui est figé (selon `kind`) ; chaque texte, image ou fichier se lit par son empreinte avec `GET /snapshots/{id}/files/{hash}`.',
+    params: { id: 'Identifiant de l’étiquette.' },
+    ok: obj({ snapshot: ref('SpaceSnapshot'), content: obj({ kind: str('', { enum: ['docs', 'boards', 'project'] }) }) }),
+  },
+  { method: 'delete', path: '/snapshots/{id}', tag: 'Étiquettes d’espace', permission: 'propriétaire de l’espace (« Configurer le projet »), ou qui l’a posée', summary: 'Supprimer une étiquette', description: 'Ses copies partent si plus rien ne les garde.', params: { id: 'Identifiant de l’étiquette.' }, ok: ref('Ok') },
+  {
+    method: 'get',
+    path: '/snapshots/{id}/files/{hash}',
+    tag: 'Étiquettes d’espace',
+    summary: 'Un fichier figé d’une étiquette',
+    description: 'Texte d’une note (Markdown), éléments d’un tableau (JSON), export du projet (JSON), image ou pièce jointe. `?name=` : nom proposé au téléchargement ; `?as=json` : un texte rendu en JSON (`{ text }`).',
+    params: { id: 'Identifiant de l’étiquette.', hash: 'Empreinte SHA-256 du fichier (`file` dans `content`).' },
+    stringParams: ['hash'],
+    okRaw: { contentType: '*/*', description: 'Contenu du fichier, tel qu’il était.' },
+  },
+  { method: 'get', path: '/snapshots/{id}/download', tag: 'Étiquettes d’espace', summary: 'Télécharger une étiquette (ZIP)', description: 'Documentation : l’arbre de l’espace (modèles dans `_modeles/`) ; tableaux : un `.json` par tableau et leurs fichiers ; projet : `projet.json` et les pièces jointes. `etiquette.json` décrit l’étiquette.', params: { id: 'Identifiant de l’étiquette.' }, okRaw: { contentType: 'application/zip', description: 'Archive de l’étiquette.' } },
+  {
+    method: 'post',
+    path: '/snapshots/{id}/restore',
+    tag: 'Étiquettes d’espace',
+    permission: '`docs.create` ou `boards.create`',
+    summary: 'Nouvel espace depuis une étiquette',
+    description: 'Documentation et tableaux blancs : un nouvel espace, dont vous êtes propriétaire, avec le contenu de l’étiquette tel qu’il était. Une étiquette de projet se consulte et se télécharge seulement.',
+    params: { id: 'Identifiant de l’étiquette.' },
+    body: S.snapshotRestoreSchema,
+    status: 201,
+    ok: obj({ kind: str('', { enum: ['docs', 'boards'] }), spaceId: int('Le nouvel espace.') }),
+  },
+
   // --- Catégories ------------------------------------------------------------------------------------------------------
   {
     method: 'post',
@@ -1493,6 +1541,7 @@ export function buildOpenApiDocument(): Schema {
       { name: 'Activité' },
       { name: 'Membres' },
       { name: 'Groupes', description: 'Groupes de personnes, à ajouter d’un coup aux projets et aux espaces.' },
+      { name: 'Étiquettes d’espace', description: 'L’état complet d’un espace de documentation, d’un espace de tableaux blancs ou d’un projet, figé sous un nom : il ne change plus, se consulte, se télécharge et redonne un espace.' },
       { name: 'Recherche' },
       { name: 'Notifications' },
       { name: 'Assistant IA' },

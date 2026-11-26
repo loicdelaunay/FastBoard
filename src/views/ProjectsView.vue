@@ -12,6 +12,7 @@ import type { ProjectSummaryDTO } from '@shared/types';
 import ProjectCard from '@/components/projects/ProjectCard.vue';
 import ProjectCreateDialog from '@/components/projects/ProjectCreateDialog.vue';
 import { pinnedMenuItems } from '@/composables/usePinnedMenu';
+import SpaceSnapshotsDialog from '@/components/common/SpaceSnapshotsDialog.vue';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectsStore } from '@/stores/projects';
 import { notifyError } from '@/utils/notify';
@@ -35,6 +36,7 @@ const visibleProjects = computed(() =>
 );
 const menu = ref<InstanceType<typeof ContextMenu> | null>(null);
 const menuProject = ref<ProjectSummaryDTO | null>(null);
+const snapshotsOpen = ref(false);
 const menuItems = computed<MenuItem[]>(() => {
   const target = menuProject.value;
   if (!target) return [];
@@ -53,6 +55,7 @@ const menuItems = computed<MenuItem[]>(() => {
     { label: t('Exporter en CSV (tickets)'), icon: 'pi pi-file-excel', command: () => download('csv') },
     { label: t('Exporter en JSON (projet complet)'), icon: 'pi pi-file', command: () => download('json') },
     { separator: true },
+    { label: t('Étiquettes du projet…'), icon: 'pi pi-tag', command: () => (snapshotsOpen.value = true) },
     ...pinnedMenuItems('project', target.id, `${target.key} — ${target.name}`),
   ];
 });
@@ -91,6 +94,16 @@ const archivedCount = computed(() => store.projects.filter((project) => project.
     <div v-else-if="visibleProjects.length" class="grid">
       <ProjectCard v-for="project in visibleProjects" :key="project.id" :project="project" @menu="openMenu" />
       <ContextMenu ref="menu" :model="menuItems" />
+      <!-- Le serveur vérifie « Configurer le projet » pour poser ou retirer une étiquette. -->
+      <SpaceSnapshotsDialog
+        v-if="menuProject"
+        v-model:visible="snapshotsOpen"
+        kind="project"
+        :space-id="menuProject.id"
+        :space-name="`${menuProject.key} — ${menuProject.name}`"
+        :can-write="!menuProject.archived"
+        :can-manage="!menuProject.archived"
+      />
     </div>
 
     <div v-else class="empty card">

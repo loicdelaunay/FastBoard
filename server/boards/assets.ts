@@ -147,7 +147,8 @@ export function previewResources(ctx: AppContext): { image: (key: string) => str
 // --- Fichiers figés des versions étiquetées ----------------------------------------------------------------------------
 
 /** Références aux fichiers d'un tableau : `asset:<clé>` (image de l'espace) et `icon:<id>` (icône ajoutée). */
-function fileRefs(elements: readonly BoardElement[]): string[] {
+/** Fichiers que montrent des éléments : images de l'espace (`asset:<clé>`) et icônes ajoutées (`icon:<id>`). */
+export function boardFileRefs(elements: readonly BoardElement[]): string[] {
   const refs = new Set<string>();
   for (const element of elements) {
     if (element.type === 'image' && element.asset) refs.add(`asset:${element.asset}`);
@@ -156,28 +157,32 @@ function fileRefs(elements: readonly BoardElement[]): string[] {
   return [...refs];
 }
 
+/** Contenu d'une image ou d'une icône d'un tableau (`asset:<clé>`, `icon:<id>`) : l'actuel, sinon une copie figée. */
+export function boardFile(ctx: AppContext, ref: string): { mime: string; data: Buffer; name: string } | null {
+  const [kind, id] = [ref.slice(0, ref.indexOf(':')), ref.slice(ref.indexOf(':') + 1)];
+  try {
+    if (kind === 'asset') {
+      const asset = assetByKey(ctx.db, id);
+      if (asset) return { mime: asset.mime, data: fs.readFileSync(assetFile(ctx, asset.key)), name: asset.name };
+    } else {
+      const icon = ctx.db.get<{ name: string; svg: string }>('SELECT name, svg FROM board_icons WHERE id = ?', Number(id));
+      if (icon) return { mime: 'image/svg+xml', data: Buffer.from(icon.svg, 'utf8'), name: icon.name };
+    }
+  } catch {
+    // Fichier manquant : la copie figée, s'il y en a une.
+  }
+  // Déjà supprimé, mais figé par une version étiquetée ou une étiquette d'espace : la même copie.
+  return frozenBoardFile(ctx, ref);
+}
+
 /**
  * Fige les images et les icônes ajoutées d'une version qui reçoit une étiquette : elles restent visibles dans cette
  * version (mode Historique, aperçu, copie, restauration) même si on les supprime ensuite. Rend le nombre de fichiers figés.
  */
 export function freezeBoardFiles(ctx: AppContext, versionId: number, elements: readonly BoardElement[]): number {
   let count = 0;
-  for (const ref of fileRefs(elements)) {
-    const [kind, id] = [ref.slice(0, ref.indexOf(':')), ref.slice(ref.indexOf(':') + 1)];
-    let file: { mime: string; data: Buffer; name: string } | null = null;
-    try {
-      if (kind === 'asset') {
-        const asset = assetByKey(ctx.db, id);
-        if (asset) file = { mime: asset.mime, data: fs.readFileSync(assetFile(ctx, asset.key)), name: asset.name };
-      } else {
-        const icon = ctx.db.get<{ name: string; svg: string }>('SELECT name, svg FROM board_icons WHERE id = ?', Number(id));
-        if (icon) file = { mime: 'image/svg+xml', data: Buffer.from(icon.svg, 'utf8'), name: icon.name };
-      }
-    } catch {
-      file = null;
-    }
-    // Déjà supprimé, mais figé par une autre version étiquetée : la même copie.
-    file ??= frozenBoardFile(ctx, ref);
+  for (const ref of boardFileRefs(elements)) {
+    const file = boardFile(ctx, ref);
     if (!file) continue;
     ctx.db.run('INSERT OR IGNORE INTO board_version_files (version_id, ref, name, hash) VALUES (?, ?, ?, ?)', versionId, ref, file.name, freezeBytes(ctx, file.data, file.mime));
     count += 1;
@@ -196,7 +201,7 @@ export function thawBoardFiles(ctx: AppContext, versionId: number): void {
  */
 export function reviveFrozenAssets(ctx: AppContext, actor: Actor, spaceId: number, elements: readonly BoardElement[]): number {
   let count = 0;
-  for (const ref of fileRefs(elements)) {
+  for (const ref of boardFileRefs(elements)) {
     if (!ref.startsWith('asset:')) continue;
     const key = ref.slice(6);
     if (assetByKey(ctx.db, key)) continue;

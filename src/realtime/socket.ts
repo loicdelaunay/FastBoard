@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import type { ClientMessage, PresenceUser, ProjectEvent, ServerMessage } from '@shared/realtime';
 import type { NotificationLevel } from '@shared/constants';
 import type { AppInfoDTO, NotificationDTO } from '@shared/types';
+import type { SnapshotKind } from '@shared/snapshots';
 
 /** Messages de la documentation, traités par les écrans qui les attendent. */
 export type DocServerMessage = Extract<ServerMessage, { t: `doc${string}` }>;
@@ -38,6 +39,8 @@ interface Handlers {
   notificationSettings: Array<(projectId: number, level: NotificationLevel) => void>;
   doc: Array<(message: DocServerMessage) => void>;
   board: Array<(message: BoardServerMessage) => void>;
+  /** Étiquettes d'un espace (ou d'un projet) posées ou retirées. */
+  snapshots: Array<(kind: SnapshotKind, spaceId: number) => void>;
 }
 
 const BACKOFF = [500, 1000, 2000, 4000, 8000, 15000];
@@ -56,7 +59,7 @@ class RealtimeClient {
   #hasConnectedOnce = false;
   /** Visiteur sans compte d'un tableau partagé : connexion limitée aux tableaux. */
   #guest = false;
-  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], spacesRefresh: [], groupsChanged: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], notificationSettings: [], doc: [], board: [] };
+  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], spacesRefresh: [], groupsChanged: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], notificationSettings: [], doc: [], board: [], snapshots: [] };
 
   on<K extends keyof Handlers>(type: K, handler: Handlers[K][number]): () => void {
     (this.#handlers[type] as Array<typeof handler>).push(handler);
@@ -186,6 +189,9 @@ class RealtimeClient {
         break;
       case 'groups.changed':
         this.#handlers.groupsChanged.forEach((handler) => handler());
+        break;
+      case 'snapshots.changed':
+        this.#handlers.snapshots.forEach((handler) => handler(message.kind, message.spaceId));
         break;
       case 'app':
         this.#handlers.app.forEach((handler) => handler(message.app));

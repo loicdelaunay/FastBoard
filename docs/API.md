@@ -316,6 +316,29 @@ Déplacer vers un autre espace : `POST /boards/nodes/move` avec `{ "nodeIds": [7
 
 Partager un tableau au-delà des membres de son espace (propriétaire de l'espace) : `PUT /boards/nodes/{id}/share` avec `audience` (`users` : toute personne connectée ; `people` : les personnes de `people` ; `public` : tout le monde, même sans compte), `role` (`reader` ou `editor`) et un `password` facultatif (absent : inchangé ; `null` : retiré). La réponse donne le `slug` de l'adresse `/t/{slug}` ; `GET` lit le partage et `DELETE` le retire (ceux qui sont entrés par l'adresse sortent aussitôt). Côté visiteur, `GET /board-shares/{slug}` décrit le tableau partagé ; s'il est protégé (`401`, code `board_password`), `POST /board-shares/{slug}/unlock` avec le `password` rend un jeton valable 7 jours, à renvoyer dans l'en-tête `X-Board-Share`. `GET /board-shares/{slug}/preview` en donne l'image.
 
+### Étiquettes d'espace (état figé d'un espace ou d'un projet)
+
+Une étiquette d'espace fige tout le contenu d'un espace de documentation (`docs`), d'un espace de tableaux blancs
+(`boards`) ou d'un projet (`project`), fichiers compris ; elle ne change plus ensuite.
+
+```bash
+# Poser une étiquette (éditeur de l'espace ; « Configurer le projet » pour un projet)
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"kind":"docs","spaceId":3,"name":"v1.0","description":"Livré au client"}' "$BASE/api/snapshots"
+# Les étiquettes d'un espace, puis le contenu d'une étiquette
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/snapshots?kind=docs&spaceId=3"
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/snapshots/12"
+# Un fichier figé (texte d'une note : ?as=json rend { text }), ou toute l'étiquette en ZIP
+curl -H "Authorization: Bearer $TOKEN" "$BASE/api/snapshots/12/files/<empreinte>?as=json"
+curl -H "Authorization: Bearer $TOKEN" -o v1.0.zip "$BASE/api/snapshots/12/download"
+```
+
+`GET /snapshots/{id}` rend `content`, selon `kind` : pour `docs`, `nodes` (chemin, type, note, icône, couleur et `file`,
+l'empreinte du texte ou de l'image) ; pour `boards`, `nodes` (`file` : les éléments en JSON) et `files` (images et
+icônes) ; pour `project`, `file` (l'export complet du projet, comme `GET /projects/{id}/export?format=json`, avec
+`users`) et `attachments`. `POST /snapshots/{id}/restore` recrée un espace de documentation ou de tableaux blancs à
+partir de l'étiquette (il faut pouvoir créer un espace) ; `DELETE /snapshots/{id}` la retire.
+
 ### Champs personnalisés
 
 Chaque projet peut définir ses propres champs (`settings.customFields` dans `GET /projects/{id}`) : `id` (`cf_…`), `label`, `type` (`text`, `longtext`, `number`, `date`, `select`, `multiselect`, `checkbox`, `url`, `user`) et `options` pour les listes. Les valeurs sont dans `ticket.customFields`.

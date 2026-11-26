@@ -224,7 +224,7 @@ describe('migration v17 : parts et sous-tâches', () => {
     const fields = (id: number) => (JSON.parse(db.get<{ settings: string }>('SELECT settings FROM projects WHERE id = ?', id)!.settings) as { ticketFields: Record<string, boolean> }).ticketFields;
     assert.equal(fields(1).progress, true, 'un projet qui n’affichait que les sous-tâches garde ses lignes visibles');
     assert.equal(fields(2).progress, undefined);
-    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 33);
+    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')?.user_version, 34);
 
     // Une ligne déjà à 100 % sans être cochée compte désormais comme terminée.
     db.exec('PRAGMA user_version = 19');

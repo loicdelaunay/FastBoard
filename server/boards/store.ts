@@ -24,7 +24,7 @@ import { roleOfRank, ROLE_RANK_SQL } from '../services/spaceRoles.ts';
 import { readSetting, writeSetting } from '../services/appSettings.ts';
 import { foldText } from '../services/tickets.ts';
 import { assetByKey, assetFile, removeSpaceAssets, reviveFrozenAssets, storeAsset } from './assets.ts';
-import { collectFrozen } from '../services/frozenFiles.ts';
+import { collectFrozen, dropSnapshots } from '../services/frozenFiles.ts';
 import { sanitizeElements, stateOf, withoutTemplateLink } from './elements.ts';
 import { listBoardVersions, matchingVersion, readBoardVersion, recordBoardBaseline, recordBoardVersion } from './versions.ts';
 
@@ -175,6 +175,7 @@ export function deleteBoardSpace(ctx: AppContext, user: AuthUser, spaceId: numbe
   ctx.boardRooms.closeSpace(spaceId);
   removeSpaceAssets(ctx, spaceId);
   ctx.db.run('DELETE FROM board_spaces WHERE id = ?', spaceId);
+  dropSnapshots(ctx, 'boards', spaceId);
   ctx.logger.info('boards', 'Espace de tableaux supprimé', { spaceId }, user.id);
 }
 

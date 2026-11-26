@@ -1,3 +1,4 @@
+import { dropSnapshots } from './frozenFiles.ts';
 import { DEFAULT_CATEGORIES, DEFAULT_PRIORITIES } from '../../shared/constants.ts';
 import { suggestProjectKey } from '../../shared/projectKey.ts';
 import { childrenByParent, ticketProgress } from '../../shared/progress.ts';
@@ -244,6 +245,7 @@ export function deleteProject(ctx: AppContext, projectId: number): void {
   const name = getProjectDTO(ctx.db, projectId).name;
   const files = storagesOfProject(ctx.db, projectId);
   ctx.db.run('DELETE FROM projects WHERE id = ?', projectId);
+  dropSnapshots(ctx, 'project', projectId);
   removeStoredFiles(ctx, files);
   ctx.logger.info('project', `Projet supprimé : ${name}`, { projectId, files: files.length });
   ctx.hub.closeProject(projectId);

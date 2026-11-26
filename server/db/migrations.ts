@@ -930,6 +930,38 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE INDEX IF NOT EXISTS idx_board_version_files_ref ON board_version_files (ref);
     `);
   },
+  // 34 — Étiquettes d'espace : l'état complet d'un espace de documentation, de tableaux blancs ou d'un projet, figé sous
+  // un nom. Son manifeste (JSON) et tout son contenu sont des copies figées (frozen_files, par empreinte) ; `ref` relie
+  // une image ou une icône d'un tableau à sa copie (`asset:<clé>`, `icon:<id>`). Pas de clé étrangère vers l'espace
+  // (trois tables possibles) : la suppression d'un espace emporte ses étiquettes (`dropSnapshots`).
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS space_snapshots (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind        TEXT NOT NULL CHECK (kind IN ('docs', 'boards', 'project')),
+        space_id    INTEGER NOT NULL,
+        name        TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        space_name  TEXT NOT NULL,
+        manifest    TEXT NOT NULL REFERENCES frozen_files(hash),
+        items       INTEGER NOT NULL DEFAULT 0,
+        files       INTEGER NOT NULL DEFAULT 0,
+        bytes       INTEGER NOT NULL DEFAULT 0,
+        created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at  TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_space_snapshots_name ON space_snapshots (kind, space_id, name COLLATE NOCASE);
+      CREATE TABLE IF NOT EXISTS space_snapshot_files (
+        snapshot_id INTEGER NOT NULL REFERENCES space_snapshots(id) ON DELETE CASCADE,
+        hash        TEXT NOT NULL REFERENCES frozen_files(hash),
+        ref         TEXT NOT NULL DEFAULT '',
+        name        TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (snapshot_id, hash, ref)
+      );
+      CREATE INDEX IF NOT EXISTS idx_space_snapshot_files_hash ON space_snapshot_files (hash);
+      CREATE INDEX IF NOT EXISTS idx_space_snapshot_files_ref ON space_snapshot_files (ref);
+    `);
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

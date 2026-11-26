@@ -13,6 +13,7 @@ import DocSiteDialog from '@/components/docs/DocSiteDialog.vue';
 import DocSpaceDialog from '@/components/docs/DocSpaceDialog.vue';
 import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
 import OfflinePinBadge from '@/components/common/OfflinePinBadge.vue';
+import SpaceSnapshotsDialog from '@/components/common/SpaceSnapshotsDialog.vue';
 import { pinnedMenuItems } from '@/composables/usePinnedMenu';
 import { useAuthStore } from '@/stores/auth';
 import { useDocsStore } from '@/stores/docs';
@@ -53,6 +54,7 @@ const target = ref<DocSpaceDTO | null>(null);
 const importOpen = ref(false);
 const settingsOpen = ref(false);
 const siteOpen = ref(false);
+const snapshotsOpen = ref(false);
 const menuItems = computed<MenuItem[]>(() => {
   const space = target.value;
   if (!space) return [];
@@ -72,6 +74,7 @@ const menuItems = computed<MenuItem[]>(() => {
     { label: t('Exporter l’espace en ZIP'), icon: 'pi pi-download', command: () => downloadFrom(`/api/documentation/spaces/${space.id}/export`) },
     ...(docRoleAtLeast(space.role, 'editor') ? [{ label: t('Importer un .md ou un ZIP'), icon: 'pi pi-upload', command: () => (importOpen.value = true) }] : []),
     { separator: true },
+    { label: t('Étiquettes de l’espace…'), icon: 'pi pi-tag', command: () => (snapshotsOpen.value = true) },
     ...pinnedMenuItems('docs', space.id, space.name),
   ];
 });
@@ -153,6 +156,15 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
     <DocSiteDialog v-model:visible="siteOpen" :space="target" @saved="refresh" />
     <DocImportDialog v-if="target" v-model:visible="importOpen" :space-id="target.id" @done="refresh" />
     <ContextMenu ref="menu" :model="menuItems" />
+    <SpaceSnapshotsDialog
+      v-if="target"
+      v-model:visible="snapshotsOpen"
+      kind="docs"
+      :space-id="target.id"
+      :space-name="target.name"
+      :can-write="docRoleAtLeast(target.role, 'editor')"
+      :can-manage="target.role === 'owner'"
+    />
   </div>
 </template>
 

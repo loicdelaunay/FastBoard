@@ -5,6 +5,7 @@ import type { ProjectGroupDTO } from './groups.ts';
 import type { NotificationLevel } from './constants.ts';
 import type { DocNodeDTO } from './docs.ts';
 import type { DocCommentDTO } from './docComments.ts';
+import type { SnapshotKind } from './snapshots.ts';
 import type {
   ActivityCommentDTO,
   ActivityDTO,
@@ -111,6 +112,8 @@ export type ServerMessage =
   | { t: 'board.saved'; boardId: number; at: string }
   /** `changed` : les droits ont changé, se raccorder ; `moved` : tableau déplacé vers un autre espace (`spaceId`). */
   | { t: 'board.closed'; boardId: number; reason: 'deleted' | 'revoked' | 'changed' | 'moved'; spaceId?: number }
+  /** Étiquettes d'un espace (ou d'un projet) posées ou retirées : leur liste se relit. */
+  | { t: 'snapshots.changed'; kind: SnapshotKind; spaceId: number }
   | { t: 'pong' }
   | { t: 'error'; message: string };
 

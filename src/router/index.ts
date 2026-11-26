@@ -44,6 +44,7 @@ const router = createRouter({
     { path: '/tableaux', name: 'boards', component: () => import('@/views/boards/BoardSpacesView.vue'), meta: { boards: true } },
     { path: '/tableaux/t/:boardId(\\d+)', name: 'board-file', component: () => import('@/views/boards/BoardFileRedirect.vue'), meta: { boards: true } },
     { path: '/tableaux/:spaceId(\\d+)', name: 'board-space', component: () => import('@/views/boards/BoardSpaceView.vue'), meta: { boards: true } },
+    { path: '/etiquettes/:snapshotId(\\d+)', name: 'snapshot', component: () => import('@/views/SnapshotView.vue') },
     { path: '/search', name: 'search', component: () => import('@/views/SearchView.vue') },
     { path: '/groupes', name: 'groups', component: () => import('@/views/GroupsView.vue') },
     { path: '/users/:id(\\d+)', name: 'user', component: () => import('@/views/UserView.vue') },

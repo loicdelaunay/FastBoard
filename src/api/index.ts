@@ -50,6 +50,7 @@ import { ApiError, http, httpHeaders } from './http';
 import { t } from '@/i18n';
 import { translateServerMessage } from '@/i18n/server';
 import { compressImage, imageAs } from '@/utils/image';
+import type { SnapshotContent, SnapshotKind, SpaceSnapshotDTO } from '@shared/snapshots';
 export interface TicketInput {
   title?: string;
   description?: string;
@@ -409,6 +410,16 @@ export const api = {
   boardTagVersion: (nodeId: number, name: string, versionId?: number | null) => http<{ version: BoardVersionDTO }>('POST', `/boards/nodes/${nodeId}/tags`, { body: versionId ? { name, versionId } : { name } }),
   boardSetVersionTag: (nodeId: number, versionId: number, name: string | null) => http<{ version: BoardVersionDTO }>('PUT', `/boards/nodes/${nodeId}/versions/${versionId}/tag`, { body: { name } }),
   boardTags: (q: string) => http<{ tags: VersionTagHitDTO[] }>('GET', `/boards/tags?q=${encodeURIComponent(q)}`),
+  // Étiquettes d'espace (documentation, tableaux blancs, projets)
+  spaceSnapshots: (kind: SnapshotKind, spaceId: number) => http<{ snapshots: SpaceSnapshotDTO[] }>('GET', `/snapshots?kind=${kind}&spaceId=${spaceId}`),
+  createSpaceSnapshot: (kind: SnapshotKind, spaceId: number, name: string, description: string) => http<{ snapshot: SpaceSnapshotDTO }>('POST', '/snapshots', { body: { kind, spaceId, name, description } }),
+  spaceSnapshot: (snapshotId: number) => http<{ snapshot: SpaceSnapshotDTO; content: SnapshotContent }>('GET', `/snapshots/${snapshotId}`),
+  /** Texte figé (note, modèle) ; en JSON, gardé pour la lecture hors ligne comme les autres lectures. */
+  spaceSnapshotText: (snapshotId: number, hash: string) => http<{ text: string }>('GET', `/snapshots/${snapshotId}/files/${hash}?as=json`),
+  /** Fichier JSON figé : éléments d'un tableau, export d'un projet. */
+  spaceSnapshotJson: <T>(snapshotId: number, hash: string) => http<T>('GET', `/snapshots/${snapshotId}/files/${hash}`),
+  deleteSpaceSnapshot: (snapshotId: number) => http<{ ok: true }>('DELETE', `/snapshots/${snapshotId}`),
+  restoreSpaceSnapshot: (snapshotId: number, name?: string) => http<{ kind: SnapshotKind; spaceId: number }>('POST', `/snapshots/${snapshotId}/restore`, { body: name ? { name } : {} }),
   board: (nodeId: number) => http<{ node: BoardNodeDTO; space: { id: number; name: string }; role: BoardRole; elements: BoardElement[] }>('GET', `/boards/nodes/${nodeId}`),
   boardSearch: (q: string, limit = 10) => http<{ boards: BoardSearchHitDTO[] }>('GET', `/boards/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   boardShare: (nodeId: number) => http<{ share: BoardShareDTO | null }>('GET', `/boards/nodes/${nodeId}/share`),

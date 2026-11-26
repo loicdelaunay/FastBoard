@@ -12,6 +12,7 @@ import { DOC_FOLDER_ICONS, DOC_LIMITS, DOC_ROLES, DOC_SITE_VISIBILITIES, normali
 import { LDAP_LIMITS, LDAP_PROFILES, LDAP_SECURITY, LDAP_USER_TOKEN } from '../../shared/ldap.ts';
 import { RAG_FORMATS, RAG_LIMITS } from '../../shared/rag.ts';
 import { VERSION_TAG_LIMITS } from '../../shared/versionTags.ts';
+import { SNAPSHOT_KINDS, SNAPSHOT_LIMITS } from '../../shared/snapshots.ts';
 import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
@@ -669,6 +670,21 @@ export const versionTagSchema = z.object({
 });
 export const versionTagUpdateSchema = z.object({ name: tagName.nullable().describe('Nouveau nom ; `null` retire l’étiquette (la version suit alors la durée de conservation de l’historique).') });
 export const tagSearchSchema = z.object({ q: z.string().trim().max(100).default('').describe('Mots à trouver dans le nom de l’étiquette ou celui de l’élément.') });
+
+// --- Étiquettes d'espace (documentation, tableaux blancs, projets) ------------------------------------------------------
+
+const snapshotKind = z.enum(SNAPSHOT_KINDS as [string, ...string[]]).describe('`docs` : espace de documentation ; `boards` : espace de tableaux blancs ; `project` : projet.');
+export const snapshotListSchema = z.object({
+  kind: snapshotKind,
+  spaceId: z.coerce.number().int().positive().describe('Identifiant de l’espace (ou du projet).'),
+});
+export const snapshotSchema = z.object({
+  kind: snapshotKind,
+  spaceId: id.describe('Identifiant de l’espace (ou du projet).'),
+  name: z.string().trim().min(1, 'Donnez un nom à l’étiquette.').max(SNAPSHOT_LIMITS.nameMax).describe('Nom de l’étiquette (« v1.0 », « Livré au client »…), unique dans l’espace.'),
+  description: z.string().max(SNAPSHOT_LIMITS.descriptionMax).default('').describe('Ce que fige l’étiquette, pourquoi.'),
+});
+export const snapshotRestoreSchema = z.object({ name: z.string().trim().max(80).optional().describe('Nom du nouvel espace ; absent : « Espace (étiquette) ».') });
 
 export const docRestoreSchema = z.object({ content: z.string().max(DOC_LIMITS.fileChars).optional().describe('Texte final, si l’on ne reprend qu’une partie de la version ; absent : la version entière.') });
 export const docImportCompareSchema = z.object({ path: z.string().min(1).max(1000).describe('Chemin du fichier, tel que renvoyé par l’analyse.') });

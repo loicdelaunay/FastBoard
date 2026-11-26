@@ -59,19 +59,19 @@ describe('pièces jointes figées des versions étiquetées', () => {
     `);
     old.run("INSERT INTO frozen_files (hash, mime, size, created_at) VALUES ('abc', 'image/png', 3, '2026-11-24T00:00:00.000Z')");
     migrate(old);
-    assert.equal(version(old), 33);
+    assert.equal(version(old), 34);
     for (const name of ['user_groups', 'user_group_members', 'project_groups', 'doc_space_groups', 'board_space_groups', 'project_access', 'doc_access', 'board_access']) assert.ok(has(old, name), name);
     assert.equal(old.get<{ n: number }>('SELECT COUNT(*) AS n FROM doc_access')!.n, 0, 'la vue se lit');
     assert.equal(old.get<{ n: number }>('SELECT COUNT(*) AS n FROM frozen_files')!.n, 1, 'les copies figées restent');
     migrate(old);
-    assert.equal(version(old), 33, 'rien de plus au démarrage suivant');
+    assert.equal(version(old), 34, 'rien de plus au démarrage suivant');
     old.close();
 
     // Une base publiée (groupes en 32) reçoit simplement les tables des pièces jointes.
     const published = new Db(':memory:');
     migrate(published, 32);
     migrate(published);
-    assert.equal(version(published), 33);
+    assert.equal(version(published), 34);
     assert.ok(has(published, 'frozen_files') && has(published, 'doc_access'));
     published.close();
   });

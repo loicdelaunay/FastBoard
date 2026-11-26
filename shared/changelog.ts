@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.35.0';
+export const APP_VERSION = '2.36.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,17 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.36.0',
+    date: '2026-11-26',
+    changes: [
+      {
+        category: 'Nouveauté',
+        text: 'Étiquettes d’espace : clic droit sur un espace de documentation, un espace de tableaux blancs ou un projet → « Étiquettes… » fige tout son contenu sous un nom (« v1.0 »), fichiers compris. L’espace peut ensuite changer, être vidé ou purgé : l’étiquette, elle, ne change plus.',
+      },
+      { category: 'Nouveauté', text: 'Une étiquette se consulte en lecture seule (arbre et notes, tableaux, tickets avec commentaires et pièces jointes), se télécharge en ZIP et, pour la documentation et les tableaux blancs, redonne un nouvel espace.' },
+    ],
+  },
   {
     version: '2.35.0',
     date: '2026-11-26',

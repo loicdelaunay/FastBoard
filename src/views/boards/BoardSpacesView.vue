@@ -13,6 +13,7 @@ import { api } from '@/api';
 import BoardSpaceDialog from '@/components/boards/BoardSpaceDialog.vue';
 import SpaceRoleIcon from '@/components/common/SpaceRoleIcon.vue';
 import OfflinePinBadge from '@/components/common/OfflinePinBadge.vue';
+import SpaceSnapshotsDialog from '@/components/common/SpaceSnapshotsDialog.vue';
 import { pinnedMenuItems } from '@/composables/usePinnedMenu';
 import { t } from '@/i18n';
 import { useAuthStore } from '@/stores/auth';
@@ -30,6 +31,7 @@ const confirm = useConfirm();
 const search = ref('');
 const createOpen = ref(false);
 const settingsOpen = ref(false);
+const snapshotsOpen = ref(false);
 const target = ref<BoardSpaceDTO | null>(null);
 const menu = ref<InstanceType<typeof ContextMenu> | null>(null);
 
@@ -48,6 +50,7 @@ const menuItems = computed<MenuItem[]>(() => {
     { label: t('Ouvrir'), icon: 'pi pi-folder-open', command: () => open(space) },
     ...(space.role === 'owner' ? [{ label: t('Modifier l’espace'), icon: 'pi pi-pencil', command: () => (settingsOpen.value = true) }] : []),
     { separator: true },
+    { label: t('Étiquettes de l’espace…'), icon: 'pi pi-tag', command: () => (snapshotsOpen.value = true) },
     ...pinnedMenuItems('boards', space.id, space.name),
     ...(space.role === 'owner' ? [{ separator: true }, { label: t('Supprimer l’espace'), icon: 'pi pi-trash', class: 'menu-danger', command: () => remove(space) }] : []),
   ];
@@ -130,6 +133,15 @@ const refresh = () => store.fetchSpaces().catch(() => undefined);
     <BoardSpaceDialog v-model:visible="createOpen" @saved="open" />
     <BoardSpaceDialog v-model:visible="settingsOpen" :space="target" @saved="refresh" />
     <ContextMenu ref="menu" :model="menuItems" />
+    <SpaceSnapshotsDialog
+      v-if="target"
+      v-model:visible="snapshotsOpen"
+      kind="boards"
+      :space-id="target.id"
+      :space-name="target.name"
+      :can-write="target.role !== 'reader'"
+      :can-manage="target.role === 'owner'"
+    />
   </div>
 </template>
 

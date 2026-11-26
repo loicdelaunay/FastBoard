@@ -11,7 +11,7 @@ import { badRequest, conflict, forbidden, HttpError, notFound } from '../http/er
 import { getAuthUser, type AuthUser } from '../services/access.ts';
 import { roleOfRank, ROLE_RANK_SQL } from '../services/spaceRoles.ts';
 import { readSetting, writeSetting } from '../services/appSettings.ts';
-import { collectFrozen } from '../services/frozenFiles.ts';
+import { collectFrozen, dropSnapshots } from '../services/frozenFiles.ts';
 import { mentionedUserIds, notifyDocMention } from '../services/notifications.ts';
 import { foldText } from '../services/tickets.ts';
 
@@ -281,6 +281,7 @@ export function updateSpace(ctx: AppContext, user: AuthUser, spaceId: number, pa
 export function deleteSpace(ctx: AppContext, user: AuthUser, spaceId: number): void {
   ctx.docRooms.closeSpace(spaceId);
   ctx.db.run('DELETE FROM doc_spaces WHERE id = ?', spaceId);
+  dropSnapshots(ctx, 'docs', spaceId);
   fs.rmSync(spaceDir(ctx, spaceId), { recursive: true, force: true });
   ctx.logger.info('docs', 'Espace de documentation supprimé', { spaceId }, user.id);
 }

@@ -17,6 +17,7 @@ import { boardFilesRouter, boardUploadRouter } from './routes/boardFiles.ts';
 import { boardSharesRouter } from './routes/boardShares.ts';
 import { documentationRouter, documentationUploadRouter } from './routes/documentation.ts';
 import { groupsRouter } from './routes/groups.ts';
+import { snapshotsRouter } from './routes/snapshots.ts';
 import { loadConfig, type AppConfig } from './config.ts';
 import type { AppContext } from './context.ts';
 import { Db } from './db/database.ts';
@@ -175,6 +176,7 @@ export async function startServer(overrides: Partial<AppConfig> = {}): Promise<R
   api.use(documentationRouter(ctx));
   api.use(boardsRouter(ctx));
   api.use(groupsRouter(ctx));
+  api.use(snapshotsRouter(ctx));
   api.use((_req, _res, next) => next(notFound('Route inconnue.')));
   app.use('/api', api);
 
