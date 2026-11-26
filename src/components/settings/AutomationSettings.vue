@@ -8,7 +8,7 @@ import { useProjectStore } from '@/stores/project';
 import { notifyError } from '@/utils/notify';
 
 import { t } from '@/i18n';
-type Flag = 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'progressReminder';
+type Flag = 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'progressReminder' | 'hidePastDeliveryDone';
 
 const project = useProjectStore();
 const canEdit = computed(() => project.can('project.edit') && !project.archived);
@@ -31,6 +31,12 @@ const options: Array<{ key: Flag; title: string; help: string; icon: string }> =
     title: t('Confettis dans la colonne « Terminé »'),
     help: t('Une petite fête chaque fois qu\'un ticket arrive dans Terminé, pour vous comme pour vos collègues. Désactivée automatiquement si votre système réduit les animations.'),
     icon: 'pi pi-sparkles',
+  },
+  {
+    key: 'hidePastDeliveryDone',
+    title: t('Masquer les tickets terminés des livraisons passées'),
+    help: t('Dans le tableau, la colonne « Terminé » ne montre plus les tickets d’une livraison finie (date de fin passée) : elle reste lisible au fil des livraisons. Son menu ⋯ les remontre d’un clic (chacun choisit pour lui), et la recherche les trouve toujours.'),
+    icon: 'pi pi-eye-slash',
   },
   {
     key: 'staleIndicator',

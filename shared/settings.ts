@@ -59,6 +59,8 @@ export interface ProjectSettingsDTO {
   progressReminder: boolean;
   /** Jours sans mise à jour (pourcentage ou commentaire) avant le rappel. */
   progressReminderDays: number;
+  /** Tableau : la colonne « Terminé » masque les tickets d'une livraison passée (chacun peut les remontrer, la recherche les trouve). */
+  hidePastDeliveryDone: boolean;
   /** Les six colonnes, dans l'ordre d'affichage. */
   columns: ColumnConfig[];
 }
@@ -86,6 +88,7 @@ export function defaultSettings(): ProjectSettingsDTO {
     hideDoneUnassigned: true,
     progressReminder: false,
     progressReminderDays: 2,
+    hidePastDeliveryDone: false,
     columns: defaultColumns(),
   };
 }
@@ -99,7 +102,7 @@ const isColor = (value: unknown): value is string => typeof value === 'string' &
 export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
   const defaults = defaultSettings();
   const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
-  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert' | 'hideZeroProgress' | 'allowNewComponents' | 'hideDoneUnassigned' | 'progressReminder'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
+  const flag = (key: 'autoMoveDone' | 'autoReopen' | 'confetti' | 'staleIndicator' | 'deliveryAlert' | 'hideZeroProgress' | 'allowNewComponents' | 'hideDoneUnassigned' | 'progressReminder' | 'hidePastDeliveryDone'): boolean => (typeof source[key] === 'boolean' ? source[key] : defaults[key]);
 
   const seen = new Set<TicketStatus>();
   const columns: ColumnConfig[] = [];
@@ -157,6 +160,7 @@ export function normalizeSettings(raw: unknown): ProjectSettingsDTO {
     allowNewComponents: flag('allowNewComponents'),
     hideDoneUnassigned: flag('hideDoneUnassigned'),
     progressReminder: flag('progressReminder'),
+    hidePastDeliveryDone: flag('hidePastDeliveryDone'),
     progressReminderDays: typeof reminderDays === 'number' && Number.isInteger(reminderDays) && reminderDays >= 1 && reminderDays <= 30 ? reminderDays : defaults.progressReminderDays,
     columns,
   };

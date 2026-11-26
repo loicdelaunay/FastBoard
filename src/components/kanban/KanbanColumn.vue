@@ -2,7 +2,11 @@
 import { computed, nextTick, ref } from 'vue';
 import Button from 'primevue/button';
 import InputText from 'primevue/inputtext';
+import Menu from 'primevue/menu';
+import type { MenuItem } from 'primevue/menuitem';
+import { useRouter } from 'vue-router';
 import type { TicketStatus } from '@shared/constants';
+import type { DoneVisibility } from '@shared/doneVisibility';
 import type { TicketDTO } from '@shared/types';
 import { useKanbanDnd } from '@/composables/useKanbanDnd';
 import { useTicketFilters } from '@/composables/useTicketFilters';
@@ -11,8 +15,42 @@ import { notifyError } from '@/utils/notify';
 import TicketCard from './TicketCard.vue';
 
 import { t } from '@/i18n';
-const props = defineProps<{ status: TicketStatus; tickets: TicketDTO[]; canCreate: boolean; canMove: boolean; sorted?: boolean }>();
-const emit = defineEmits<{ open: [ticketId: number] }>();
+const props = defineProps<{
+  status: TicketStatus;
+  tickets: TicketDTO[];
+  canCreate: boolean;
+  canMove: boolean;
+  sorted?: boolean;
+  /** Colonne « Terminé » : tickets montrés (`mode`, celui du projet `defaultMode`), masqués, et montrés par une recherche. */
+  done?: { mode: DoneVisibility; defaultMode: DoneVisibility; hidden: number; revealed: number };
+}>();
+const emit = defineEmits<{ open: [ticketId: number]; 'done-mode': [mode: DoneVisibility] }>();
+const router = useRouter();
+
+// --- Colonne « Terminé » : menu ⋯ pour choisir vite les tickets montrés ---
+const doneMenu = ref<InstanceType<typeof Menu> | null>(null);
+const DONE_LABELS: Record<DoneVisibility, string> = {
+  all: 'Afficher tous les tickets terminés',
+  current: 'Masquer ceux des livraisons passées',
+  none: 'Masquer tous les tickets terminés',
+};
+const doneItems = computed<MenuItem[]>(() => {
+  const done = props.done;
+  if (!done) return [];
+  const choices: MenuItem[] = (['all', 'current', 'none'] as const).map((mode) => ({
+    label: mode === done.defaultMode ? `${t(DONE_LABELS[mode])} · ${t('réglage du projet')}` : t(DONE_LABELS[mode]),
+    icon: mode === done.mode ? 'pi pi-check' : 'pi pi-fw',
+    class: mode === done.mode ? 'menu-active' : undefined,
+    command: () => emit('done-mode', mode),
+  }));
+  return [
+    { label: t('Tickets terminés affichés'), disabled: true, class: 'menu-heading' },
+    ...choices,
+    ...(project.can('project.edit')
+      ? [{ separator: true }, { label: t('Automatisation du projet…'), icon: 'pi pi-bolt', command: () => void router.push({ name: 'settings', params: { projectId: project.project?.id }, query: { tab: 'automation' } }) }]
+      : []),
+  ];
+});
 
 const project = useProjectStore();
 const dnd = useKanbanDnd();
@@ -88,6 +126,21 @@ async function onDrop(event: DragEvent): Promise<void> {
       <h3 class="label">{{ meta.label }}</h3>
       <span class="count">{{ tickets.length }}</span>
       <i v-if="sorted" v-tooltip.bottom="sortLabel" class="pi pi-sort-amount-down sorted-icon" :aria-label="sortLabel"></i>
+      <button
+        v-if="done?.hidden"
+        v-tooltip.bottom="$t('Afficher les tickets masqués')"
+        type="button"
+        class="hidden-chip"
+        :aria-label="$t('{n} ticket masqué : l’afficher|{n} tickets masqués : les afficher', { n: done.hidden })"
+        @click="emit('done-mode', 'all')"
+      >
+        <i class="pi pi-eye-slash"></i> {{ done.hidden }}
+      </button>
+      <span v-else-if="done?.revealed" v-tooltip.bottom="$t('La recherche montre aussi les tickets terminés masqués')" class="hidden-chip searching" tabindex="0">
+        <i class="pi pi-search"></i> {{ done.revealed }}
+      </span>
+      <Button v-if="done" v-tooltip.bottom="$t('Tickets terminés affichés')" icon="pi pi-ellipsis-h" text rounded size="small" severity="secondary" :aria-label="$t('Tickets terminés affichés')" aria-haspopup="true" @click="doneMenu?.toggle($event)" />
+      <Menu v-if="done" ref="doneMenu" :model="doneItems" popup />
       <Button v-if="canCreate" v-tooltip.bottom="$t('Ajouter un ticket')" icon="pi pi-plus" text rounded size="small" severity="secondary" class="add-btn" :aria-label="$t('Ajouter un ticket dans {label}', { label: meta.label })" @click="startAdding" />
     </header>
 
@@ -105,7 +158,11 @@ async function onDrop(event: DragEvent): Promise<void> {
       </template>
       <div v-if="isTarget && dnd.state.beforeId === null" class="drop-indicator"></div>
 
-      <p v-if="!tickets.length && !isTarget && !adding" class="empty muted small">{{ $t('Aucun ticket') }}</p>
+      <p v-if="!tickets.length && !isTarget && !adding && done?.hidden" class="empty muted small">
+        {{ $t('{n} ticket terminé masqué|{n} tickets terminés masqués', { n: done.hidden }) }}
+        <button type="button" class="show-hidden" @click="emit('done-mode', 'all')">{{ $t('Afficher') }}</button>
+      </p>
+      <p v-else-if="!tickets.length && !isTarget && !adding" class="empty muted small">{{ $t('Aucun ticket') }}</p>
     </div>
 
     <footer v-if="canCreate" class="foot">
@@ -119,6 +176,44 @@ async function onDrop(event: DragEvent): Promise<void> {
 </template>
 
 <style scoped>
+.hidden-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--fb-border);
+  border-radius: 999px;
+  background: var(--fb-panel);
+  color: var(--fb-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hidden-chip:hover {
+  border-color: var(--fb-accent);
+  color: var(--fb-accent);
+}
+.hidden-chip.searching {
+  border-color: color-mix(in srgb, var(--fb-accent) 40%, var(--fb-border));
+  color: var(--fb-accent);
+  cursor: help;
+}
+.hidden-chip .pi {
+  font-size: 0.7rem;
+}
+.show-hidden {
+  margin-left: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fb-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.show-hidden:hover {
+  text-decoration: underline;
+}
 .column {
   display: flex;
   flex-direction: column;

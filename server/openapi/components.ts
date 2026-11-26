@@ -136,6 +136,7 @@ export const componentSchemas: Record<string, Schema> = {
       customFields: arr(obj({ id: str('`cf_…`'), label: str(), type: str('', { enum: ['text', 'longtext', 'number', 'date', 'select', 'multiselect', 'checkbox', 'url', 'user'] }), options: arr(str()), showOnCard: bool(), allowNewOptions: bool('Listes : ajout de choix depuis les tickets.') })),
       allowNewComponents: bool('Les personnes qui modifient les tickets peuvent créer un composant depuis un ticket.'),
       hideDoneUnassigned: bool('Analyseur : les tickets terminés ne sont pas comptés dans « Non assigné » (charge par personne).'),
+      hidePastDeliveryDone: bool('Tableau : la colonne « Terminé » masque les tickets d’une livraison passée (chacun peut les remontrer, la recherche les trouve).'),
       progressReminder: bool('Rappel d’avancement sur les tickets « En cours » d’une livraison en cours (voir `progressUpdates` des tickets).'),
       progressReminderDays: int('Jours sans mise à jour de l’avancement avant le rappel.'),
       columns: arr(obj({ status: ref('TicketStatus'), label: str('Nom affiché de la colonne.'), color: str('#RRGGBB'), hidden: bool() })),

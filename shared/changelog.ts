@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.32.0';
+export const APP_VERSION = '2.33.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,14 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.33.0',
+    date: '2026-11-26',
+    changes: [
+      { category: 'Nouveauté', text: 'Tableau : nouvelle automatisation « Masquer les tickets terminés des livraisons passées » : la colonne « Terminé » ne montre plus les tickets d’une livraison finie, et reste lisible au fil des livraisons.' },
+      { category: 'Nouveauté', text: 'Tableau : le menu ⋯ de la colonne « Terminé » choisit d’un clic les tickets terminés affichés (tous, sans ceux des livraisons passées, aucun), pour soi ; une pastille compte les masqués, et la recherche les trouve toujours.' },
+    ],
+  },
   {
     version: '2.32.0',
     date: '2026-11-26',
