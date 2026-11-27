@@ -11,7 +11,9 @@ import ProjectNotificationButton from '@/components/layout/ProjectNotificationBu
 import TicketContextMenu from '@/components/tickets/TicketContextMenu.vue';
 import TicketQuickEdit from '@/components/tickets/TicketQuickEdit.vue';
 import TicketDialog from '@/components/tickets/TicketDialog.vue';
-import { resetTicketFilters, useTicketFilters } from '@/composables/useTicketFilters';
+import { filterQueryOf, useFilterQuery } from '@/composables/useFilterQuery';
+import { applyTicketFilters, useTicketFilters } from '@/composables/useTicketFilters';
+import { filtersFromQuery } from '@shared/ticketFilters';
 import { useProjectStore } from '@/stores/project';
 import { useUiStore } from '@/stores/ui';
 import { notify } from '@/utils/notify';
@@ -22,6 +24,8 @@ const router = useRouter();
 const project = useProjectStore();
 const ticketFilters = useTicketFilters();
 const ui = useUiStore();
+// Les filtres suivent l'adresse : un lien copié montre la même vue filtrée.
+useFilterQuery();
 
 const projectId = computed(() => Number(route.params.projectId));
 const currentView = computed(() => (typeof route.meta.view === 'string' ? route.meta.view : ''));
@@ -38,9 +42,13 @@ const canCreate = computed(() => project.can('ticket.create') && !project.archiv
 const canConfigure = computed(() => project.can('project.edit') || project.can('project.members'));
 
 async function open(id: number): Promise<void> {
-  resetTicketFilters();
+  // Un autre projet repart des filtres de son adresse (aucun, le plus souvent).
+  applyTicketFilters(filtersFromQuery(route.query));
   await project.load(id);
 }
+
+/** Lien d'une vue du projet : il garde les filtres et le ticket ouvert. */
+const viewQuery = computed(() => ({ ...filterQueryOf(route.query), ...(route.query.ticket ? { ticket: String(route.query.ticket) } : {}) }));
 
 onMounted(() => void open(projectId.value));
 watch(projectId, (id) => void open(id));
@@ -113,7 +121,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
         </div>
 
         <nav class="tabs" :aria-label="$t('Vues du projet')">
-          <router-link v-for="view in VIEWS" :key="view.name" :to="{ name: view.name, params: { projectId }, query: route.query.ticket ? { ticket: route.query.ticket } : {} }" class="tab" active-class="active">
+          <router-link v-for="view in VIEWS" :key="view.name" :to="{ name: view.name, params: { projectId }, query: viewQuery }" class="tab" active-class="active">
             <i :class="view.icon"></i><span>{{ view.label }}</span>
             <span v-if="view.name === 'activity' && project.unseenActivity > 0 && currentView !== 'activity'" class="badge" :aria-label="$t('{unseenActivity} nouveautés', { unseenActivity: project.unseenActivity })">{{ project.unseenActivity > 99 ? '99+' : project.unseenActivity }}</span>
           </router-link>

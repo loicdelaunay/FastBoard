@@ -4,6 +4,7 @@ import type { NotificationLevel } from '@shared/constants';
 import type { AppInfoDTO, NotificationDTO } from '@shared/types';
 import type { SnapshotKind } from '@shared/snapshots';
 import type { FavoriteSpaceDTO } from '@shared/home';
+import type { HomeLayout } from '@shared/homeLayout';
 import type { NotificationCategory, NotificationCounts } from '@shared/notificationCategories';
 
 /** Messages de la documentation, traités par les écrans qui les attendent. */
@@ -45,6 +46,8 @@ interface Handlers {
   board: Array<(message: BoardServerMessage) => void>;
   /** Espaces favoris de la personne changés ailleurs. */
   favorites: Array<(favorites: FavoriteSpaceDTO[]) => void>;
+  /** Disposition de l'Accueil changée ailleurs (autre onglet, API). */
+  homeLayout: Array<(layout: HomeLayout) => void>;
   /** Étiquettes d'un espace (ou d'un projet) posées ou retirées. */
   snapshots: Array<(kind: SnapshotKind, spaceId: number) => void>;
 }
@@ -61,11 +64,13 @@ class RealtimeClient {
   #retryTimer: number | null = null;
   #pingTimer: number | null = null;
   #projectId: number | null = null;
+  /** « Mon tableau » : abonné aux évènements de tous les projets que l'on voit. */
+  #mine = false;
   #presence: { ticketId: number | null; view: string } = { ticketId: null, view: '' };
   #hasConnectedOnce = false;
   /** Visiteur sans compte d'un tableau partagé : connexion limitée aux tableaux. */
   #guest = false;
-  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], spacesRefresh: [], groupsChanged: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], notificationsRemoved: [], notificationSettings: [], doc: [], board: [], favorites: [], snapshots: [] };
+  readonly #handlers: Handlers = { event: [], presence: [], meRefresh: [], projectsRefresh: [], spacesRefresh: [], groupsChanged: [], revoked: [], resync: [], open: [], app: [], notification: [], notificationsRead: [], notificationsRemoved: [], notificationSettings: [], doc: [], board: [], favorites: [], homeLayout: [], snapshots: [] };
 
   on<K extends keyof Handlers>(type: K, handler: Handlers[K][number]): () => void {
     (this.#handlers[type] as Array<typeof handler>).push(handler);
@@ -94,6 +99,7 @@ class RealtimeClient {
   disconnect(): void {
     this.#wanted = false;
     this.#projectId = null;
+    this.#mine = false;
     this.#hasConnectedOnce = false;
     this.#clearTimers();
     this.#socket?.close();
@@ -103,11 +109,20 @@ class RealtimeClient {
 
   subscribe(projectId: number): void {
     this.#projectId = projectId;
+    this.#mine = false;
+    this.#sendSubscribe();
+  }
+
+  /** « Mon tableau » : les évènements de tous les projets que l'on voit. */
+  subscribeMine(): void {
+    this.#projectId = null;
+    this.#mine = true;
     this.#sendSubscribe();
   }
 
   unsubscribe(): void {
     this.#projectId = null;
+    this.#mine = false;
     this.#send({ t: 'unsubscribe' });
   }
 
@@ -196,6 +211,9 @@ class RealtimeClient {
       case 'groups.changed':
         this.#handlers.groupsChanged.forEach((handler) => handler());
         break;
+      case 'homeLayout.changed':
+        this.#handlers.homeLayout.forEach((handler) => handler(message.layout));
+        break;
       case 'favorites.changed':
         this.#handlers.favorites.forEach((handler) => handler(message.favorites));
         break;
@@ -250,6 +268,10 @@ class RealtimeClient {
   }
 
   #sendSubscribe(): void {
+    if (this.#mine) {
+      this.#send({ t: 'subscribe.mine' });
+      return;
+    }
     if (this.#projectId !== null) {
       this.#send({ t: 'subscribe', projectId: this.#projectId });
       if (this.#presence.ticketId !== null || this.#presence.view) {

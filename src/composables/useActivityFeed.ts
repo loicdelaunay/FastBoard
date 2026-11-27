@@ -1,8 +1,9 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { todayISO, addDays } from '@shared/dates';
 import type { ActivityCommentDTO, ActivityDTO, ActivityGroup } from '@shared/types';
-import { api } from '@/api';
+import { api, type ActivityFilters } from '@/api';
 import { realtime } from '@/realtime/socket';
+import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
 import { notifyError } from '@/utils/notify';
 import { matchesQuery } from '@/utils/search';
@@ -66,6 +67,7 @@ function searchableText(activity: ActivityDTO, authorName: string | undefined): 
 /** Fil d'activité du projet courant : chargement paginé, filtres côté serveur, insertion en direct. */
 export function useActivityFeed() {
   const project = useProjectStore();
+  const auth = useAuthStore();
   /** Origine des actions : toutes, interface uniquement, ou API (agents, scripts) uniquement. */
   const filters = reactive({ group: 'all' as GroupFilter, userId: null as number | null, source: 'all' as 'all' | 'ui' | 'api', search: '' });
   const items = ref<ActivityDTO[]>([]);
@@ -83,13 +85,26 @@ export function useActivityFeed() {
     };
   }
 
+  /** Page d'activité : du projet ouvert, ou (« Mon tableau ») celle qui me concerne dans tous mes projets. */
+  function fetchPage(filters: ActivityFilters): Promise<{ activities: ActivityDTO[]; nextBefore: number | null }> | null {
+    if (project.personal) return api.myActivity(filters);
+    return project.projectId === null ? null : api.activity(project.projectId, filters);
+  }
+  /** Évènement en direct du projet affiché (ou, dans « Mon tableau », qui me concerne). */
+  function concerns(projectId: number, activity?: ActivityDTO): boolean {
+    if (!project.personal) return projectId === project.projectId;
+    if (!activity) return true;
+    const ticketId = (activity.data as { ticketId?: number }).ticketId;
+    return activity.userId === auth.user?.id || (ticketId !== undefined && project.ticketsById.has(ticketId));
+  }
+
   async function load(): Promise<void> {
-    const id = project.projectId;
-    if (id === null) return;
+    const request = fetchPage(serverFilters());
+    if (!request) return;
     const current = ++generation;
     loading.value = true;
     try {
-      const page = await api.activity(id, serverFilters());
+      const page = await request;
       if (current === generation) {
         items.value = page.activities;
         nextBefore.value = page.nextBefore;
@@ -102,12 +117,13 @@ export function useActivityFeed() {
   }
 
   async function loadMore(): Promise<void> {
-    const id = project.projectId;
-    if (id === null || nextBefore.value === null || loadingMore.value) return;
+    if (nextBefore.value === null || loadingMore.value) return;
+    const request = fetchPage({ ...serverFilters(), before: nextBefore.value });
+    if (!request) return;
     loadingMore.value = true;
     const current = generation;
     try {
-      const page = await api.activity(id, { ...serverFilters(), before: nextBefore.value });
+      const page = await request;
       if (current === generation) {
         const known = new Set(items.value.map((item) => item.id));
         items.value = [...items.value, ...page.activities.filter((item) => !known.has(item.id))];
@@ -139,11 +155,11 @@ export function useActivityFeed() {
   }
 
   const stopComments = realtime.on('event', (event, meta) => {
-    if (event.type === 'activity.comment' && meta.projectId === project.projectId) upsertComment(event.comment);
+    if (event.type === 'activity.comment' && concerns(meta.projectId)) upsertComment(event.comment);
   });
 
   const stopListening = realtime.on('event', (event, meta) => {
-    if (event.type !== 'activity.created' || meta.projectId !== project.projectId || !matchesFilters(event.activity)) return;
+    if (event.type !== 'activity.created' || !concerns(meta.projectId, event.activity) || !matchesFilters(event.activity)) return;
     if (items.value.some((item) => item.id === event.activity.id)) return;
     items.value = [event.activity, ...items.value];
     fresh.value = new Set(fresh.value).add(event.activity.id);
@@ -167,7 +183,7 @@ export function useActivityFeed() {
   });
 
   watch(() => [filters.group, filters.userId, filters.source], () => void load());
-  watch(() => project.projectId, () => void load());
+  watch(() => [project.projectId, project.personal], () => void load());
 
   const visible = computed(() =>
     filters.search.trim()

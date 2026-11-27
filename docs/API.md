@@ -334,6 +334,51 @@ curl -s -X PUT "$FASTBOARD/api/me/favorites/project/3" -H "Authorization: Bearer
 `assigned` donne les tickets ouverts dont une part de la personne n'est pas finie, par échéance : une bonne liste de
 travail pour un agent qui agit au nom de quelqu'un.
 
+**Disposition de l'accueil.** `layout` (dans `GET /me/home`) dit quels blocs la personne a choisis, dans l'ordre, avec
+leur largeur (`third`, `half`, `twoThirds`, `full`), leur hauteur (`compact`, `normal`, `tall`), un titre et leurs
+réglages : blocs d'origine (`favorites`, `assigned`, `notifications`, `recent`, `bookmarks`) et blocs de suivi
+(`status`, `overdue`, `upcoming`, `project`, `deliveries`, `savedFilter`, `activity`). `PUT /me/home-layout` la
+remplace (`{ "layout": null }` revient à celle par défaut) ; les autres onglets de la personne reçoivent
+`homeLayout.changed`.
+
+```bash
+# Un accueil de suivi : mes tickets par statut, mes échéances à 14 jours et l'avancement du projet 3
+curl -s -X PUT "$FASTBOARD/api/me/home-layout" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"layout":{"blocks":[{"id":"s","type":"status","size":"third"},{"id":"u","type":"upcoming","size":"third","options":{"days":14}},{"id":"p","type":"project","size":"third","options":{"projectId":3}}]}}'
+```
+
+**Mon tableau.** `GET /me/board` rassemble les tickets assignés à la personne (une ligne d'avancement à son nom) dans
+tous ses projets non archivés, avec les listes de chaque projet (`categories`, `priorities`, `components`,
+`deliveries`, chacune avec son `projectId`), ses personnes et, par projet, `permissions` et `memberIds` : un ticket se
+modifie selon les droits de son projet. `GET /me/activity` donne l'activité qui la concerne (ses actions, et ce qui
+touche ses tickets), avec les mêmes filtres et la même pagination que l'activité d'un projet. En WebSocket,
+`{ "t": "subscribe.mine" }` reçoit les évènements de tous les projets que l'on voit.
+
+```bash
+curl -s "$FASTBOARD/api/me/board" -H "Authorization: Bearer $TOKEN"
+curl -s "$FASTBOARD/api/me/activity?limit=50" -H "Authorization: Bearer $TOKEN"
+```
+
+### Filtres enregistrés et liens filtrés
+
+Les vues Liste, Kanban et Gantt lisent leurs filtres dans l'adresse : `q` (texte), `categories`, `livraisons`,
+`personnes` (identifiants séparés par des virgules ; `sans` : sans catégorie, sans livraison, non assigné), `statuts`
+(`todo,in_progress`…), `retard=1`, `mes=1` (« Mes tickets ») et, dans « Mon tableau », `projets`. Exemple :
+`/p/3/kanban?categories=7,sans&statuts=todo,blocked&retard=1`.
+
+```bash
+# Les filtres enregistrés du projet : les vôtres, puis ceux partagés par les autres (avec createdByName et description)
+curl -s "$FASTBOARD/api/projects/3/filters" -H "Authorization: Bearer $TOKEN"
+# Enregistrer un filtre, partagé avec tout le projet (shared) ; le modifier, le supprimer
+curl -s -X POST "$FASTBOARD/api/projects/3/filters" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "name": "Bugs à tester", "description": "Revue du vendredi", "shared": true, "filters": { "categoryIds": [7], "statuses": ["review"] } }'
+curl -s -X PATCH "$FASTBOARD/api/filters/12" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{ "name": "Bugs à tester (v2)" }'
+curl -s -X DELETE "$FASTBOARD/api/filters/12" -H "Authorization: Bearer $TOKEN"
+```
+
+Un filtre partagé se modifie et se supprime par son auteur, ou par qui gère le projet (`project.edit`) ; seul l'auteur
+peut ne plus le partager (il le garde). Les filtres partagés sont diffusés en direct (`filter.saved`, `filter.deleted`).
+
 ### Étiquettes d'espace (état figé d'un espace ou d'un projet)
 
 Une étiquette d'espace fige tout le contenu d'un espace de documentation (`docs`), d'un espace de tableaux blancs
@@ -567,7 +612,7 @@ Le serveur diffuse les évènements d'un projet en WebSocket : `ws://<hôte>/ws`
 { "t": "event", "projectId": 1, "event": { "type": "activity.created", "activity": { … } }, … }
 ```
 
-Types d'évènements : `ticket.created|updated|deleted`, `tickets.reordered`, `comment.created|updated|deleted`, `history.created`, `activity.created`, `category.*`, `priority.*`, `component.*`, `delivery.*`, `project.updated`, `members.changed`. La définition complète est dans `shared/realtime.ts`.
+Types d'évènements : `filter.saved`, `filter.deleted` (filtres partagés du projet), `ticket.created|updated|deleted`, `tickets.reordered`, `comment.created|updated|deleted`, `history.created`, `activity.created`, `category.*`, `priority.*`, `component.*`, `delivery.*`, `project.updated`, `members.changed`. La définition complète est dans `shared/realtime.ts`.
 
 Hors projet, le serveur envoie aussi `{ "t": "projects.refresh" }` et `{ "t": "spaces.refresh" }` quand la liste des
 projets ou des espaces visibles change (par exemple après un ajout à un groupe), `{ "t": "project.revoked", … }`

@@ -3,9 +3,11 @@ import type { FavoriteKind } from '../../shared/home.ts';
 import type { AppContext } from '../context.ts';
 import { badRequest } from '../http/errors.ts';
 import { currentUser } from '../http/middleware.ts';
-import { favoriteKindSchema } from '../http/schemas.ts';
-import { idParam } from '../http/validate.ts';
-import { homeFor, listFavorites, setFavorite } from '../services/home.ts';
+import { activityQuerySchema, favoriteKindSchema, homeLayoutSchema } from '../http/schemas.ts';
+import { idParam, parse } from '../http/validate.ts';
+import { listPersonalActivities } from '../services/activity.ts';
+import { homeFor, listFavorites, setFavorite, setHomeLayout } from '../services/home.ts';
+import { personalBoard, personalProjectIds } from '../services/personalBoard.ts';
 
 /** Accueil de la personne connectée, et ses espaces favoris (documentation, tableaux blancs, projets). */
 export function homeRouter(ctx: AppContext): Router {
@@ -18,6 +20,32 @@ export function homeRouter(ctx: AppContext): Router {
 
   router.get('/me/home', (_req, res) => {
     res.json({ home: homeFor(ctx, currentUser(res)) });
+  });
+
+  // Disposition de l'Accueil : blocs, ordre, tailles et réglages de chacun.
+  router.put('/me/home-layout', (req, res) => {
+    const body = parse(homeLayoutSchema, req.body);
+    res.json({ layout: setHomeLayout(ctx, currentUser(res), body.layout) });
+  });
+
+  // « Mon tableau » : mes tickets de tous mes projets, et l'activité qui me concerne.
+  router.get('/me/board', (_req, res) => {
+    res.json({ board: personalBoard(ctx.db, currentUser(res)) });
+  });
+
+  router.get('/me/activity', (req, res) => {
+    const user = currentUser(res);
+    const query = parse(activityQuerySchema, req.query);
+    res.json(
+      listPersonalActivities(ctx.db, user.id, personalProjectIds(ctx.db, user), {
+        limit: query.limit,
+        before: query.before,
+        groups: query.group,
+        userId: query.userId,
+        source: query.source ?? (query.viaApi ? 'api' : undefined),
+        ticketId: query.ticketId,
+      }),
+    );
   });
 
   router.get('/me/favorites', (_req, res) => {

@@ -2,6 +2,7 @@ import { docTitle } from '../../shared/docs.ts';
 import { boardTitle } from '../../shared/boards.ts';
 import { HOME_LIMITS, type FavoriteKind, type FavoriteSpaceDTO, type HomeDTO, type HomeRecentDTO, type HomeTicketDTO } from '../../shared/home.ts';
 import type { TicketStatus } from '../../shared/constants.ts';
+import { defaultHomeLayout, normalizeHomeLayout, type HomeLayout } from '../../shared/homeLayout.ts';
 import { boardsEnabled, listBoardSpaces, requireBoardSpace, requireBoardsEnabled } from '../boards/store.ts';
 import type { AppContext } from '../context.ts';
 import { nowIso } from '../db/database.ts';
@@ -154,6 +155,26 @@ function assignedOf(ctx: AppContext, user: AuthUser, visible: Visible): HomeTick
   return tickets;
 }
 
+/** Disposition de l'Accueil de la personne (celle par défaut si elle ne l'a pas changée, ou si elle est illisible). */
+export function homeLayoutOf(ctx: AppContext, userId: number): HomeLayout {
+  const row = ctx.db.get<{ home_layout: string | null }>('SELECT home_layout FROM users WHERE id = ?', userId);
+  if (!row?.home_layout) return defaultHomeLayout();
+  try {
+    return normalizeHomeLayout(JSON.parse(row.home_layout));
+  } catch {
+    return defaultHomeLayout();
+  }
+}
+
+/** Enregistre la disposition de l'Accueil (`null` : revenir à celle par défaut) ; ses autres onglets suivent. */
+export function setHomeLayout(ctx: AppContext, user: AuthUser, layout: unknown): HomeLayout {
+  const value = layout === null ? null : normalizeHomeLayout(layout);
+  ctx.db.run('UPDATE users SET home_layout = ? WHERE id = ?', value ? JSON.stringify(value) : null, user.id);
+  const saved = value ?? defaultHomeLayout();
+  ctx.hub.sendToUser(user.id, { t: 'homeLayout.changed', layout: saved });
+  return saved;
+}
+
 export function homeFor(ctx: AppContext, user: AuthUser): HomeDTO {
   const visible = visibleSpaces(ctx, user);
   return {
@@ -163,5 +184,6 @@ export function homeFor(ctx: AppContext, user: AuthUser): HomeDTO {
     bookmarks: docsEnabled(ctx.db) ? listBookmarks(ctx, user) : [],
     notifications: importantNotifications(ctx.db, user.id, HOME_LIMITS.notifications),
     unread: unreadCount(ctx.db, user.id),
+    layout: homeLayoutOf(ctx, user.id),
   };
 }

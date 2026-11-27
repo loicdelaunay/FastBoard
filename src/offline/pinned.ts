@@ -207,6 +207,8 @@ async function syncBoards(id: number, tag: string, userId: number, { images }: F
 
 async function syncProject(id: number, tag: string, { images, downloads }: Files): Promise<number> {
   const snapshot = await keep(`/projects/${id}`, () => api.snapshot(id), tag);
+  // Les filtres enregistrés du projet (le menu des filtres les lit hors ligne aussi).
+  await keep(`/projects/${id}/filters`, () => api.projectFilters(id), tag);
   await pool(
     snapshot.tickets.map((ticket) => async () => {
       await keep(`/tickets/${ticket.id}/comments`, () => api.comments(ticket.id), tag);

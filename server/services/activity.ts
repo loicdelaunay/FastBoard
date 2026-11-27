@@ -76,8 +76,26 @@ export interface ActivityQuery {
 }
 
 export function listActivities(db: Db, projectId: number, query: ActivityQuery): { activities: ActivityDTO[]; nextBefore: number | null } {
-  const where = ['project_id = ?'];
-  const params: SqlParam[] = [projectId];
+  return activitiesWhere(db, ['project_id = ?'], [projectId], query);
+}
+
+/**
+ * « Mon tableau » : l'activité qui concerne une personne dans ses projets, c'est-à-dire ses propres actions et tout ce
+ * qui touche les tickets qui lui sont assignés.
+ */
+export function listPersonalActivities(db: Db, userId: number, projectIds: readonly number[], query: ActivityQuery): { activities: ActivityDTO[]; nextBefore: number | null } {
+  if (!projectIds.length) return { activities: [], nextBefore: null };
+  return activitiesWhere(
+    db,
+    [`project_id IN (${projectIds.map(() => '?').join(', ')})`, "(user_id = ? OR json_extract(data, '$.ticketId') IN (SELECT ticket_id FROM ticket_parts WHERE user_id = ?))"],
+    [...projectIds, userId, userId],
+    query,
+  );
+}
+
+function activitiesWhere(db: Db, base: string[], baseParams: SqlParam[], query: ActivityQuery): { activities: ActivityDTO[]; nextBefore: number | null } {
+  const where = [...base];
+  const params: SqlParam[] = [...baseParams];
   if (query.before !== undefined) {
     where.push('id < ?');
     params.push(query.before);

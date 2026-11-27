@@ -15,12 +15,14 @@ import { VERSION_TAG_LIMITS } from '../../shared/versionTags.ts';
 import { SNAPSHOT_KINDS, SNAPSHOT_LIMITS } from '../../shared/snapshots.ts';
 import { NOTIFICATION_CATEGORIES } from '../../shared/notificationCategories.ts';
 import { FAVORITE_KINDS } from '../../shared/home.ts';
+import { ACTIVITY_GROUPS, HOME_BLOCK_HEIGHTS, HOME_BLOCK_SIZES, HOME_BLOCK_TYPES, HOME_LAYOUT_LIMITS } from '../../shared/homeLayout.ts';
 import { COLUMN_LABEL_MAX, SORT_FIELDS } from '../../shared/settings.ts';
 import { LOCALES } from '../../shared/locales.ts';
 import { LOG_LEVELS } from '../../shared/monitoring.ts';
 import { CUSTOM_FIELD_LIMITS, CUSTOM_FIELD_TYPES, TICKET_FIELDS } from '../../shared/ticketFields.ts';
 import { APPEARANCE_LIMITS, READING_WIDTHS, SURFACE_PALETTES, THEME_COLORS, THEME_PRESETS, isFontFamily, isThemeId, type ThemeColorKey } from '../../shared/themes.ts';
 import { GROUP_LIMITS, GROUP_MEMBER_ROLES, GROUP_SPACE_ROLES } from '../../shared/groups.ts';
+import { SAVED_FILTER_LIMITS, TICKET_FILTER_LIMITS } from '../../shared/ticketFilters.ts';
 import { z } from './validate.ts';
 
 // --- Briques communes -----------------------------------------------------------------------------------------------
@@ -404,6 +406,57 @@ export const ticketQuerySchema = z.object({
   updatedSince: z.string().datetime().optional().describe('Uniquement les tickets modifiés après cette date (ISO 8601).'),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   offset: z.coerce.number().int().min(0).default(0),
+});
+
+// --- Filtres des tickets (Liste, Kanban, Gantt) et filtres enregistrés ---
+const filterIds = z.array(z.union([id, z.literal('none')])).max(TICKET_FILTER_LIMITS.idsMax).default([]);
+export const ticketFilterValuesSchema = z
+  .object({
+    search: z.string().max(TICKET_FILTER_LIMITS.searchMax).default(''),
+    categoryIds: filterIds.describe('Catégories ; `none` : sans catégorie.'),
+    deliveryIds: filterIds.describe('Livraisons ; `none` : sans livraison.'),
+    assigneeIds: filterIds.describe('Personnes ; `none` : non assigné.'),
+    statuses: z.array(z.enum(TICKET_STATUSES)).max(TICKET_STATUSES.length).default([]),
+    overdueOnly: z.boolean().default(false),
+    mineOnly: z.boolean().default(false).describe('« Mes tickets » : ceux de la personne qui utilise le filtre.'),
+    projectIds: z.array(id).max(TICKET_FILTER_LIMITS.idsMax).default([]).describe('« Mon tableau » seulement.'),
+  })
+  .describe('Valeurs des filtres : une liste vide ne filtre pas.');
+export const savedFilterSchema = z.object({
+  name: z.string().trim().min(1, 'Donnez un nom au filtre.').max(SAVED_FILTER_LIMITS.nameMax),
+  description: z.string().trim().max(SAVED_FILTER_LIMITS.descriptionMax).default(''),
+  filters: ticketFilterValuesSchema,
+  shared: z.boolean().default(false).describe('Partagé avec tout le projet (chacun peut l’utiliser).'),
+});
+export const savedFilterPatchSchema = z.object({
+  name: z.string().trim().min(1, 'Donnez un nom au filtre.').max(SAVED_FILTER_LIMITS.nameMax).optional(),
+  description: z.string().trim().max(SAVED_FILTER_LIMITS.descriptionMax).optional(),
+  filters: ticketFilterValuesSchema.optional(),
+  shared: z.boolean().optional(),
+});
+
+const homeBlockSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,24}$/).describe('Identifiant du bloc dans la disposition (lettres, chiffres, `-` et `_`, unique).'),
+  type: z.enum(HOME_BLOCK_TYPES),
+  size: z.enum(HOME_BLOCK_SIZES).optional().describe('Largeur : un tiers, la moitié, deux tiers ou toute la ligne.'),
+  height: z.enum(HOME_BLOCK_HEIGHTS).optional().describe('Hauteur de sa liste.'),
+  title: z.string().max(HOME_LAYOUT_LIMITS.titleMax).optional().describe('Titre choisi ; vide : celui du type.'),
+  options: z
+    .object({
+      limit: z.number().int().min(HOME_LAYOUT_LIMITS.limitMin).max(HOME_LAYOUT_LIMITS.limitMax).optional().describe('Nombre d’éléments montrés.'),
+      projectId: z.number().int().positive().nullable().optional().describe('Projet suivi, ou auquel le bloc se limite.'),
+      filterId: z.number().int().positive().nullable().optional().describe('Filtre enregistré (bloc `savedFilter`).'),
+      days: z.number().int().min(HOME_LAYOUT_LIMITS.daysMin).max(HOME_LAYOUT_LIMITS.daysMax).optional().describe('Échéances : dans combien de jours.'),
+      hideDone: z.boolean().optional().describe('Statuts : sans les tickets terminés.'),
+      group: z.enum(ACTIVITY_GROUPS).optional().describe('Activité : tout, les tickets ou les commentaires.'),
+    })
+    .optional(),
+});
+export const homeLayoutSchema = z.object({
+  layout: z
+    .object({ blocks: z.array(homeBlockSchema).max(HOME_LAYOUT_LIMITS.blocks) })
+    .nullable()
+    .describe('Les blocs, dans l’ordre ; `null` : revenir à la disposition par défaut.'),
 });
 
 export const activityQuerySchema = z.object({

@@ -26,6 +26,8 @@ const visible = computed({
   get: () => ui.quickEdit !== null && ticket.value !== undefined,
   set: (value: boolean) => !value && (ui.quickEdit = null),
 });
+// Fermée : « Mon tableau » revient au contexte d'avant.
+watch(visible, (open) => !open && project.setContext('quick', null));
 
 const title = ref('');
 const start = ref<Date | null>(null);
@@ -44,11 +46,12 @@ watch(
     end.value = isoToDate(current.endDate);
     targetProject.value = null;
     targetStatus.value = current.status;
+    project.setContext('quick', current.projectId);
     if (request.mode === 'transfer' && !projects.loaded) void projects.fetch().catch(() => undefined);
   },
 );
 
-const otherProjects = computed(() => projects.projects.filter((entry) => entry.id !== project.projectId && !entry.archived));
+const otherProjects = computed(() => projects.projects.filter((entry) => entry.id !== (ticket.value?.projectId ?? project.projectId) && !entry.archived));
 const statusOptions = TICKET_STATUSES.map((status) => ({ value: status, label: t(STATUS_META[status].label) }));
 const header = computed(() => {
   const key = ticket.value ? ticketKey(project.project, ticket.value) : '';

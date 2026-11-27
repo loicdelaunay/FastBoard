@@ -185,7 +185,7 @@ function exportCsv(): void {
       row.ticket.commentCount,
     ];
   });
-  const name = (project.project?.key ?? 'tickets').toLowerCase();
+  const name = (project.project?.key || (project.personal ? t('mon-tableau') : 'tickets')).toLowerCase();
   downloadFile(`${name}-tickets-${todayISO()}.csv`, toCsv([header, ...lines]));
 }
 </script>

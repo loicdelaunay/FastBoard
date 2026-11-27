@@ -21,7 +21,8 @@ const dnd = useKanbanDnd();
 const board = ref<HTMLElement | null>(null);
 
 const canMove = computed(() => project.can('ticket.edit') && !project.archived);
-const canCreate = computed(() => project.can('ticket.create') && !project.archived);
+// « Mon tableau » mêle plusieurs projets : on n'y crée pas de ticket.
+const canCreate = computed(() => !project.personal && project.can('ticket.create') && !project.archived);
 
 // --- Tickets terminés montrés : le choix de chacun (menu ⋯ de « Terminé »), sinon l'automatisation du projet ---
 const doneKey = computed(() => `fb.kanban.done.${project.project?.id ?? 0}`);

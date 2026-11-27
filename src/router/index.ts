@@ -9,10 +9,30 @@ export const PROJECT_VIEWS = ['analyzer', 'list', 'kanban', 'gantt', 'activity']
 export type ProjectView = (typeof PROJECT_VIEWS)[number];
 
 const VIEW_STORAGE_KEY = 'fb.view';
+/** Dernière vue de « Mon tableau » (à part de celle des projets). */
+const MY_VIEW_STORAGE_KEY = 'fb.myView';
+/** Dernier onglet de l'Accueil : « Accueil » ou « Mon tableau ». */
+const HOME_TAB_STORAGE_KEY = 'fb.homeTab';
 
-export function lastProjectView(): ProjectView {
+function lastHomeTab(): 'home' | 'board' {
   try {
-    const stored = localStorage.getItem(VIEW_STORAGE_KEY);
+    return localStorage.getItem(HOME_TAB_STORAGE_KEY) === 'board' ? 'board' : 'home';
+  } catch {
+    return 'home';
+  }
+}
+
+function rememberHomeTab(tab: 'home' | 'board'): void {
+  try {
+    localStorage.setItem(HOME_TAB_STORAGE_KEY, tab);
+  } catch {
+    /* stockage indisponible */
+  }
+}
+
+export function lastProjectView(key = VIEW_STORAGE_KEY): ProjectView {
+  try {
+    const stored = localStorage.getItem(key);
     if (stored && (PROJECT_VIEWS as readonly string[]).includes(stored)) {
       return stored as ProjectView;
     }
@@ -22,9 +42,9 @@ export function lastProjectView(): ProjectView {
   return 'kanban';
 }
 
-function rememberView(view: string): void {
+function rememberView(view: string, key = VIEW_STORAGE_KEY): void {
   try {
-    localStorage.setItem(VIEW_STORAGE_KEY, view);
+    localStorage.setItem(key, view);
   } catch {
     /* stockage indisponible */
   }
@@ -37,7 +57,27 @@ const router = createRouter({
     // Site web d'un espace de documentation : sans la navigation, et sans compte s'il est public.
     { path: '/t/:slug', name: 'board-share', component: () => import('@/views/boards/BoardShareView.vue'), meta: { public: true, bare: true } },
     { path: '/wiki/:slug/:nodeId(\\d+)?', name: 'wiki', component: () => import('@/views/WikiView.vue'), meta: { public: true, bare: true } },
-    { path: '/accueil', name: 'home', component: () => import('@/views/HomeView.vue') },
+    // Accueil : la page d'accueil et « Mon tableau » (mes tickets de tous mes projets, avec les vues d'un projet), sous
+    // une même barre où leurs onglets ne bougent pas.
+    {
+      path: '/accueil',
+      component: () => import('@/views/HomeShell.vue'),
+      children: [
+        { path: '', name: 'home', component: () => import('@/views/HomeView.vue') },
+        {
+          path: 'tableau',
+          component: () => import('@/views/MyBoardLayout.vue'),
+          children: [
+        { path: '', name: 'my-board', redirect: (to) => ({ name: `my-${lastProjectView(MY_VIEW_STORAGE_KEY)}`, query: to.query }) },
+        { path: 'analyse', name: 'my-analyzer', component: () => import('@/views/project/AnalyzerView.vue'), meta: { view: 'analyzer', personal: true } },
+        { path: 'liste', name: 'my-list', component: () => import('@/views/project/ListView.vue'), meta: { view: 'list', personal: true } },
+        { path: 'kanban', name: 'my-kanban', component: () => import('@/views/project/KanbanView.vue'), meta: { view: 'kanban', personal: true } },
+        { path: 'gantt', name: 'my-gantt', component: () => import('@/views/project/GanttView.vue'), meta: { view: 'gantt', personal: true } },
+        { path: 'activite', name: 'my-activity', component: () => import('@/views/project/ActivityView.vue'), meta: { view: 'activity', personal: true } },
+          ],
+        },
+      ],
+    },
     { path: '/', name: 'projects', component: () => import('@/views/ProjectsView.vue') },
     { path: '/documentation', name: 'docs', component: () => import('@/views/docs/DocSpacesView.vue'), meta: { docs: true } },
     { path: '/documentation/f/:nodeId(\\d+)', name: 'doc-file', component: () => import('@/views/docs/DocFileRedirect.vue'), meta: { docs: true } },
@@ -112,7 +152,7 @@ const router = createRouter({
   scrollBehavior: (to, from) => (to.path === from.path && JSON.stringify(to.query) === JSON.stringify(from.query) ? false : { top: 0 }),
 });
 
-router.beforeEach((to) => {
+router.beforeEach((to, from) => {
   const auth = useAuthStore();
   if (to.meta.public) {
     return auth.isAuthenticated && to.name === 'login' ? { name: 'home' } : true;
@@ -134,12 +174,18 @@ router.beforeEach((to) => {
   if (to.meta.boards && !useAppStore().info.boards) {
     return { name: 'projects' };
   }
+  // Arrivée sur l'Accueil depuis ailleurs (barre latérale, connexion) : le dernier onglet choisi.
+  if (to.name === 'home' && !from.path.startsWith('/accueil') && lastHomeTab() === 'board') {
+    return { name: 'my-board' };
+  }
   return true;
 });
 
 router.afterEach((to) => {
+  if (to.name === 'home') rememberHomeTab('home');
+  else if (to.path.startsWith('/accueil/tableau')) rememberHomeTab('board');
   if (typeof to.meta.view === 'string' && to.meta.view !== 'settings') {
-    rememberView(to.meta.view);
+    rememberView(to.meta.view, to.meta.personal ? MY_VIEW_STORAGE_KEY : VIEW_STORAGE_KEY);
   }
 });
 

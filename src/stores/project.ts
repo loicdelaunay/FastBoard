@@ -6,6 +6,8 @@ import { progressReminderUsers, withProgressUpdate } from '@shared/progressRemin
 import { defaultSettings, type ColumnConfig, type ProjectSettingsDTO } from '@shared/settings';
 import type { PresenceUser, ProjectEvent } from '@shared/realtime';
 import type { TicketFieldKey } from '@shared/ticketFields';
+import type { SavedFilterDTO } from '@shared/ticketFilters';
+import type { PersonalBoardDTO, PersonalProjectDTO } from '@shared/personalBoard';
 import type { ProjectGroupDTO } from '@shared/groups';
 import type {
   AttachmentDTO,
@@ -24,7 +26,9 @@ import { api, uploadAttachment, type DeliveryInput, type TicketInput } from '@/a
 import { ApiError, clientId, errorMessage } from '@/api/http';
 import { useUndoStack } from '@/composables/useUndoStack';
 import { realtime, type EventMeta } from '@/realtime/socket';
+import { useAuthStore } from '@/stores/auth';
 import { launchConfetti } from '@/utils/confetti';
+import { registerProjectKeys } from '@/utils/tickets';
 
 import { t } from '@/i18n';
 const POSITION_STEP = 1024;
@@ -36,6 +40,8 @@ const OPTIMISTIC_KEYS = ['title', 'description', 'status', 'categoryId', 'priori
 export type ListKind = 'priority' | 'component';
 
 type ProjectStatus = 'idle' | 'loading' | 'ready' | 'error' | 'revoked';
+/** D'où vient le ticket « en cours » de « Mon tableau » (voir `setContext`). */
+type ContextSource = 'dialog' | 'menu' | 'quick';
 
 function byPosition(a: Pick<TicketDTO, 'position' | 'id'>, b: Pick<TicketDTO, 'position' | 'id'>): number {
   return a.position - b.position || a.id - b.id;
@@ -43,19 +49,51 @@ function byPosition(a: Pick<TicketDTO, 'position' | 'id'>, b: Pick<TicketDTO, 'p
 
 export const useProjectStore = defineStore('project', () => {
   const projectId = ref<number | null>(null);
+  /**
+   * « Mon tableau » (Accueil) : les tickets assignés à la personne dans tous ses projets, montrés par les mêmes vues
+   * qu'un projet. Chaque ticket garde son projet : ses listes, ses réglages et ses droits s'appliquent quand il est ouvert
+   * (`contextProjectId`).
+   */
+  const personal = ref(false);
+  const personalProjects = ref<PersonalProjectDTO[]>([]);
+  /**
+   * Projet du ticket en cours dans « Mon tableau » (null ailleurs) : celui du menu ou de l'édition rapide s'ils sont
+   * ouverts, sinon celui de la fenêtre du ticket.
+   */
+  const contextSources = ref<Record<ContextSource, number | null>>({ dialog: null, menu: null, quick: null });
+  const contextProjectId = computed(() => (personal.value ? (contextSources.value.menu ?? contextSources.value.quick ?? contextSources.value.dialog) : null));
+  const contextEntry = computed(() => (personal.value && contextProjectId.value !== null ? (personalProjects.value.find((entry) => entry.project.id === contextProjectId.value) ?? null) : null));
+  /** Dans « Mon tableau », un ticket ouvert ne propose que les listes de son projet. */
+  function inContext<T extends { projectId: number }>(list: T[]): T[] {
+    return contextEntry.value ? list.filter((item) => item.projectId === contextProjectId.value) : list;
+  }
   const project = ref<ProjectDTO | null>(null);
   const members = ref<ProjectMemberDTO[]>([]);
   /** Groupes ajoutés au projet (leurs membres y ont accès avec le rôle du groupe). */
   const groups = ref<ProjectGroupDTO[]>([]);
-  const users = ref<UserSummaryDTO[]>([]);
+  const allUsers = ref<UserSummaryDTO[]>([]);
+  /** Personnes du projet (dans « Mon tableau » : de tous mes projets, ou de celui du ticket ouvert). */
+  const users = computed<UserSummaryDTO[]>({
+    get: () => {
+      const entry = contextEntry.value;
+      if (!entry) return allUsers.value;
+      const ids = new Set(entry.memberIds);
+      return allUsers.value.filter((user) => ids.has(user.id));
+    },
+    set: (value) => (allUsers.value = value),
+  });
   const rawCategories = ref<CategoryDTO[]>([]);
   /** Catégories ; les noms par défaut (créés avec le projet) sont affichés dans la langue de l'interface. */
-  const categories = computed(() => rawCategories.value.map((category) => ({ ...category, name: t(category.name) })));
+  const allCategories = computed(() => rawCategories.value.map((category) => ({ ...category, name: t(category.name) })));
+  const categories = computed(() => inContext(allCategories.value));
   const rawPriorities = ref<ProjectListItemDTO[]>([]);
   /** Priorités, de la plus haute à la plus basse ; les noms par défaut sont traduits. */
-  const priorities = computed(() => rawPriorities.value.map((priority) => ({ ...priority, name: t(priority.name) })));
-  const components = ref<ProjectListItemDTO[]>([]);
-  const deliveries = ref<DeliveryDTO[]>([]);
+  const allPriorities = computed(() => rawPriorities.value.map((priority) => ({ ...priority, name: t(priority.name) })));
+  const priorities = computed(() => inContext(allPriorities.value));
+  const allComponents = ref<ProjectListItemDTO[]>([]);
+  const components = computed(() => inContext(allComponents.value));
+  const allDeliveries = ref<DeliveryDTO[]>([]);
+  const deliveries = computed(() => inContext(allDeliveries.value));
   const tickets = ref<TicketDTO[]>([]);
   const permissions = ref<string[]>([]);
   const presence = ref<PresenceUser[]>([]);
@@ -67,6 +105,8 @@ export const useProjectStore = defineStore('project', () => {
   const history = ref<Record<number, HistoryEntryDTO[]>>({});
   const attachments = ref<Record<number, AttachmentDTO[]>>({});
   /** Évènements d'activité survenus (par d'autres) pendant que l'onglet « Activités » n'était pas affiché. */
+  /** Filtres enregistrés du projet : les siens, et ceux partagés avec le projet. */
+  const savedFilters = ref<SavedFilterDTO[]>([]);
   const unseenActivity = ref(0);
   const activityViewOpen = ref(false);
   const deletedLocally = new Set<number>();
@@ -88,9 +128,9 @@ export const useProjectStore = defineStore('project', () => {
   const childrenOf = (ticketId: number): TicketDTO[] => childrenByParent.value.get(ticketId) ?? [];
   /** Champ standard affiché dans ce projet (onglet « Ticket » des réglages). */
   const fieldOn = (key: TicketFieldKey): boolean => settings.value.ticketFields?.[key] !== false;
-  const usersById = computed(() => new Map(users.value.map((user) => [user.id, user])));
-  const categoriesById = computed(() => new Map(categories.value.map((category) => [category.id, category])));
-  const deliveriesById = computed(() => new Map(deliveries.value.map((delivery) => [delivery.id, delivery])));
+  const usersById = computed(() => new Map(allUsers.value.map((user) => [user.id, user])));
+  const categoriesById = computed(() => new Map(allCategories.value.map((category) => [category.id, category])));
+  const deliveriesById = computed(() => new Map(allDeliveries.value.map((delivery) => [delivery.id, delivery])));
   /**
    * Livraison en cours (aujourd'hui dans sa période ; la première à finir s'il y en a plusieurs), à défaut la prochaine :
    * raccourcis de l'analyseur et du ticket.
@@ -109,15 +149,18 @@ export const useProjectStore = defineStore('project', () => {
   });
   /** Livraison qui suit la « version en cours » (raccourci du ticket). */
   const nextDelivery = computed(() => upcomingDeliveries.value.find((delivery) => delivery.id !== currentDelivery.value?.delivery.id) ?? null);
-  const prioritiesById = computed(() => new Map(priorities.value.map((priority) => [priority.id, priority])));
-  const componentsById = computed(() => new Map(components.value.map((component) => [component.id, component])));
+  const prioritiesById = computed(() => new Map(allPriorities.value.map((priority) => [priority.id, priority])));
+  const componentsById = computed(() => new Map(allComponents.value.map((component) => [component.id, component])));
   /** Rang d'une priorité (0 = la plus haute) ; les tickets sans priorité passent en dernier. */
   const priorityRank = computed(() => new Map(priorities.value.map((priority, index) => [priority.id, index])));
 
   // --- Réglages : automatisations et colonnes personnalisées ---
-  const settings = computed<ProjectSettingsDTO>(() => project.value?.settings ?? defaultSettings());
-  /** Les six colonnes dans l'ordre choisi par le projet (masquées comprises) ; les noms par défaut sont traduits. */
-  const columns = computed<ColumnConfig[]>(() => settings.value.columns.map((column) => ({ ...column, label: t(column.label) })));
+  const settings = computed<ProjectSettingsDTO>(() => (personal.value ? (contextEntry.value?.project.settings ?? defaultSettings()) : (project.value?.settings ?? defaultSettings())));
+  /**
+   * Les six colonnes dans l'ordre choisi par le projet (masquées comprises) ; les noms par défaut sont traduits. « Mon
+   * tableau » mêle plusieurs projets : il garde les colonnes par défaut.
+   */
+  const columns = computed<ColumnConfig[]>(() => (personal.value ? defaultSettings() : settings.value).columns.map((column) => ({ ...column, label: t(column.label) })));
   const visibleColumns = computed(() => columns.value.filter((column) => !column.hidden));
   const statusOrder = computed(() => new Map(columns.value.map((column, index) => [column.status, index])));
 
@@ -158,6 +201,13 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   function can(permission: string): boolean {
+    if (personal.value) {
+      // Ticket ouvert : les droits de son projet. Ailleurs : ce que permet au moins un projet (le serveur vérifie ticket
+      // par ticket) ; on ne crée pas de ticket et on ne règle pas de projet depuis « Mon tableau ».
+      if (contextEntry.value) return contextEntry.value.permissions.includes(permission);
+      if (permission === 'ticket.create' || permission.startsWith('project.')) return false;
+      return personalProjects.value.some((entry) => entry.permissions.includes(permission));
+    }
     return permissions.value.includes(permission);
   }
   const readOnly = computed(() => !can('ticket.edit'));
@@ -171,11 +221,13 @@ export const useProjectStore = defineStore('project', () => {
     project.value = null;
     members.value = [];
     groups.value = [];
-    users.value = [];
+    allUsers.value = [];
     rawCategories.value = [];
     rawPriorities.value = [];
-    components.value = [];
-    deliveries.value = [];
+    allComponents.value = [];
+    allDeliveries.value = [];
+    personalProjects.value = [];
+    contextSources.value = { dialog: null, menu: null, quick: null };
     tickets.value = [];
     permissions.value = [];
     presence.value = [];
@@ -183,6 +235,7 @@ export const useProjectStore = defineStore('project', () => {
     history.value = {};
     attachments.value = {};
     flashes.value = {};
+    savedFilters.value = [];
     unseenActivity.value = 0;
     undoStack.clear();
   }
@@ -199,19 +252,73 @@ export const useProjectStore = defineStore('project', () => {
     project.value = snapshot.project;
     members.value = snapshot.members;
     groups.value = snapshot.groups;
-    users.value = snapshot.users;
+    allUsers.value = snapshot.users;
     rawCategories.value = snapshot.categories;
     rawPriorities.value = snapshot.priorities ?? [];
-    components.value = snapshot.components ?? [];
-    deliveries.value = snapshot.deliveries;
+    allComponents.value = snapshot.components ?? [];
+    allDeliveries.value = snapshot.deliveries;
     tickets.value = snapshot.tickets;
     permissions.value = snapshot.permissions;
   }
 
+  /** « Mon tableau » : un projet de synthèse, et les listes de tous mes projets. */
+  function applyPersonal(board: PersonalBoardDTO): void {
+    personalProjects.value = board.projects;
+    registerProjectKeys(board.projects.map((entry) => [entry.project.id, entry.project.key]));
+    project.value = { id: 0, name: t('Mon tableau'), key: '', description: '', archived: false, ownerId: null, settings: defaultSettings(), rag: false, createdAt: '', updatedAt: '' };
+    members.value = [];
+    groups.value = [];
+    allUsers.value = board.users;
+    rawCategories.value = board.categories;
+    rawPriorities.value = board.priorities;
+    allComponents.value = board.components;
+    allDeliveries.value = [...board.deliveries].sort((a, b) => a.startDate.localeCompare(b.startDate) || a.position - b.position);
+    tickets.value = board.tickets;
+    permissions.value = [...new Set(board.projects.flatMap((entry) => entry.permissions))];
+  }
+
+  /** Ouvre « Mon tableau » (ou le relit, `silent`). */
+  async function loadPersonal(options: { silent?: boolean } = {}): Promise<void> {
+    if (!personal.value) {
+      if (projectId.value !== null) realtime.unsubscribe();
+      clearData();
+      projectId.value = null;
+      personal.value = true;
+    }
+    if (!options.silent) {
+      status.value = 'loading';
+      error.value = '';
+    }
+    try {
+      const { board } = await api.myBoard();
+      if (!personal.value) return;
+      applyPersonal(board);
+      status.value = 'ready';
+      realtime.subscribeMine();
+    } catch (cause) {
+      if (!personal.value || options.silent) return;
+      status.value = 'error';
+      error.value = errorMessage(cause);
+    }
+  }
+
+  /** Relecture groupée (plusieurs évènements rapprochés n'en font qu'une). */
+  let personalTimer: number | undefined;
+  function reloadPersonalSoon(): void {
+    window.clearTimeout(personalTimer);
+    personalTimer = window.setTimeout(() => personal.value && void loadPersonal({ silent: true }), 400);
+  }
+
+  /** Ticket ouvert (fenêtre, menu, édition rapide) dans « Mon tableau » : ses listes, réglages et droits sont ceux de son projet. */
+  function setContext(source: ContextSource, ticketProjectId: number | null): void {
+    if (contextSources.value[source] !== ticketProjectId) contextSources.value = { ...contextSources.value, [source]: ticketProjectId };
+  }
+
   async function load(id: number, options: { silent?: boolean } = {}): Promise<void> {
-    if (projectId.value !== id) {
+    if (projectId.value !== id || personal.value) {
       clearData();
     }
+    personal.value = false;
     projectId.value = id;
     if (!options.silent) {
       status.value = 'loading';
@@ -225,6 +332,7 @@ export const useProjectStore = defineStore('project', () => {
       applySnapshot(snapshot);
       status.value = 'ready';
       realtime.subscribe(id);
+      void loadSavedFilters(id);
     } catch (cause) {
       if (projectId.value !== id || options.silent) {
         return;
@@ -234,14 +342,37 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  /** Filtres enregistrés : chargés à part (un échec n'empêche pas d'ouvrir le projet). */
+  async function loadSavedFilters(id: number): Promise<void> {
+    try {
+      const { filters } = await api.projectFilters(id);
+      if (projectId.value === id) savedFilters.value = filters;
+    } catch {
+      // Hors ligne sans copie, ou erreur passagère : la liste reste vide.
+    }
+  }
+
+  const currentUserId = (): number | null => useAuthStore().user?.id ?? null;
+
+  function upsertSavedFilter(filter: SavedFilterDTO): void {
+    upsertBy(savedFilters.value, filter);
+  }
+
+  function removeSavedFilter(filterId: number): void {
+    savedFilters.value = savedFilters.value.filter((filter) => filter.id !== filterId);
+  }
+
   function reload(): Promise<void> {
+    if (personal.value) return loadPersonal({ silent: true });
     return projectId.value === null ? Promise.resolve() : load(projectId.value, { silent: true });
   }
 
   function leave(): void {
-    if (projectId.value !== null) {
+    if (projectId.value !== null || personal.value) {
       realtime.unsubscribe();
     }
+    window.clearTimeout(personalTimer);
+    personal.value = false;
     projectId.value = null;
     status.value = 'idle';
     clearData();
@@ -292,8 +423,45 @@ export const useProjectStore = defineStore('project', () => {
     }
   }
 
+  /** « Mon tableau » : ne garde que ce qui le concerne ; vrai si l'évènement est traité ici. */
+  function applyPersonalEvent(event: ProjectEvent, meta: EventMeta): boolean {
+    const me = currentUserId();
+    const known = personalProjects.value.some((entry) => entry.project.id === meta.projectId);
+    switch (event.type) {
+      case 'ticket.created':
+      case 'ticket.updated': {
+        const mine = event.ticket.assignees.some((assignee) => assignee.userId === me);
+        if (!mine) {
+          tickets.value = tickets.value.filter((ticket) => ticket.id !== event.ticket.id);
+          return true;
+        }
+        // Un ticket d'un projet encore absent : ses listes et ses droits viennent avec une relecture.
+        if (!known) {
+          reloadPersonalSoon();
+          return true;
+        }
+        return false;
+      }
+      case 'category.upserted':
+      case 'priority.upserted':
+      case 'component.upserted':
+      case 'delivery.upserted':
+        return !known;
+      case 'project.updated':
+      case 'members.changed':
+        if (known) reloadPersonalSoon();
+        return true;
+      case 'filter.saved':
+      case 'filter.deleted':
+        return true;
+      default:
+        return false;
+    }
+  }
+
   function applyEvent(event: ProjectEvent, meta: EventMeta): void {
     const foreign = meta.origin !== clientId;
+    if (personal.value && applyPersonalEvent(event, meta)) return;
     switch (event.type) {
       case 'ticket.created':
       case 'ticket.updated':
@@ -375,21 +543,21 @@ export const useProjectStore = defineStore('project', () => {
         }
         break;
       case 'component.upserted':
-        upsertBy(components.value, event.component);
-        components.value.sort((a, b) => a.position - b.position || a.id - b.id);
+        upsertBy(allComponents.value, event.component);
+        allComponents.value.sort((a, b) => a.position - b.position || a.id - b.id);
         break;
       case 'component.deleted':
-        components.value = components.value.filter((component) => component.id !== event.componentId);
+        allComponents.value = allComponents.value.filter((component) => component.id !== event.componentId);
         for (const ticket of tickets.value) {
           if (ticket.componentIds.includes(event.componentId)) ticket.componentIds = ticket.componentIds.filter((id) => id !== event.componentId);
         }
         break;
       case 'delivery.upserted':
-        upsertBy(deliveries.value, event.delivery);
-        deliveries.value.sort((a, b) => a.startDate.localeCompare(b.startDate) || a.position - b.position);
+        upsertBy(allDeliveries.value, event.delivery);
+        allDeliveries.value.sort((a, b) => a.startDate.localeCompare(b.startDate) || a.position - b.position);
         break;
       case 'delivery.deleted':
-        deliveries.value = deliveries.value.filter((delivery) => delivery.id !== event.deliveryId);
+        allDeliveries.value = allDeliveries.value.filter((delivery) => delivery.id !== event.deliveryId);
         for (const ticket of tickets.value) {
           if (ticket.deliveryId === event.deliveryId) {
             ticket.deliveryId = null;
@@ -402,10 +570,17 @@ export const useProjectStore = defineStore('project', () => {
       case 'project.updated':
         project.value = event.project;
         break;
+      case 'filter.saved':
+        upsertSavedFilter(event.filter);
+        break;
+      case 'filter.deleted':
+        // Qui ne le partage plus le garde pour lui.
+        if (event.keepFor === null || event.keepFor !== currentUserId()) removeSavedFilter(event.filterId);
+        break;
       case 'members.changed': {
         members.value = event.members;
         groups.value = event.groups;
-        users.value = event.users;
+        allUsers.value = event.users;
         // Les personnes du projet : membres directs et membres de ses groupes.
         const memberIds = new Set(event.users.map((user) => user.id));
         for (const ticket of tickets.value) {
@@ -422,7 +597,8 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   realtime.on('event', (event, meta) => {
-    if (meta.projectId === projectId.value) {
+    // « Mon tableau » reçoit les évènements de tous les projets que l'on voit.
+    if (meta.projectId === projectId.value || personal.value) {
       applyEvent(event, meta);
     }
   });
@@ -432,13 +608,17 @@ export const useProjectStore = defineStore('project', () => {
     }
   });
   realtime.on('revoked', (id) => {
+    if (personal.value) {
+      reloadPersonalSoon();
+      return;
+    }
     if (id === projectId.value) {
       status.value = 'revoked';
       clearData();
     }
   });
   realtime.on('resync', () => {
-    if (projectId.value !== null && status.value === 'ready') {
+    if ((projectId.value !== null || personal.value) && status.value === 'ready') {
       void reload();
     }
   });
@@ -456,10 +636,12 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   async function createTicket(input: TicketInput & { title: string }): Promise<TicketDTO> {
-    if (projectId.value === null) {
+    // Dans « Mon tableau », un sous-ticket se crée dans le projet du ticket ouvert.
+    const target = personal.value ? contextProjectId.value : projectId.value;
+    if (target === null) {
       throw new Error(t('Aucun projet ouvert.'));
     }
-    const { ticket } = await api.createTicket(projectId.value, input);
+    const { ticket } = await api.createTicket(target, input);
     upsertTicket(ticket);
     return ticket;
   }
@@ -547,8 +729,11 @@ export const useProjectStore = defineStore('project', () => {
   }
 
   /** Déplace un ticket (colonne + rang) ; `beforeId` = ticket devant lequel l'insérer, `null` = fin de colonne. */
-  async function moveTicket(ticketId: number, target: TicketStatus, beforeId: number | null, options: { undoable?: boolean } = {}): Promise<void> {
+  async function moveTicket(ticketId: number, target: TicketStatus, requestedBeforeId: number | null, options: { undoable?: boolean } = {}): Promise<void> {
     const ticket = requireTicket(ticketId);
+    // « Mon tableau » mêle les projets : on ne se range que devant un ticket du même projet (sinon en fin de colonne).
+    const anchor = requestedBeforeId === null ? undefined : ticketsById.value.get(requestedBeforeId);
+    const beforeId = personal.value && anchor && anchor.projectId !== ticket.projectId ? null : requestedBeforeId;
     const originColumn = columnOf(ticket.status);
     const originIndex = originColumn.findIndex((entry) => entry.id === ticketId);
     const originalBeforeId = originColumn[originIndex + 1]?.id ?? null;
@@ -769,7 +954,7 @@ export const useProjectStore = defineStore('project', () => {
     applyEvent(kind === 'priority' ? { type: 'priority.upserted', priority: item } : { type: 'component.upserted', component: item }, meta);
     if (input.position !== undefined) {
       // Les autres éléments ont été renumérotés côté serveur : leurs évènements arrivent aussi, on recharge l'ordre local.
-      const list = kind === 'priority' ? rawPriorities.value : components.value;
+      const list = kind === 'priority' ? rawPriorities.value : allComponents.value;
       const others = list.filter((entry) => entry.id !== item.id);
       others.splice(input.position, 0, item);
       others.forEach((entry, index) => (entry.position = index));
@@ -807,6 +992,9 @@ export const useProjectStore = defineStore('project', () => {
     // état
     projectId, project, settings, columns, visibleColumns, statusOrder, statusMeta, members, groups, users, categories, priorities, rawPriorities, components, deliveries, tickets, permissions, presence, status, error, flashes, comments, history, attachments,
     unseenActivity, setActivityViewOpen,
+    savedFilters, upsertSavedFilter, removeSavedFilter,
+    // Mon tableau
+    personal, personalProjects, contextProjectId, loadPersonal, setContext,
     // index
     ticketsById, usersById, categoriesById, deliveriesById, prioritiesById, componentsById, priorityRank, currentDelivery, nextDelivery,
     progressReminders, remindersFor,

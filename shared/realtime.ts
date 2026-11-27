@@ -7,6 +7,8 @@ import type { DocNodeDTO } from './docs.ts';
 import type { DocCommentDTO } from './docComments.ts';
 import type { SnapshotKind } from './snapshots.ts';
 import type { FavoriteSpaceDTO } from './home.ts';
+import type { HomeLayout } from './homeLayout.ts';
+import type { SavedFilterDTO } from './ticketFilters.ts';
 import type { NotificationCategory, NotificationCounts } from './notificationCategories.ts';
 import type {
   ActivityCommentDTO,
@@ -52,7 +54,11 @@ export type ProjectEvent =
   | { type: 'delivery.deleted'; deliveryId: number }
   | { type: 'project.updated'; project: ProjectDTO }
   /** `members` : membres directs ; `groups` : groupes ajoutés ; `users` : toutes les personnes qui ont accès. */
-  | { type: 'members.changed'; members: ProjectMemberDTO[]; groups: ProjectGroupDTO[]; users: UserSummaryDTO[] };
+  | { type: 'members.changed'; members: ProjectMemberDTO[]; groups: ProjectGroupDTO[]; users: UserSummaryDTO[] }
+  /** Filtre enregistré partagé avec le projet (créé, modifié, ou qui vient d'être partagé). */
+  | { type: 'filter.saved'; filter: SavedFilterDTO }
+  /** Filtre partagé supprimé, ou qui ne l'est plus : `keepFor` est son auteur, qui le garde pour lui. */
+  | { type: 'filter.deleted'; filterId: number; keepFor: number | null };
 
 export interface PresenceUser {
   userId: number;
@@ -118,6 +124,8 @@ export type ServerMessage =
   | { t: 'board.closed'; boardId: number; reason: 'deleted' | 'revoked' | 'changed' | 'moved'; spaceId?: number }
   /** Espaces favoris de la personne changés (depuis un autre onglet ou par l'API). */
   | { t: 'favorites.changed'; favorites: FavoriteSpaceDTO[] }
+  /** Disposition de l'Accueil de la personne changée (depuis un autre onglet ou par l'API). */
+  | { t: 'homeLayout.changed'; layout: HomeLayout }
   /** Étiquettes d'un espace (ou d'un projet) posées ou retirées : leur liste se relit. */
   | { t: 'snapshots.changed'; kind: SnapshotKind; spaceId: number }
   | { t: 'pong' }
@@ -125,6 +133,8 @@ export type ServerMessage =
 
 export type ClientMessage =
   | { t: 'subscribe'; projectId: number }
+  /** « Mon tableau » : les évènements de tous les projets que l'on voit (le client garde ce qui le concerne). */
+  | { t: 'subscribe.mine' }
   | { t: 'unsubscribe' }
   | { t: 'presence'; ticketId: number | null; view: string }
   | { t: 'ping' }

@@ -15,6 +15,8 @@ interface Client {
   /** Jeton d'API utilisé pour se connecter (null = session de l'interface). */
   token: TokenInfoDTO | null;
   projectId: number | null;
+  /** « Mon tableau » : reçoit les évènements de tous les projets qu'il voit. */
+  personal: boolean;
   ticketId: number | null;
   view: string;
   alive: boolean;
@@ -94,6 +96,7 @@ export class Hub {
       userId,
       token,
       projectId: null,
+      personal: false,
       ticketId: null,
       view: '',
       alive: true,
@@ -139,9 +142,15 @@ export class Hub {
         this.#send(client, { t: 'pong' });
         break;
       case 'subscribe':
+        client.personal = false;
         this.#subscribe(client, message.projectId);
         break;
+      case 'subscribe.mine':
+        this.#leaveProject(client);
+        client.personal = true;
+        break;
       case 'unsubscribe':
+        client.personal = false;
         this.#leaveProject(client);
         break;
       case 'presence': {
@@ -206,14 +215,27 @@ export class Hub {
     }
   }
 
-  /** Diffuse des évènements à tous les clients abonnés au projet. */
+  /** Le client « Mon tableau » voit-il ce projet (droits vérifiés à chaque diffusion : ils ont pu changer) ? */
+  #sees(client: Client, projectId: number, cache: Map<number, boolean>): boolean {
+    const known = cache.get(client.userId);
+    if (known !== undefined && client.token === null) return known;
+    const ctx = this.#ctx;
+    const user = ctx ? getAuthUser(ctx.db, client.userId) : undefined;
+    if (user) user.token = client.token;
+    const allowed = Boolean(ctx && user?.isActive && resolveProjectAccess(ctx.db, user, projectId));
+    if (client.token === null) cache.set(client.userId, allowed);
+    return allowed;
+  }
+
+  /** Diffuse des évènements à tous les clients abonnés au projet, et aux « Mon tableau » qui le voient. */
   publish(projectId: number, events: ProjectEvent[], actor: Actor): void {
     const at = new Date().toISOString();
+    const seen = new Map<number, boolean>();
     for (const event of events) {
       const message: ServerMessage = { t: 'event', projectId, event, origin: actor.origin, actorId: actor.userId, at };
       const payload = JSON.stringify(message);
       for (const client of this.#clients) {
-        if (client.projectId === projectId && client.ws.readyState === client.ws.OPEN) {
+        if ((client.projectId === projectId || (client.personal && this.#sees(client, projectId, seen))) && client.ws.readyState === client.ws.OPEN) {
           client.ws.send(payload);
           this.traffic.out += 1;
         }
@@ -273,6 +295,8 @@ export class Hub {
   /** Retire un utilisateur d'un projet (perte d'accès). */
   revokeProject(projectId: number, userId: number): void {
     for (const client of this.#clients) {
+      // « Mon tableau » : il relit ses tickets sans ceux de ce projet.
+      if (client.userId === userId && client.personal) this.#send(client, { t: 'project.revoked', projectId });
       if (client.userId === userId && client.projectId === projectId) {
         this.#send(client, { t: 'project.revoked', projectId });
         this.#leaveProject(client);

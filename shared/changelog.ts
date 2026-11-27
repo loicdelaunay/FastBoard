@@ -6,7 +6,7 @@
  * traduction anglaise dans `src/i18n/en.c.ts`. Voir AGENTS.md.
  */
 
-export const APP_VERSION = '2.41.0';
+export const APP_VERSION = '2.42.0';
 
 export type ChangeCategory = 'Nouveauté' | 'Amélioration' | 'Correction' | 'Sécurité';
 
@@ -25,6 +25,18 @@ export interface ChangelogRelease {
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: '2.42.0',
+    date: '2026-11-27',
+    changes: [
+      { category: 'Nouveauté', text: 'Accueil : un onglet « Mon tableau » montre les tickets qui vous sont assignés dans tous vos projets, avec les vues d’un projet (Analyseur, Liste, Kanban, Gantt, Activités) ; un ticket s’y ouvre et se modifie selon les droits de son projet.' },
+      { category: 'Nouveauté', text: 'Filtres des tickets : l’adresse de la page reprend les filtres en cours ; copiez-la pour envoyer à quelqu’un la même vue filtrée.' },
+      { category: 'Nouveauté', text: 'Filtres enregistrés : gardez vos filtres pour les retrouver d’un clic, ou partagez-les avec tout le projet, avec votre nom et une description.' },
+      { category: 'Nouveauté', text: 'Accueil personnalisable : bouton « Personnaliser » pour choisir ses blocs, les ranger, régler leur largeur, leur hauteur et ce que chacun montre.' },
+      { category: 'Nouveauté', text: 'Blocs de suivi à ajouter à l’Accueil, comme un tableau de bord : mes tickets par statut, en retard, échéances à venir, suivi d’un projet, livraisons en cours, filtre enregistré et activité récente.' },
+      { category: 'Amélioration', text: 'Les onglets « Accueil » et « Mon tableau » restent en haut à gauche, et l’Accueil rouvre le dernier des deux choisi.' },
+    ],
+  },
   {
     version: '2.41.0',
     date: '2026-11-26',

@@ -5,6 +5,12 @@ import { currentLocale } from './index';
  * puis modèles à variables (noms, nombres), puis messages de validation (« champ : message »).
  */
 const EXACT: Record<string, string> = {
+  // 2.42 — Filtres enregistrés, Mon tableau
+  "Filtre introuvable.": "Filter not found.",
+  "Seul son auteur, ou qui gère le projet, modifie ce filtre.": "Only its author, or whoever manages the project, can change this filter.",
+  "Seul son auteur, ou qui gère le projet, supprime ce filtre.": "Only its author, or whoever manages the project, can delete this filter.",
+  "Seul son auteur peut ne plus partager ce filtre.": "Only its author can stop sharing this filter.",
+  "Donnez un nom au filtre.": "Give the filter a name.",
   // 2.40 — Découper les lignes d'avancement en sous-tickets
   "Ce ticket est déjà un sous-ticket : ses lignes ne peuvent pas devenir des sous-tickets (un seul niveau).": "This ticket is already a sub-ticket: its lines cannot become sub-tickets (one level only).",
   "Ce ticket n’a aucune ligne d’avancement à découper.": "This ticket has no progress line to split.",
@@ -351,6 +357,7 @@ const FILE_KINDS: Record<string, string> = {
 };
 
 const PATTERNS: Array<[RegExp, (match: RegExpExecArray) => string]> = [
+  [/^Vous ne pouvez pas garder plus de (\d+) filtres dans un projet\.$/, (m) => `You cannot keep more than ${m[1]} filters in a project.`],
   [/^Un espace ne peut pas contenir plus de (\d+) éléments\.$/, (m) => `A space cannot contain more than ${m[1]} items.`],
   [/^Un espace ne peut pas contenir plus de (\d+) tableaux et dossiers\.$/, (m) => `A space cannot contain more than ${m[1]} boards and folders.`],
   [/^Ce SVG dépasse (\d+) Ko\.$/, (m) => `This SVG exceeds ${m[1]} KB.`],

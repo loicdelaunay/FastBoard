@@ -1,0 +1,98 @@
+/* Lignes des blocs de l'Accueil (partagées : `<style scoped src="../home.css">`). */
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  /* Une ligne trop longue se tronque au lieu d'élargir la liste. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.1rem;
+  max-height: var(--rows-max, 26rem);
+  overflow: auto;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.45rem 0.5rem;
+  border-radius: 8px;
+  color: var(--fb-text);
+  text-decoration: none;
+}
+a.row:hover {
+  background: var(--fb-panel-alt);
+}
+.row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.row > time {
+  flex: none;
+  white-space: nowrap;
+}
+.row-icon {
+  flex: none;
+  width: 1.1rem;
+  color: var(--fb-muted);
+}
+.row-icon[data-kind='note'] {
+  color: var(--fb-module-docs);
+}
+.row-icon[data-kind='board'] {
+  color: var(--fb-module-boards);
+}
+.row-icon[data-kind='ticket'] {
+  color: var(--fb-module-projects);
+}
+.status {
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  background: var(--s);
+}
+.key {
+  color: var(--fb-accent);
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+.due {
+  flex: none;
+  color: var(--fb-muted);
+}
+.due.overdue,
+.late {
+  color: var(--fb-danger);
+  font-weight: 600;
+}
+.more {
+  margin-left: auto;
+  font-weight: 500;
+  color: var(--fb-accent);
+  white-space: nowrap;
+}
+.hint {
+  margin: 0.2rem 0;
+}
+.bar {
+  position: relative;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--fb-panel-alt);
+  overflow: hidden;
+}
+.bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--c, var(--fb-accent));
+}
+.state {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+}

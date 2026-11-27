@@ -50,13 +50,13 @@ describe('étiquettes d’espace', () => {
     migrate(db, 33);
     db.run("INSERT INTO frozen_files (hash, mime, size, created_at) VALUES ('abc', 'image/png', 3, '2026-11-24T00:00:00.000Z')");
     migrate(db);
-    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')!.user_version, 35);
+    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')!.user_version, 37);
     db.run("INSERT INTO space_snapshots (kind, space_id, name, space_name, manifest, created_at) VALUES ('docs', 1, 'v1', 'Produit', 'abc', '2026-11-26T00:00:00.000Z')");
     db.run("INSERT INTO space_snapshot_files (snapshot_id, hash) VALUES (1, 'abc')");
     assert.throws(() => db.run("INSERT INTO space_snapshots (kind, space_id, name, space_name, manifest, created_at) VALUES ('docs', 1, 'V1', 'Produit', 'abc', '2026-11-26T00:00:00.000Z')"), /UNIQUE/, 'un nom par espace, sans tenir compte de la casse');
     assert.equal(db.get<{ n: number }>('SELECT COUNT(*) AS n FROM frozen_files')!.n, 1, 'les copies figées restent');
     migrate(db);
-    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')!.user_version, 35, 'rien de plus au démarrage suivant');
+    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')!.user_version, 37, 'rien de plus au démarrage suivant');
     db.close();
   });
 

@@ -45,7 +45,7 @@ describe('accueil et espaces favoris', () => {
     const db = new Db(':memory:');
     migrate(db, 34);
     migrate(db);
-    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')!.user_version, 35);
+    assert.equal(db.get<{ user_version: number }>('PRAGMA user_version')!.user_version, 37);
     db.exec('PRAGMA foreign_keys = OFF');
     db.run("INSERT INTO space_favorites (user_id, kind, space_id, created_at) VALUES (1, 'docs', 3, '2026-11-26T00:00:00.000Z')");
     assert.throws(() => db.run("INSERT INTO space_favorites (user_id, kind, space_id, created_at) VALUES (1, 'autre', 3, '2026-11-26T00:00:00.000Z')"), /CHECK/);

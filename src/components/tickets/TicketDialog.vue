@@ -32,6 +32,9 @@ const canDelete = computed(() => project.can('ticket.delete') && !project.archiv
 
 const ticket = computed(() => (openTicketId.value !== null ? project.ticketsById.get(openTicketId.value) : undefined));
 const visible = computed(() => openTicketId.value !== null);
+// « Mon tableau » : le ticket ouvert prend les listes, les réglages et les droits de son projet.
+watch(() => ticket.value?.projectId ?? null, (id) => project.setContext('dialog', id), { immediate: true });
+onBeforeUnmount(() => project.setContext('dialog', null));
 const missing = computed(
   () => visible.value && project.status === 'ready' && !ticket.value && !(openTicketId.value !== null && project.wasDeletedLocally(openTicketId.value)),
 );

@@ -976,6 +976,35 @@ const MIGRATIONS: ReadonlyArray<(db: Db) => void> = [
       CREATE INDEX IF NOT EXISTS idx_space_favorites_space ON space_favorites (kind, space_id);
     `);
   },
+  // 36 — Filtres enregistrés d'un projet (Liste, Kanban, Gantt) : à soi, ou partagés avec tout le projet. Un filtre partagé
+  // reste quand son auteur est supprimé (`user_id` passe à NULL) ; un filtre personnel part avec lui.
+  (db) => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ticket_filters (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id  INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        name        TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        filters     TEXT NOT NULL DEFAULT '{}',
+        shared      INTEGER NOT NULL DEFAULT 0 CHECK (shared IN (0, 1)),
+        created_at  TEXT NOT NULL,
+        updated_at  TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_ticket_filters_project ON ticket_filters (project_id, shared);
+      CREATE INDEX IF NOT EXISTS idx_ticket_filters_user ON ticket_filters (user_id);
+      CREATE TRIGGER IF NOT EXISTS ticket_filters_personal_owner AFTER UPDATE OF user_id ON ticket_filters
+        WHEN NEW.user_id IS NULL AND NEW.shared = 0
+        BEGIN
+          DELETE FROM ticket_filters WHERE id = NEW.id;
+        END;
+    `);
+  },
+  // 37 — Disposition de l'Accueil de chacun (blocs, ordre, tailles, réglages), en JSON ; `NULL` : celle par défaut.
+  (db) => {
+    const columns = db.all<{ name: string }>('PRAGMA table_info(users)');
+    if (!columns.some((column) => column.name === 'home_layout')) db.exec('ALTER TABLE users ADD COLUMN home_layout TEXT');
+  },
 ];
 
 /** Ajoute des permissions aux rôles système existants (une seule fois : l'administrateur peut ensuite les retirer). */

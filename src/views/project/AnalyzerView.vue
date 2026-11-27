@@ -178,7 +178,7 @@ const categoryOptions = {
           <i class="pi pi-chart-bar icon"></i>
           <h3>{{ $t('Rien à analyser pour l\'instant') }}</h3>
           <p class="muted">{{ $t('Créez des tickets et des livraisons pour suivre l\'avancement du projet.') }}</p>
-          <Button v-if="project.can('ticket.create') && !project.archived" :label="$t('Créer un ticket')" icon="pi pi-plus" @click="ui.openCreate()" />
+          <Button v-if="!project.personal && project.can('ticket.create') && !project.archived" :label="$t('Créer un ticket')" icon="pi pi-plus" @click="ui.openCreate()" />
         </div>
 
         <template v-else>

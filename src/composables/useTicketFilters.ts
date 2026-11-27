@@ -1,81 +1,65 @@
 import { computed, reactive } from 'vue';
 import type { TicketStatus } from '@shared/constants';
 import { todayISO } from '@shared/dates';
-import type { TicketDTO } from '@shared/types';
+import { emptyTicketFilters, type FilterId, type TicketFilterValues } from '@shared/ticketFilters';
 import { useAuthStore } from '@/stores/auth';
 import { useProjectStore } from '@/stores/project';
-import { matchesQuery } from '@/utils/search';
-import { isOverdue, ticketKey } from '@/utils/tickets';
+import { ticketMatchesFilters } from '@/utils/ticketFilterMatch';
+import { ticketKey } from '@/utils/tickets';
 
-import { t } from '@/i18n';
 export type NoneOr<T> = T | 'none';
 
-/** Filtres partagés par les vues Liste, Kanban et Gantt : ils suivent l'utilisateur d'une vue à l'autre. */
-const state = reactive({
-  search: '',
-  categoryIds: [] as Array<NoneOr<number>>,
-  deliveryIds: [] as Array<NoneOr<number>>,
-  assigneeIds: [] as Array<NoneOr<number>>,
-  statuses: [] as TicketStatus[],
-  overdueOnly: false,
-  mineOnly: false,
-});
+/**
+ * Filtres partagés par les vues Liste, Kanban et Gantt : ils suivent l'utilisateur d'une vue à l'autre, et l'adresse
+ * de la page (voir `useFilterQuery`) pour qu'un lien copié montre la même vue filtrée.
+ */
+const state = reactive<TicketFilterValues>(emptyTicketFilters());
+
+/** Remplace tous les filtres. */
+export function applyTicketFilters(values: TicketFilterValues): void {
+  state.search = values.search;
+  state.categoryIds = [...values.categoryIds];
+  state.deliveryIds = [...values.deliveryIds];
+  state.assigneeIds = [...values.assigneeIds];
+  state.statuses = [...values.statuses] as TicketStatus[];
+  state.overdueOnly = values.overdueOnly;
+  state.mineOnly = values.mineOnly;
+  state.projectIds = [...values.projectIds];
+}
 
 export function resetTicketFilters(): void {
-  state.search = '';
-  state.categoryIds = [];
-  state.deliveryIds = [];
-  state.assigneeIds = [];
-  state.statuses = [];
-  state.overdueOnly = false;
-  state.mineOnly = false;
+  applyTicketFilters(emptyTicketFilters());
+}
+
+/** Copie des filtres en cours. */
+export function currentTicketFilters(): TicketFilterValues {
+  return {
+    search: state.search,
+    categoryIds: [...state.categoryIds] as FilterId[],
+    deliveryIds: [...state.deliveryIds] as FilterId[],
+    assigneeIds: [...state.assigneeIds] as FilterId[],
+    statuses: [...state.statuses],
+    overdueOnly: state.overdueOnly,
+    mineOnly: state.mineOnly,
+    projectIds: [...state.projectIds],
+  };
 }
 
 export function useTicketFilters() {
   const project = useProjectStore();
   const auth = useAuthStore();
 
-  function matches(ticket: TicketDTO, today: string): boolean {
-    if (state.statuses.length && !state.statuses.includes(ticket.status)) {
-      return false;
-    }
-    if (state.categoryIds.length && !state.categoryIds.includes(ticket.categoryId ?? 'none')) {
-      return false;
-    }
-    if (state.deliveryIds.length && !state.deliveryIds.includes(ticket.deliveryId ?? 'none')) {
-      return false;
-    }
-    if (state.assigneeIds.length) {
-      const ids: Array<NoneOr<number>> = ticket.assignees.length ? ticket.assignees.map((assignee) => assignee.userId) : ['none'];
-      if (!ids.some((id) => state.assigneeIds.includes(id))) {
-        return false;
-      }
-    }
-    if (state.mineOnly && !ticket.assignees.some((assignee) => assignee.userId === auth.user?.id)) {
-      return false;
-    }
-    const delivery = ticket.deliveryId ? project.deliveriesById.get(ticket.deliveryId) : undefined;
-    if (state.overdueOnly && !isOverdue(ticket, delivery, today)) {
-      return false;
-    }
-    if (state.search.trim()) {
-      return matchesQuery(state.search, [
-        ticketKey(project.project, ticket),
-        ticket.title,
-        ticket.description,
-        ticket.categoryId ? project.categoriesById.get(ticket.categoryId)?.name : t('sans catégorie'),
-        delivery?.name,
-        project.statusMeta(ticket.status).label,
-        ...ticket.assignees.map((assignee) => project.usersById.get(assignee.userId)?.name),
-        ...ticket.parts.map((part) => part.note),
-      ]);
-    }
-    return true;
-  }
-
   const filtered = computed(() => {
-    const today = todayISO();
-    return project.tickets.filter((ticket) => matches(ticket, today));
+    const context = {
+      today: todayISO(),
+      userId: auth.user?.id,
+      deliveriesById: project.deliveriesById,
+      categoriesById: project.categoriesById,
+      usersById: project.usersById,
+      key: (ticket: Parameters<typeof ticketKey>[1]) => ticketKey(project.project, ticket),
+      statusLabel: (status: TicketStatus) => project.statusMeta(status).label,
+    };
+    return project.tickets.filter((ticket) => ticketMatchesFilters(ticket, state, context));
   });
 
   const activeCount = computed(
@@ -86,7 +70,8 @@ export function useTicketFilters() {
       Number(state.assigneeIds.length > 0) +
       Number(state.statuses.length > 0) +
       Number(state.overdueOnly) +
-      Number(state.mineOnly),
+      Number(state.mineOnly) +
+      Number(state.projectIds.length > 0),
   );
 
   /**

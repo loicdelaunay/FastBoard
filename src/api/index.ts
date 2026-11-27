@@ -1,4 +1,6 @@
 import { FILE_NAME_HEADER, type NotificationLevel, type TicketStatus } from '@shared/constants';
+import type { SavedFilterDTO, TicketFilterValues } from '@shared/ticketFilters';
+import type { PersonalBoardDTO } from '@shared/personalBoard';
 import type { GroupAccessDTO, GroupDTO, GroupMemberRole, GroupSpaceRole, ProjectGroupDTO, SpaceGroupDTO } from '@shared/groups';
 import type { RoleScope, PermissionDef } from '@shared/permissions';
 import type { DocBookmarkDTO, DocImportAction, DocImportCompareDTO, DocImportPreviewDTO, DocMemberDTO, DocLinksDTO, DocNodeDTO, DocNodeInfoDTO, DocRescanResultDTO, DocRole, DocSearchHitDTO, DocSiteDTO, DocSiteVisibility, DocSpaceDTO, DocVersionDTO, DocVersionFileDTO, WikiDTO, WikiPageDTO, WikiSearchHitDTO } from '@shared/docs';
@@ -53,6 +55,7 @@ import { compressImage, imageAs } from '@/utils/image';
 import type { SnapshotContent, SnapshotKind, SpaceSnapshotDTO } from '@shared/snapshots';
 import type { NotificationCategory, NotificationCounts } from '@shared/notificationCategories';
 import type { FavoriteKind, FavoriteSpaceDTO, HomeDTO } from '@shared/home';
+import type { HomeLayout } from '@shared/homeLayout';
 export interface TicketInput {
   title?: string;
   description?: string;
@@ -230,6 +233,18 @@ export interface RagSettingsInput extends RagProbeInput {
   chunkChars: number;
 }
 
+/** Paramètres d'une page d'activité (projet, ou « Mon tableau »). */
+function activityQuery(filters: ActivityFilters): URLSearchParams {
+  const query = new URLSearchParams();
+  if (filters.group?.length) query.set('group', filters.group.join(','));
+  if (filters.userId !== undefined) query.set('userId', String(filters.userId));
+  if (filters.source) query.set('source', filters.source);
+  if (filters.ticketId !== undefined) query.set('ticketId', String(filters.ticketId));
+  if (filters.before !== undefined) query.set('before', String(filters.before));
+  query.set('limit', String(filters.limit ?? 40));
+  return query;
+}
+
 export const api = {
   // --- Authentification et profil ---
   login: (email: string, password: string) =>
@@ -284,6 +299,16 @@ export const api = {
   createProject: (input: { name: string; key?: string; description?: string }) =>
     http<{ project: ProjectDTO }>('POST', '/projects', { body: input }),
   snapshot: (projectId: number) => http<ProjectSnapshotDTO>('GET', `/projects/${projectId}`),
+  /** « Mon tableau » : mes tickets de tous mes projets, et l'activité qui me concerne. */
+  myBoard: () => http<{ board: PersonalBoardDTO }>('GET', '/me/board'),
+  /** Disposition de l'Accueil ; `null` : revenir à celle par défaut. */
+  saveHomeLayout: (layout: HomeLayout | null) => http<{ layout: HomeLayout }>('PUT', '/me/home-layout', { body: { layout } }),
+  myActivity: (filters: ActivityFilters = {}) => http<{ activities: ActivityDTO[]; nextBefore: number | null }>('GET', `/me/activity?${activityQuery(filters)}`),
+  // Filtres enregistrés d'un projet (les siens, et ceux partagés avec le projet)
+  projectFilters: (projectId: number) => http<{ filters: SavedFilterDTO[] }>('GET', `/projects/${projectId}/filters`),
+  createFilter: (projectId: number, body: { name: string; description: string; filters: TicketFilterValues; shared: boolean }) => http<{ filter: SavedFilterDTO }>('POST', `/projects/${projectId}/filters`, { body }),
+  updateFilter: (filterId: number, body: Partial<{ name: string; description: string; filters: TicketFilterValues; shared: boolean }>) => http<{ filter: SavedFilterDTO }>('PATCH', `/filters/${filterId}`, { body }),
+  deleteFilter: (filterId: number) => http<{ ok: true }>('DELETE', `/filters/${filterId}`),
   updateProject: (projectId: number, patch: { name?: string; key?: string; description?: string; archived?: boolean; settings?: Partial<ProjectSettingsDTO>; rag?: boolean }) =>
     http<{ project: ProjectDTO }>('PATCH', `/projects/${projectId}`, { body: patch }),
   deleteProject: (projectId: number) => http<{ ok: true }>('DELETE', `/projects/${projectId}`),
@@ -367,16 +392,7 @@ export const api = {
   addActivityComment: (activityId: number, body: string) => http<{ comment: ActivityCommentDTO }>('POST', `/activities/${activityId}/comments`, { body: { body } }),
   editActivityComment: (commentId: number, body: string) => http<{ comment: ActivityCommentDTO }>('PATCH', `/activity-comments/${commentId}`, { body: { body } }),
   deleteActivityComment: (commentId: number) => http<{ comment: ActivityCommentDTO }>('DELETE', `/activity-comments/${commentId}`),
-  activity: (projectId: number, filters: ActivityFilters = {}) => {
-    const query = new URLSearchParams();
-    if (filters.group?.length) query.set('group', filters.group.join(','));
-    if (filters.userId !== undefined) query.set('userId', String(filters.userId));
-    if (filters.source) query.set('source', filters.source);
-    if (filters.ticketId !== undefined) query.set('ticketId', String(filters.ticketId));
-    if (filters.before !== undefined) query.set('before', String(filters.before));
-    query.set('limit', String(filters.limit ?? 40));
-    return http<{ activities: ActivityDTO[]; nextBefore: number | null }>('GET', `/projects/${projectId}/activity?${query}`);
-  },
+  activity: (projectId: number, filters: ActivityFilters = {}) => http<{ activities: ActivityDTO[]; nextBefore: number | null }>('GET', `/projects/${projectId}/activity?${activityQuery(filters)}`),
 
   // --- Administration ---
   adminUsers: () => http<{ users: AdminUserDTO[]; online: number[] }>('GET', '/admin/users'),

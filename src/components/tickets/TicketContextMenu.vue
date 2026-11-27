@@ -34,6 +34,8 @@ watch(
       return;
     }
     ticketId.value = request.ticketId;
+    // « Mon tableau » : le menu propose les listes et respecte les droits du projet de ce ticket.
+    project.setContext('menu', ticket.value?.projectId ?? null);
     await nextTick();
     menu.value?.show(request.event);
   },
@@ -156,5 +158,5 @@ const items = computed<MenuItem[]>(() => {
 </script>
 
 <template>
-  <ContextMenu ref="menu" :model="items" />
+  <ContextMenu ref="menu" :model="items" @hide="project.setContext('menu', null)" />
 </template>

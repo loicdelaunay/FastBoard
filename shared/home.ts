@@ -1,5 +1,6 @@
 import type { TicketStatus } from './constants.ts';
 import type { DocBookmarkDTO } from './docs.ts';
+import type { HomeLayout } from './homeLayout.ts';
 import type { NotificationDTO } from './types.ts';
 
 /**
@@ -10,10 +11,11 @@ import type { NotificationDTO } from './types.ts';
 export type FavoriteKind = 'docs' | 'boards' | 'project';
 export const FAVORITE_KINDS: readonly FavoriteKind[] = ['docs', 'boards', 'project'];
 
+/** Au plus (chaque bloc de l'Accueil en montre le nombre choisi). */
 export const HOME_LIMITS = {
-  recent: 12,
-  assigned: 40,
-  notifications: 8,
+  recent: 50,
+  assigned: 50,
+  notifications: 20,
 } as const;
 
 /** Espace (ou projet) mis en favori. */
@@ -65,4 +67,6 @@ export interface HomeDTO {
   /** Mentions et assignations non lues, les plus récentes. */
   notifications: NotificationDTO[];
   unread: number;
+  /** Disposition choisie de l'Accueil (celle par défaut tant qu'on ne l'a pas changée). */
+  layout: HomeLayout;
 }
